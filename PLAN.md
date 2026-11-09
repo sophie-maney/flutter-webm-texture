@@ -20,7 +20,7 @@ A Flutter plugin (Android + iOS) that plays animated stickers inline the way Tel
 
 ## Why libvpx (and not FFmpeg)
 
-| | **libvpx + libwebm + libyuv** (chosen) | Minimal FFmpeg |
+| | **libvpx + libyuv** + our own WebM demuxer (chosen) | Minimal FFmpeg |
 |---|---|---|
 | VP9/VP8 **alpha** | Decode the color stream and the alpha stream (Matroska `BlockAdditions`, `BlockAddID=1`) with two `vpx_codec_ctx_t`, then merge. Full control. | FFmpeg's built-in `vp9` decoder **drops alpha**. It only works through `libvpx-vp9`, so libvpx is needed anyway. |
 | Size per ABI | ~0.8–1.2 MB (decoders only, `--disable-vp9-highbitdepth`) | 2–4 MB, even when stripped down |
@@ -30,7 +30,7 @@ A Flutter plugin (Android + iOS) that plays animated stickers inline the way Tel
 
 Platform decoders are ruled out. Android `MediaCodec` VP9 hardware paths discard the alpha side-stream and vary by vendor. iOS has no public WebM/VP9 decode path. The plugin uses software decoding everywhere, as Telegram does. Telegram's own clients are worth reading for reference: Android `AnimatedFileDrawable`/`BitmapsCache`; iOS `AnimationCache`/`MultiAnimationRenderer`.
 
-**Third-party set:** libvpx (VP8/VP9 decoders), libwebm (`webm_parser`, callback-based, which exposes `BlockMore`/`BlockAdditional`), libyuv (scale, YUV→RGBA, premultiply via `I420AlphaToARGB/ABGR(..., attenuate=1)`), libwebp (`WebPAnimDecoder`), giflib, lz4.
+**Third-party set:** libvpx (VP8/VP9 decoders), libyuv (scale, YUV→RGBA, premultiply via `I420AlphaToARGB/ABGR(..., attenuate=1)`), libwebp (`WebPAnimDecoder`), giflib, lz4. WebM demuxing is our own minimal EBML reader in `src/demux/` ([ADR 0004](docs/decisions/0004-own-webm-demuxer.md)), not libwebm. libwebm stays in `versions.lock` only until a follow-up PR removes it from the prebuilts.
 
 ## Architecture
 
@@ -123,6 +123,7 @@ tool/                      # fetch_prebuilts, gen_corpus.sh (ffmpeg), bench
    - Android: NDK r28+, `-Wl,-z,max-page-size=16384` (Play requires 16 KB page alignment).
    - libvpx: `--disable-vp8-encoder --disable-vp9-encoder --enable-vp8-decoder --enable-vp9-decoder --disable-vp9-highbitdepth --size-limit=1024x1024 --enable-pic`, with `--enable-runtime-cpu-detect` on x86. libvpx has no `--disable-encoders` switch ([ADR 0002](docs/decisions/0002-pinning-and-prebuilt-contents.md)).
 3. **Spike A — alpha decode.** Generate test WebMs with `ffmpeg -c:v libvpx-vp9 -pix_fmt yuva420p` (and the VP8 equivalent). Confirm that `webm_parser` delivers the `BlockAdditional` payload and that the merged RGBA matches a reference. If `webm_parser` can't do it, write a minimal EBML demuxer instead (Cluster / SimpleBlock / BlockGroup / BlockAdditions only).
+   - **Outcome:** both worked, and alpha decoded bit-exact. We chose our own minimal EBML reader for size and for robustness against hostile input ([report](docs/spikes/A-alpha.md), [ADR 0004](docs/decisions/0004-own-webm-demuxer.md)).
 4. **Spike B — texture transparency.** On Android, test `SurfaceProducer` under Impeller Vulkan **and** the OpenGLES fallback, on 3+ real devices. On iOS, test `CVPixelBuffer` BGRA. Verify premultiplied alpha composites correctly over non-opaque backgrounds.
 5. **Spike C — density.** On a low-end Android device and an older iPhone, measure 60 standalone textures against a single atlas texture: raster time, memory, and battery.
 
@@ -165,7 +166,7 @@ tool/                      # fetch_prebuilts, gen_corpus.sh (ffmpeg), bench
 |---|---|
 | Android `Texture` alpha/premultiply differs between backends | Spike B; Dart `ui.Image` atlas fallback |
 | Too many platform textures in grids | Atlas mode (Phase 4); Spike C picks the default |
-| Hostile/malformed user uploads (libvpx has had in-the-wild CVEs) | Size limits, our own limit checks, fuzzing, fast upstream bumps |
+| Hostile/malformed user uploads (libvpx has had in-the-wild CVEs) | Size limits, our own limit checks, a demuxer that allocates nothing sized by input (ADR 0004), fuzzing, fast upstream bumps |
 | Binary size per ABI | Decoders only; no highbitdepth; `-Oz` + LTO for our core; report size per ABI in CI |
 | CocoaPods vs SwiftPM both needed during transition | Ship both from one vendored xcframework |
 | Cache disk usage | Size buckets, YUVA+LZ4, LRU budget, `clearCache()` |
