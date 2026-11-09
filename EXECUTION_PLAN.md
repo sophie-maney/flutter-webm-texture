@@ -84,7 +84,7 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 
 **Accept:** the script builds all ABIs in Docker or on macOS · `file`/`llvm-readelf` confirm the architectures · the per-ABI size is in the PR.
 
-### [ ] T0.6 Prebuilt CI + fetch tool
+### [x] T0.6 Prebuilt CI + fetch tool
 **Model** Sonnet 5.5 · `medium` · **Depends** T0.4, T0.5 · **Track** C
 - `.github/workflows/prebuilts.yml`: runs on changes to `third_party/**` or on manual dispatch. Builds both platforms and uploads to a GitHub Release `deps-<lockhash>` with `SHA256SUMS`.
 - `tool/fetch_prebuilts.dart`: reads `versions.lock`, downloads the matching release, verifies sha256 and unpacks into `third_party/prebuilt/{android,ios}`. It must fail closed on a mismatch.

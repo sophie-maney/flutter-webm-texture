@@ -1,0 +1,209 @@
+name: Prebuilts
+
+# Builds the native dependency archives (third_party/build/*) and publishes
+# them to a GitHub Release named `deps-<lockhash>`, together with SHA256SUMS.
+# tool/fetch_prebuilts.dart derives the same tag from third_party/versions.lock
+# and downloads from that release, so the tag is computed by that tool and
+# nowhere else.
+#
+# - Pull requests build both platforms to prove the change builds; they never
+#   publish.
+# - A push to main publishes only when the release for the current lock does not
+#   exist yet.
+# - A manual run with `force` rebuilds and replaces an existing release. Use it
+#   after changing a build script or flag without touching versions.lock: the
+#   tag covers the lock rows only, so it does not change by itself.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'third_party/**'
+      - 'tool/fetch_prebuilts.dart'
+      - '.github/workflows/prebuilts.yml'
+  pull_request:
+    paths:
+      - 'third_party/**'
+      - 'tool/fetch_prebuilts.dart'
+      - '.github/workflows/prebuilts.yml'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Rebuild and replace the release even if it already exists
+        type: boolean
+        default: false
+
+concurrency:
+  group: prebuilts-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  FVM_HOME: ${{ github.workspace }}/.fvm_home
+  # NDK r28 or newer is required by third_party/build/build-android.sh.
+  NDK_VERSION: 28.2.13676358
+
+jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.plan.outputs.tag }}
+      build: ${{ steps.plan.outputs.build }}
+      publish: ${{ steps.plan.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install fvm
+        run: |
+          curl -fsSL https://fvm.app/install.sh | bash
+          echo "$HOME/fvm/bin" >> "$GITHUB_PATH"
+
+      - name: Cache fvm SDK
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.FVM_HOME }}
+          key: fvm-${{ runner.os }}-${{ hashFiles('.fvmrc') }}
+
+      - run: fvm install
+
+      - name: Decide what to do
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          tag="$(fvm dart tool/fetch_prebuilts.dart --print-tag)"
+          exists=false
+          if gh release view "$tag" >/dev/null 2>&1; then exists=true; fi
+
+          build=true
+          publish=false
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            : # always build, never publish
+          elif [ "$FORCE" = true ]; then
+            publish=true
+          elif [ "$exists" = true ]; then
+            build=false
+          else
+            publish=true
+          fi
+
+          {
+            echo "tag=$tag"
+            echo "build=$build"
+            echo "publish=$publish"
+          } >> "$GITHUB_OUTPUT"
+          echo "release $tag exists=$exists build=$build publish=$publish"
+
+  android:
+    name: Android (arm64-v8a, armeabi-v7a, x86_64)
+    needs: plan
+    if: needs.plan.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install NDK and tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake nasm
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;$NDK_VERSION"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+
+      - name: Cache third-party sources
+        uses: actions/cache@v4
+        with:
+          path: build/deps/downloads
+          key: deps-src-${{ hashFiles('third_party/versions.lock') }}
+
+      - run: third_party/build/build-android.sh
+      - run: third_party/build/package-prebuilts.sh android --out dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prebuilt-android
+          path: dist/webm_texture_deps-android.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  ios:
+    name: iOS (device + simulator)
+    needs: plan
+    if: needs.plan.outputs.build == 'true'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: brew install cmake nasm
+
+      - name: Cache third-party sources
+        uses: actions/cache@v4
+        with:
+          path: build/deps/downloads
+          key: deps-src-${{ hashFiles('third_party/versions.lock') }}
+
+      - run: third_party/build/build-ios.sh
+      - run: third_party/build/package-prebuilts.sh ios --out dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prebuilt-ios
+          path: dist/webm_texture_deps-ios.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish release
+    needs: [plan, android, ios]
+    if: needs.plan.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: prebuilt-*
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: dist
+        run: |
+          ls -l
+          sha256sum webm_texture_deps-android.tar.gz webm_texture_deps-ios.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Create or update the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.plan.outputs.tag }}
+        run: |
+          {
+            echo "Native prebuilts for the pins in \`third_party/versions.lock\` at ${GITHUB_SHA}."
+            echo
+            echo "Fetch with \`fvm dart run tool/fetch_prebuilts.dart\`; it verifies \`SHA256SUMS\`."
+            echo
+            echo '```'
+            grep -v '^[[:space:]]*\(#\|$\)' third_party/versions.lock | awk '{ print $1, $2 }'
+            echo '```'
+          } > notes.md
+
+          files=(dist/webm_texture_deps-android.tar.gz dist/webm_texture_deps-ios.tar.gz dist/SHA256SUMS)
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            # Only reachable through a forced manual run.
+            gh release upload "$TAG" "${files[@]}" --clobber
+            gh release edit "$TAG" --notes-file notes.md
+          else
+            gh release create "$TAG" "${files[@]}" \
+              --target "$GITHUB_SHA" \
+              --title "Prebuilts $TAG" \
+              --notes-file notes.md \
+              --latest=false
+          fi
