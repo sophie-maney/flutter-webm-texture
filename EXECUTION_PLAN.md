@@ -141,7 +141,7 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 
 **Accept:** host tests build and run green under ASan/UBSan in CI · the header is reviewed against `PLAN.md`'s API.
 
-### [ ] T1.2 Byte sources and format sniffing
+### [x] T1.2 Byte sources and format sniffing
 **Model** Sonnet 5.5 · `medium` · **Depends** T1.1 · **Track** A
 - `src/demux/source.*`: memory-backed and file-backed (mmap) readers with bounds-checked reads.
 - `sniff()` returns WebM, WebP, GIF or unknown, based on magic bytes.
