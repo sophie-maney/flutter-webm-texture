@@ -159,7 +159,9 @@ TEST(AnimCorpusTest, EveryWebmMatchesManifestAndReferences) {
         EXPECT_EQ(frame.duration_ms, durations[i]);
       }
       EXPECT_TRUE(Premultiplied(pixels));
-      if (!info.has_alpha) EXPECT_TRUE(AllOpaque(pixels));
+      if (!info.has_alpha) {
+        EXPECT_TRUE(AllOpaque(pixels));
+      }
 
       if (std::find(refs.begin(), refs.end(), i) == refs.end()) continue;
       Bytes ref;
@@ -299,7 +301,9 @@ TEST(AnimScaleTest, EveryBucketDecodes) {
         if (s == WT_END) break;
         ASSERT_EQ(s, WT_OK);
         EXPECT_TRUE(Premultiplied(pixels));
-        if (!alpha) EXPECT_TRUE(AllOpaque(pixels));
+        if (!alpha) {
+          EXPECT_TRUE(AllOpaque(pixels));
+        }
       }
     }
   }
