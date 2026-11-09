@@ -43,6 +43,8 @@ Each command works once the task that introduces it has landed (that task's ID i
 | Format | `fvm dart format --set-exit-if-changed .` · `clang-format --dry-run -Werror $(git ls-files 'src/*.cc' 'src/*.h')` |
 | Analyze | `fvm flutter analyze` |
 | Dart tests | `fvm flutter test` |
+| Build iOS prebuilts [T0.4] | `third_party/build/build-ios.sh` (macOS + Xcode, `brew install cmake nasm`) → `third_party/prebuilt/ios/WebmTextureDeps.xcframework` |
+| Third-party licenses [T0.4] | `third_party/build/collect-licenses.sh` → `third_party/LICENSES.md` (commit it) |
 | Fetch native libs [T0.6] | `fvm dart run tool/fetch_prebuilts.dart` |
 | Native host tests [T1.1] | `cmake -S . -B build/host -DWT_HOST_TESTS=ON -DWT_SANITIZE=ON && cmake --build build/host -j && ctest --test-dir build/host --output-on-failure` |
 | Fuzz (60 s smoke) [T1.7] | `cmake -S . -B build/fuzz -DWT_FUZZ=ON -DCMAKE_CXX_COMPILER=clang++ && cmake --build build/fuzz -j && build/fuzz/fuzz_webm -max_total_time=60 fuzz/corpus/webm` |

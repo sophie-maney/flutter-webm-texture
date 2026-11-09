@@ -37,3 +37,5 @@ migrate_working_dir/
 # Native prebuilts (fetched by tool/fetch_prebuilts.dart) and CMake output
 /third_party/prebuilt/
 build/
+# ...but not the third-party build scripts.
+!/third_party/build/

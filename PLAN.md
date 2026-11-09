@@ -102,7 +102,7 @@ pigeons/                   # Pigeon definitions
 src/                       # C++ core + CMakeLists.txt (shared by Android CMake & iOS)
   demux/ decode/ cache/ sched/ convert/ api/ (C ABI for FFI + glue)
 third_party/
-  versions.lock            # pinned tags + sha256 of every upstream
+  versions.lock            # pinned tags (or commit) + sha256 of every upstream; see ADR 0002
   build/                   # build-android.sh, build-ios.sh (xcframework), license collector
   prebuilt/                # gitignored; filled by tool/fetch_prebuilts.dart from GitHub Releases
 android/                   # Kotlin plugin, JNI bridge, CMake → links prebuilt .a
@@ -121,7 +121,7 @@ tool/                      # fetch_prebuilts, gen_corpus.sh (ffmpeg), bench
 1. Run `fvm install 3.47.9 && fvm use 3.47.9`, then `fvm flutter create --template=plugin --platforms=android,ios -a kotlin -i swift --org <org> webm_texture`. The `plugin_ffi` template is not used because Kotlin/Swift texture glue is required.
 2. Write `third_party/build` scripts and a CI job that produce static libs for arm64-v8a, armeabi-v7a, x86_64 (and x86, if API 24 emulators still matter) plus an iOS xcframework (device arm64, simulator arm64+x86_64).
    - Android: NDK r28+, `-Wl,-z,max-page-size=16384` (Play requires 16 KB page alignment).
-   - libvpx: `--disable-encoders --enable-vp8-decoder --enable-vp9-decoder --disable-vp9-highbitdepth --size-limit=1024x1024 --enable-pic`, with `--enable-runtime-cpu-detect` on x86.
+   - libvpx: `--disable-vp8-encoder --disable-vp9-encoder --enable-vp8-decoder --enable-vp9-decoder --disable-vp9-highbitdepth --size-limit=1024x1024 --enable-pic`, with `--enable-runtime-cpu-detect` on x86. libvpx has no `--disable-encoders` switch ([ADR 0002](docs/decisions/0002-pinning-and-prebuilt-contents.md)).
 3. **Spike A — alpha decode.** Generate test WebMs with `ffmpeg -c:v libvpx-vp9 -pix_fmt yuva420p` (and the VP8 equivalent). Confirm that `webm_parser` delivers the `BlockAdditional` payload and that the merged RGBA matches a reference. If `webm_parser` can't do it, write a minimal EBML demuxer instead (Cluster / SimpleBlock / BlockGroup / BlockAdditions only).
 4. **Spike B — texture transparency.** On Android, test `SurfaceProducer` under Impeller Vulkan **and** the OpenGLES fallback, on 3+ real devices. On iOS, test `CVPixelBuffer` BGRA. Verify premultiplied alpha composites correctly over non-opaque backgrounds.
 5. **Spike C — density.** On a low-end Android device and an older iPhone, measure 60 standalone textures against a single atlas texture: raster time, memory, and battery.
