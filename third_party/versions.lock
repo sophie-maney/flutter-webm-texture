@@ -1,0 +1,25 @@
+# Pinned third-party sources for the native prebuilts.
+#
+# This is the only place versions and checksums live (see AGENTS.md). Bump a
+# library by editing its row and rerunning the prebuilt workflow; every build
+# script fetches through third_party/build/common.sh, which refuses any source
+# whose sha256 does not match.
+#
+# Columns are whitespace-separated:
+#   name     library id (also the source directory name under build/deps/src)
+#   version  upstream release; for git sources, the full commit id
+#   sha256   sha256 of the downloaded tarball. For git sources it is the sha256
+#            of `git archive --format=tar --prefix=<name>/ <commit>`, which is
+#            deterministic for a given commit.
+#   url      tarball URL, or git+<repo URL> for git sources
+#
+# libyuv has no releases or stable tarballs (googlesource +archive tarballs are
+# regenerated on every request), so it is pinned to a commit on main.
+# libyuv commit 9e8c1ef826ea1f6cc624855555c36c4d38e72818 is LIBYUV_VERSION 1980.
+
+libvpx   1.17.0                                    1020f184046187baa2985dbde38e0691f49c44088bca7a1842b0236c6081dc0a  https://github.com/webmproject/libvpx/archive/refs/tags/v1.17.0.tar.gz
+libwebm  1.0.0.32                                  7fd5e085bda9f8031cf2ad2a1e52d9b7b29cba9c0b96ad2ce794ce89e4249eb8  https://github.com/webmproject/libwebm/archive/refs/tags/libwebm-1.0.0.32.tar.gz
+libyuv   9e8c1ef826ea1f6cc624855555c36c4d38e72818  2f668fb4f7b7716c052dd5aad29edbd65f418b6e2081e97053bf26f763095741  git+https://chromium.googlesource.com/libyuv/libyuv
+libwebp  1.6.0                                     e4ab7009bf0629fd11982d4c2aa83964cf244cffba7347ecd39019a9e38c4564  https://storage.googleapis.com/downloads.webmproject.org/releases/webp/libwebp-1.6.0.tar.gz
+giflib   6.1.3                                     b65b66b99f0424b93525f987386f22fc5efb9da2bfc92ad4a532249aaffbab0e  https://downloads.sourceforge.net/project/giflib/giflib-6.x/giflib-6.1.3.tar.gz
+lz4      1.11.0                                    247e5fa64da5f7b75ee3dd3bed484076396c9ebe8254d9ccf693eb62800c5e26  https://github.com/lz4/lz4/releases/download/v1.11.0/lz4-1.11.0.tar.gz

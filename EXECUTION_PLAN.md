@@ -69,7 +69,7 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 
 **Accept:** the script is idempotent · `manifest.json` validates against the files · the size limit holds.
 
-### [ ] T0.4 iOS prebuilt libraries
+### [x] T0.4 iOS prebuilt libraries
 **Model** Opus 5.5 · `high` · **Depends** T0.1 · **Track** C
 - `third_party/versions.lock`: pinned tags and tarball sha256 for libvpx, libwebm, libyuv, libwebp, giflib and lz4.
 - `third_party/build/build-ios.sh`: device arm64 + simulator arm64/x86_64 → `WebmTextureDeps.xcframework` (static, all libs merged, headers included).
