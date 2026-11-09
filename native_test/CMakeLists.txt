@@ -22,8 +22,10 @@ add_executable(wt_native_tests
   $<TARGET_OBJECTS:wt_c_abi_check>
   api_test.cc
   deps_test.cc
+  manifest.cc
   sanitizer_test.cc
   source_test.cc
+  webm_test.cc
 )
 target_link_libraries(wt_native_tests PRIVATE wt_core GTest::gtest_main)
 # Internal headers (demux/…) are tested directly, besides the public C ABI.

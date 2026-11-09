@@ -57,7 +57,7 @@ jobs:
       # Pinned so CI and local runs format identically (brew/pip: 23.1.5).
       - name: clang-format
         run: |
-          git ls-files 'src/*.cc' 'src/*.h' 'native_test/*.cc' 'native_test/*.c' 'fuzz/*.cc' |
+          git ls-files 'src/*.cc' 'src/*.h' 'native_test/*.cc' 'native_test/*.c' 'native_test/*.h' 'fuzz/*.cc' |
             xargs -r pipx run clang-format==23.1.5 --dry-run -Werror
 
   native:
@@ -99,13 +99,15 @@ jobs:
           UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
         run: ctest --test-dir build/host --output-on-failure
 
-      # The libFuzzer wiring only; T1.7 owns the real fuzz runs.
+      # A short smoke run per target; T1.7 owns the timed and nightly runs.
       - name: Fuzz build smoke
         if: runner.os == 'Linux'
         run: |
           cmake -S . -B build/fuzz -DWT_FUZZ=ON -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DWT_WERROR=ON
           cmake --build build/fuzz -j 4
-          build/fuzz/fuzz_probe -runs=10000 test_assets
+          mkdir -p build/fuzz/corpus/probe build/fuzz/corpus/webm
+          build/fuzz/fuzz_probe -runs=10000 build/fuzz/corpus/probe test_assets
+          build/fuzz/fuzz_webm -runs=100000 -dict=fuzz/webm.dict build/fuzz/corpus/webm fuzz/corpus/webm
 
   android:
     name: Example APK (debug)

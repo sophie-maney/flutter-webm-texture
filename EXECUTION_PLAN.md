@@ -148,7 +148,7 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 
 **Accept:** unit tests cover every corpus file, plus empty/1-byte/garbage input.
 
-### [ ] T1.3 WebM demuxer
+### [x] T1.3 WebM demuxer
 **Model** Opus 5.5 · `high` · **Depends** T1.2 · **Track** A
 - Implement the minimal EBML reader chosen in spike A ([ADR 0004](docs/decisions/0004-own-webm-demuxer.md)) in `src/demux/`, starting from `spikes/alpha/demux_mini_ebml.cc` and carrying over the checks under "Pitfalls" in [`docs/spikes/A-alpha.md`](docs/spikes/A-alpha.md). Output: the video track (codec VP8/VP9, w/h, `AlphaMode`) and a frame index (offset, size, pts, duration, keyframe, alpha payload span). Detect audio tracks and ignore them.
 - Durations come from block timestamps; when absent, fall back to `DefaultDuration`, then to 1/30 s.
