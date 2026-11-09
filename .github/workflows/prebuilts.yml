@@ -41,7 +41,7 @@ permissions:
   contents: read
 
 env:
-  FVM_HOME: ${{ github.workspace }}/.fvm_home
+  FVM_CACHE_PATH: ${{ github.workspace }}/.fvm_home
   # NDK r28 or newer is required by third_party/build/build-android.sh.
   NDK_VERSION: 28.2.13676358
 
@@ -64,7 +64,7 @@ jobs:
       - name: Cache fvm SDK
         uses: actions/cache@v4
         with:
-          path: ${{ env.FVM_HOME }}
+          path: ${{ env.FVM_CACHE_PATH }}
           key: fvm-${{ runner.os }}-${{ hashFiles('.fvmrc') }}
 
       - run: fvm install
@@ -75,7 +75,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           FORCE: ${{ inputs.force }}
         run: |
-          tag="$(fvm dart tool/fetch_prebuilts.dart --print-tag)"
+          # fvm may print warnings to stdout; the tag is the last line.
+          tag="$(fvm dart tool/fetch_prebuilts.dart --print-tag | tail -n 1)"
+          case "$tag" in
+            deps-????????????????) ;;
+            *) echo "unexpected tag: $tag" >&2; exit 1 ;;
+          esac
           exists=false
           if gh release view "$tag" >/dev/null 2>&1; then exists=true; fi
 
