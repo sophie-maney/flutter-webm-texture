@@ -1,12 +1,12 @@
 # Spike B: texture transparency
 
-- **Task:** T0.8 🛑 · **Status:** waiting on a human decision about the `ui.Image` fallback (T4.4). **Real-device runs are still outstanding.**
+- **Task:** T0.8 🛑 · **Status:** done. **Decision:** the Dart `ui.Image` fallback (T4.4) is not needed ([ADR 0005](../decisions/0005-no-ui-image-fallback.md))
 - **Date:** 2026-11-09 · **Flutter:** 3.47.9 (`.fvmrc`)
 - **Code:** [`example/spike_b/`](../../example/spike_b/) (throwaway). Reproduce with the commands in [Reproducing](#reproducing).
 - **Screenshots:** [`B-texture-alpha/`](B-texture-alpha/). They are cropped to the tiles and status text but keep their original geometry, so `tool/sample.py` can re-sample them. Every sample result is in [`results.jsonl`](B-texture-alpha/results.jsonl).
 
 > [!WARNING]
-> **Emulators and the simulator only.** The task asks for 3+ physical Android devices (one low-end) and a physical iPhone. The project owner asked for this run to use emulators on both platforms instead, so every row below is an emulator or simulator. The emulator GPUs are software or translated: Vulkan is **lavapipe** on every AVD, GLES is **SwiftShader** (`swangle`) on API 37 and the host GPU on API 29/24. That means no vendor driver (Adreno, Mali, PowerVR, Apple GPU on device) was exercised. **The acceptance criterion "3+ real devices including one low-end" is not met**, which is why the task box in `EXECUTION_PLAN.md` stays unticked.
+> **Emulators and the simulator only.** The task asks for 3+ physical Android devices (one low-end) and a physical iPhone. The project owner asked for this run to use emulators on both platforms instead, so every row below is an emulator or simulator. The emulator GPUs are software or translated: Vulkan is **lavapipe** on every AVD, GLES is **SwiftShader** (`swangle`) on API 37 and the host GPU on API 29/24. That means no vendor driver (Adreno, Mali, PowerVR, Apple GPU on device) was exercised. The owner accepted this evidence for the gate decision ([ADR 0005](../decisions/0005-no-ui-image-fallback.md)). Real-device rows are optional follow-up (see [Optional follow-up on real hardware](#optional-follow-up-on-real-hardware)).
 
 ## Devices
 
@@ -17,7 +17,7 @@
 | `api24` | Android emulator `SpikeB_API24` (default, arm64, pixel_5 profile) | Android 7.0 (API 24) | 1080×2340 | gfxstream, GLES = host |
 | `ios` | iOS Simulator, iPhone 17e | iOS 27.2 | 1170×2532 @3x | Impeller Metal (simulator) |
 
-Host: Apple M4 Max, macOS 27.2, Android emulator 37.2.13. No iOS 15 simulator runtime is installed, so only iOS 27.2 was tested.
+Host: Apple M4 Max, macOS 27.2, Android emulator 37.2.13. No iOS 15 simulator runtime can be installed here, so the owner chose to skip iOS 15 and only iOS 27.2 was tested.
 
 ## Summary
 
@@ -26,7 +26,7 @@ Host: Apple M4 Max, macOS 27.2, Android emulator 37.2.13. No iOS 15 simulator ru
 3. **Skia + `ImageReader` + `SurfaceLifecycle.manual` loses the texture on background.** After a background/foreground cycle, a texture that receives no new frame renders **opaque black** (not transparent), and no callback fires. This reproduced on API 37 (twice) and API 29. Two things fix it: redrawing on resume, or using `resetInBackground`, which delivers `onSurfaceCleanup`/`onSurfaceAvailable`. Impeller (Vulkan and GLES) keeps the image with `manual`.
 4. **Impeller Vulkan + `SurfaceTexture` producer shows nothing.** The texture stays fully transparent, frames never appear, and nothing is logged. Normal apps only reach this path through the debug flag `debugForceSurfaceProducerGlTextures`. The engine *also* picks `SurfaceTexture` for Huawei devices on API ≤ 29 (`hasAndroidHardwareBufferDefect`), and Impeller can choose Vulkan from API 29. A Huawei API 29 phone with Vulkan is therefore a plausible real-world hit. **Not verified: no such device was available.**
 5. **iOS:** `textureFrameAvailable` from a background serial queue behaves exactly like calling it on main (no warnings, same results). `copyPixelBuffer` is always called off the main thread, and Flutter calls it again after foregrounding. The last buffer must therefore stay alive and be returned again. Content survives backgrounding.
-6. **No case in this run needs the `ui.Image` fallback.** Where something broke, the cause was surface lifecycle (finding 3) or an unsupported producer/backend pairing (finding 4), never alpha handling. Whether T4.4 is needed is the human's call (see [Decision](#decision)), ideally after the real-device runs.
+6. **No case in this run needs the `ui.Image` fallback.** Where something broke, the cause was surface lifecycle (finding 3) or an unsupported producer/backend pairing (finding 4), never alpha handling. The owner decided T4.4 is not needed (see [Decision](#decision)).
 
 ## Method
 
@@ -134,20 +134,19 @@ On the API 37 and API 29 emulators, auto-selection picked **OpenGLES over Vulkan
 - **T2.5 / T3.x:** the spike's Android animation kept drawing while the app was backgrounded (with `manual`). The scheduler should pause on `paused`/`hidden` anyway.
 - **T6.x golden tests:** `tool/sample.py`'s texture-vs-canvas comparison is a cheap, tolerance-based alpha check that needs no reference images. It could be reused in `integration_test`.
 
-## Still to do on real hardware
+## Optional follow-up on real hardware
 
-Before the gate is closed, someone with devices should run `tool/run_android.sh` and `tool/run_ios.sh` (see the [README](../../example/spike_b/README.md)) and add rows here for:
-1. 3+ physical Android phones, including one low-end (e.g. Mali or PowerVR, Android 9–11) and ideally one Huawei on API 29 (finding 4). Use auto backend, Vulkan, OpenGLES and Skia with `manual` and `reset`.
-2. A physical iPhone on iOS 15 (or the oldest available) and the latest iOS.
-3. An iOS 15 simulator, if a runtime can be installed alongside Xcode 27.
+The gate is closed without these, but anyone with devices can run `tool/run_android.sh` and `tool/run_ios.sh` (see the [README](../../example/spike_b/README.md)) and add rows here for:
+1. Physical Android phones, especially a low-end one (e.g. Mali or PowerVR, Android 9–11) and a Huawei on API 29 (finding 4). Use auto backend, Vulkan, OpenGLES and Skia with `manual` and `reset`.
+2. A physical iPhone.
+
+An iOS 15 simulator is not an option: no runtime can be installed alongside Xcode 27.
 
 ## Decision
 
-🛑 **Open: is the Dart `ui.Image` atlas fallback (T4.4) needed?**
+**Decided by the owner at the gate: the Dart `ui.Image` atlas fallback (T4.4) is not needed** ([ADR 0005](../decisions/0005-no-ui-image-fallback.md)).
 
-This run's evidence says no: every production renderer and producer composites premultiplied alpha correctly. The failures were lifecycle and pairing issues that the native glue can handle. The task requires real devices for this call, though, and none were used. The options for the human are:
-1. Accept the emulator evidence, drop T4.4, and fold the lifecycle rules above into T2.2/T2.3.
-2. Defer the decision until the real-device rows exist.
+Every production renderer and producer composites premultiplied alpha correctly. The failures were lifecycle and pairing issues that the native glue handles, so the rules under [Implications for later tasks](#implications-for-later-tasks) moved into T2.2 and T2.3. The owner accepted the emulator-only evidence and chose to skip iOS 15.
 
 ## Reproducing
 

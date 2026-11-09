@@ -101,7 +101,7 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 
 **Decided:** our own minimal EBML reader ([ADR 0004](docs/decisions/0004-own-webm-demuxer.md)); report in [`docs/spikes/A-alpha.md`](docs/spikes/A-alpha.md).
 
-### [ ] T0.8 🛑 Spike B: Texture transparency (needs a real device)
+### [x] T0.8 🛑 Spike B: Texture transparency (needs a real device)
 **Model** Opus 5.5 · `high` · **Depends** T0.1, T0.5, T0.4 · **Track** D
 - In `example/spike_b/`, render a known premultiplied RGBA test pattern (gradient alpha, plus fully transparent and fully opaque areas) into:
   - **Android:** a `SurfaceProducer` via `ANativeWindow`. Test on Impeller Vulkan and on the OpenGLES fallback (`--no-enable-impeller` / manifest flag), on 3+ physical devices including one low-end.
@@ -110,6 +110,8 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 - Report `docs/spikes/B-texture-alpha.md`: a correctness matrix (device × backend), premultiply behaviour, and surface-lifecycle observations (background/foreground).
 
 **Accept:** the matrix is complete with screenshots. **Stop: a human decides whether the Dart `ui.Image` fallback (T4.4) is needed.**
+
+**Decided:** the fallback is not needed ([ADR 0005](docs/decisions/0005-no-ui-image-fallback.md)). The owner accepted emulator/simulator evidence and skipped iOS 15. Report in [`docs/spikes/B-texture-alpha.md`](docs/spikes/B-texture-alpha.md).
 
 ### [ ] T0.9 🛑 Spike C: Grid density, 60 textures vs one atlas (needs a real device)
 **Model** Opus 5.5 · `high` · **Depends** T0.8 · **Track** D
@@ -202,15 +204,21 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 - One `SurfaceProducer` per animation. Pass its `Surface` to native via JNI → `ANativeWindow_fromSurface`, set geometry to the bucket and RGBA_8888.
 - A simple per-animation render thread (replaced in T3.3) calls `wt_anim_next_frame` into `ANativeWindow_lock`'d memory.
 - Handle `SurfaceProducer.Callback` (`onSurfaceAvailable`/`onSurfaceCleanup`) by releasing and reacquiring the window. Leave no leaks on dispose.
+- From spike B ([ADR 0005](docs/decisions/0005-no-ui-image-fallback.md)):
+  - Create producers with `SurfaceLifecycle.resetInBackground`. With `manual`, Skia loses the image in the background and shows opaque black.
+  - In `onSurfaceAvailable`, re-fetch `getSurface()` and redraw the current frame.
+  - In `onSurfaceCleanup`, release the `ANativeWindow` synchronously before returning.
+  - Catch the "FlutterJNI is not attached" exception from `createSurfaceProducer` and return an error.
+  - Log the producer class at creation.
 
 **Accept:** the example shows animated, transparent stickers on the API 24 and latest emulators · surviving 20 background/foreground cycles · `adb shell dumpsys meminfo` is stable after 100 create/dispose cycles.
 
 ### [ ] T2.3 iOS texture glue
 **Model** Opus 5.5 · `high` · **Depends** T2.1, T0.8 · **Track** C (parallel with T2.2)
-- An ObjC++ shim over `wt_api.h`. A Swift `FlutterTexture` uses a `CVPixelBufferPool` (BGRA, IOSurface, Metal-compatible) and native code writes into the locked buffer. Call `textureFrameAvailable` on the thread required by the spike-B findings.
+- An ObjC++ shim over `wt_api.h`. A Swift `FlutterTexture` uses a `CVPixelBufferPool` (BGRA, IOSurface, Metal-compatible) and native code writes into the locked buffer. Call `textureFrameAvailable` from the worker that produced the frame; spike B found no need to hop to main. Write each frame into a fresh pool buffer, keep the latest one referenced, and return it from every `copyPixelBuffer` call (Flutter asks again after foregrounding).
 - Both `Package.swift` (binaryTarget/vendored xcframework plus a C++ target) and `.podspec` must build.
 
-**Accept:** same as T2.2 on the iOS 15 and latest simulators · Instruments shows no leaks over 100 create/dispose cycles · SwiftPM and CocoaPods example builds are both green in CI.
+**Accept:** same as T2.2 on the latest iOS simulator (no iOS 15 runtime is available; see ADR 0005) · Instruments shows no leaks over 100 create/dispose cycles · SwiftPM and CocoaPods example builds are both green in CI.
 
 ### [ ] T2.4 Dart registry, dedupe and buckets
 **Model** Sonnet 5.5 · `high` · **Depends** T2.1 · **Track** A
@@ -303,7 +311,9 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 
 **Accept:** the Stress page in atlas mode matches standalone output visually (golden) · perf meets the T0.9 targets.
 
-### [ ] T4.4 Dart `ui.Image` atlas fallback (only if T0.8 requires it)
+### ~~T4.4 Dart `ui.Image` atlas fallback (only if T0.8 requires it)~~ (dropped)
+**Dropped:** T0.8 found that platform textures composite alpha correctly ([ADR 0005](docs/decisions/0005-no-ui-image-fallback.md)).
+
 **Model** Opus 5.5 · `high` · **Depends** T4.2 · **Track** B
 - Native fills a shared RGBA buffer per page. Dart creates one `ui.Image` per page per tick via `decodeImageFromPixels` and draws slots with `canvas.drawImageRect`. Double-buffer it, and dispose old images.
 

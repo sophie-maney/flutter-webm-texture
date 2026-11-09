@@ -125,9 +125,10 @@ tool/                      # fetch_prebuilts, gen_corpus.sh (ffmpeg), bench
 3. **Spike A — alpha decode.** Generate test WebMs with `ffmpeg -c:v libvpx-vp9 -pix_fmt yuva420p` (and the VP8 equivalent). Confirm that `webm_parser` delivers the `BlockAdditional` payload and that the merged RGBA matches a reference. If `webm_parser` can't do it, write a minimal EBML demuxer instead (Cluster / SimpleBlock / BlockGroup / BlockAdditions only).
    - **Outcome:** both worked, and alpha decoded bit-exact. We chose our own minimal EBML reader for size and for robustness against hostile input ([report](docs/spikes/A-alpha.md), [ADR 0004](docs/decisions/0004-own-webm-demuxer.md)).
 4. **Spike B — texture transparency.** On Android, test `SurfaceProducer` under Impeller Vulkan **and** the OpenGLES fallback, on 3+ real devices. On iOS, test `CVPixelBuffer` BGRA. Verify premultiplied alpha composites correctly over non-opaque backgrounds.
+   - **Outcome:** every reachable renderer/producer pairing composites premultiplied alpha correctly (±1/255), on emulators and the simulator, which the owner accepted. The `ui.Image` fallback is dropped. Skia + `manual` lifecycle loses the image in the background, so the glue uses `resetInBackground` and redraws in `onSurfaceAvailable` ([report](docs/spikes/B-texture-alpha.md), [ADR 0005](docs/decisions/0005-no-ui-image-fallback.md)).
 5. **Spike C — density.** On a low-end Android device and an older iPhone, measure 60 standalone textures against a single atlas texture: raster time, memory, and battery.
 
-**Exit criteria:** alpha is correct on both platforms, and the default grid mode is chosen from the measurements. **Fallback if Android textures can't do alpha:** atlas mode switches to a Dart-side `ui.Image` per atlas per tick (`decodeImageFromPixels`; only a few images per frame, which is affordable), while standalone mode keeps textures where they work.
+**Exit criteria:** alpha is correct on both platforms, and the default grid mode is chosen from the measurements. ~~Fallback if Android textures can't do alpha: a Dart-side `ui.Image` per atlas per tick.~~ Not needed: Spike B showed textures composite alpha correctly ([ADR 0005](docs/decisions/0005-no-ui-image-fallback.md)).
 
 ### Phase 1: Native core (host-testable)
 - Format sniffing; WebM demux (tracks, `AlphaMode`, `DefaultDuration`/timestamps, per-frame durations); VP8/VP9 color+alpha decode; libyuv scaling to a bucket and YUVA conversion; `probe()`.
@@ -164,7 +165,7 @@ tool/                      # fetch_prebuilts, gen_corpus.sh (ffmpeg), bench
 ## Key risks
 | Risk | Mitigation |
 |---|---|
-| Android `Texture` alpha/premultiply differs between backends | Spike B; Dart `ui.Image` atlas fallback |
+| Android `Texture` alpha/premultiply differs between backends | Spike B found no difference ([ADR 0005](docs/decisions/0005-no-ui-image-fallback.md)); the remaining risk is surface lifecycle, handled in T2.2 |
 | Too many platform textures in grids | Atlas mode (Phase 4); Spike C picks the default |
 | Hostile/malformed user uploads (libvpx has had in-the-wild CVEs) | Size limits, our own limit checks, a demuxer that allocates nothing sized by input (ADR 0004), fuzzing, fast upstream bumps |
 | Binary size per ABI | Decoders only; no highbitdepth; `-Oz` + LTO for our core; report size per ABI in CI |
