@@ -1,6 +1,6 @@
 # Spike A: VP9/VP8 alpha demux and decode
 
-- **Task:** T0.7 🛑 · **Status:** done, waiting for a human decision on the demuxer
+- **Task:** T0.7 🛑 · **Status:** done. **Decision:** our own minimal EBML reader ([ADR 0004](../decisions/0004-own-webm-demuxer.md))
 - **Date:** 2026-11-09
 - **Host:** Apple M4 Max, macOS 27.2, Apple clang 21. The libraries are pinned in `third_party/versions.lock`: libvpx 1.17.0, libwebm 1.0.0.32 and libyuv 1980. libvpx is built decoder-only with `--size-limit=1024x1024`, as for mobile.
 - **Code:** [`spikes/alpha/`](../../spikes/alpha/) (throwaway). Reproduce with the commands in [Reproducing](#reproducing).
@@ -16,7 +16,7 @@
    - 2 MiB of empty BlockGroups costs 365 MB of RAM (E6).
 
    The callback guards in the spike fix both. Under ASan/UBSan, 250k mutated inputs produced no findings in either demuxer.
-4. **Recommendation: the minimal EBML reader.** It adds about 16× less code to the binary (5 KB vs 86 KB), it allocates nothing that input controls, and it indexes more than 10× faster. It also lets libwebm leave the prebuilts. This contradicts `PLAN.md`, which names `webm_parser`, so a human has to decide (see [Decision needed](#decision-needed)).
+4. **Recommendation: the minimal EBML reader.** It adds about 16× less code to the binary (5 KB vs 86 KB), it allocates nothing that input controls, and it indexes more than 10× faster. It also lets libwebm leave the prebuilts. This contradicted `PLAN.md`, which named `webm_parser`, so it went to a human, who chose it (see [Decision](#decision)).
 
 ## Acceptance: alpha vs reference
 
@@ -162,9 +162,9 @@ Each is backed by an experiment in `alpha_spike experiments` (E1–E9) or by the
 15. **Other tracks.** Audio blocks are skipped by track number before any payload is touched. `has_audio` comes from the track list.
 16. **Timestamps.** pts = (Cluster Timecode + the block's signed 16-bit offset) × TimecodeScale. These matched `manifest.json` for every frame. The mini reader rejects values that would overflow `int64` nanoseconds.
 
-## Decision needed
+## Decision
 
-**Which demuxer should T1.3 implement?**
+**Decided 2026-11-09: B, the minimal EBML reader** ([ADR 0004](../decisions/0004-own-webm-demuxer.md)). The options as they were presented:
 
 - **A. `webm_parser` with a hardened callback** (what `PLAN.md` says today).
   - Mature EBML handling we don't have to write.
@@ -176,11 +176,10 @@ Each is backed by an experiment in `alpha_spike experiments` (E1–E9) or by the
   - +5 KB.
   - Its correctness rests on our own fuzzing (T1.7 `fuzz_webm`) and the corpus. In the stress run it was never less robust than `webm_parser`.
 
-If B is chosen:
-1. Write an ADR (`docs/decisions/0004-…`) and update `PLAN.md`'s third-party set, both in the T1.3 PR.
-2. Optionally, drop libwebm from `versions.lock`, the build scripts and `LICENSES.md` in a separate PR that rebuilds the prebuilts (the release tag changes, ADR 0003). No other component uses libwebm.
-
-Either way, the checks in the pitfalls above belong in T1.3/T1.4. T0.7 stays unticked in `EXECUTION_PLAN.md` until the decision is recorded, so T1.1 doesn't start early.
+Follow-up:
+1. ADR 0004 and the `PLAN.md` update landed with this report, and T0.7 is ticked.
+2. A separate PR drops libwebm from `versions.lock`, the build scripts, `smoke.cc` and `LICENSES.md`, and rebuilds the prebuilts (the release tag changes, ADR 0003). No other component uses libwebm.
+3. The checks in the pitfalls above belong in T1.3/T1.4. T1.3 also ships a demux fuzz target.
 
 ## Reproducing
 

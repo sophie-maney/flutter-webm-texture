@@ -91,13 +91,15 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 
 **Accept:** a fresh clone followed by `fvm dart run tool/fetch_prebuilts.dart` populates `prebuilt/` · a tampered checksum fails.
 
-### [ ] T0.7 🛑 Spike A: VP9/VP8 alpha demux and decode
+### [x] T0.7 🛑 Spike A: VP9/VP8 alpha demux and decode
 **Model** Opus 5.5 · `xhigh` · **Depends** T0.3, T0.4 or T0.5 (host build of the libs is fine) · **Track** B
 - Write a throwaway host CLI in `spikes/alpha/`. It demuxes with libwebm `webm_parser`, decodes the colour stream and the `BlockAdditional` (ID 1) alpha stream with two vpx contexts, merges them to premultiplied RGBA, and compares against `test_assets/ref`.
 - If `webm_parser` can't surface BlockAdditions cleanly, prototype a minimal EBML reader (EBML header, Segment, Tracks, Cluster, SimpleBlock, BlockGroup, BlockAdditions) and compare effort and robustness.
 - Report in `docs/spikes/A-alpha.md`: the chosen demuxer, per-frame max abs error/PSNR, decode ms/frame on host, and pitfalls (alpha keyframes, `AlphaMode` flag, laced blocks).
 
 **Accept:** the alpha of every corpus WebM matches the reference (PSNR ≥ 45 dB or exact). **Stop for a human decision on the demuxer.**
+
+**Decided:** our own minimal EBML reader ([ADR 0004](docs/decisions/0004-own-webm-demuxer.md)); report in [`docs/spikes/A-alpha.md`](docs/spikes/A-alpha.md).
 
 ### [ ] T0.8 🛑 Spike B: Texture transparency (needs a real device)
 **Model** Opus 5.5 · `high` · **Depends** T0.1, T0.5, T0.4 · **Track** D
@@ -144,10 +146,10 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 
 ### [ ] T1.3 WebM demuxer
 **Model** Opus 5.5 · `high` · **Depends** T1.2 · **Track** A
-- Implement the demuxer chosen in spike A. Output: the video track (codec VP8/VP9, w/h, `AlphaMode`) and a frame index (offset, size, pts, duration, keyframe, alpha payload span). Detect audio tracks and ignore them.
+- Implement the minimal EBML reader chosen in spike A ([ADR 0004](docs/decisions/0004-own-webm-demuxer.md)) in `src/demux/`, starting from `spikes/alpha/demux_mini_ebml.cc` and carrying over the checks under "Pitfalls" in [`docs/spikes/A-alpha.md`](docs/spikes/A-alpha.md). Output: the video track (codec VP8/VP9, w/h, `AlphaMode`) and a frame index (offset, size, pts, duration, keyframe, alpha payload span). Detect audio tracks and ignore them.
 - Durations come from block timestamps; when absent, fall back to `DefaultDuration`, then to 1/30 s.
 
-**Accept:** index tests against `manifest.json` for every corpus WebM · `truncated.webm` produces a partial index plus a `WT_ERR_TRUNCATED` flag and no crash.
+**Accept:** index tests against `manifest.json` for every corpus WebM · `truncated.webm` produces a partial index plus a `WT_ERR_TRUNCATED` flag and no crash · a demux-only libFuzzer target runs 60 s clean (AGENTS.md: a new parser ships with a fuzz target).
 
 ### [ ] T1.4 VPX decode, alpha merge and scaling
 **Model** Opus 5.5 · `high` · **Depends** T1.3 · **Track** A
