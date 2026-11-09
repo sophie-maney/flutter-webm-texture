@@ -113,13 +113,15 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 
 **Decided:** the fallback is not needed ([ADR 0005](docs/decisions/0005-no-ui-image-fallback.md)). The owner accepted emulator/simulator evidence and skipped iOS 15. Report in [`docs/spikes/B-texture-alpha.md`](docs/spikes/B-texture-alpha.md).
 
-### [ ] T0.9 🛑 Spike C: Grid density, 60 textures vs one atlas (needs a real device)
+### [x] T0.9 🛑 Spike C: Grid density, 60 textures vs one atlas (needs a real device)
 **Model** Opus 5.5 · `high` · **Depends** T0.8 · **Track** D
 - Animate 60 synthetic 128-px patterns at 30 fps two ways: (a) 60 `SurfaceProducer`/`FlutterTexture`s, (b) one 2048² texture with clipped `Texture` children.
 - Measure with `fvm flutter run --profile` and the DevTools timeline: raster p90/p99, UI p90, RSS/graphics memory, and 2-minute battery/thermal drift. Use a low-end Android device and an iPhone 12 or older.
 - Report in `docs/spikes/C-density.md`.
 
 **Accept:** the numbers are in the report. **Stop: a human picks the default grid mode and updates `PLAN.md`.**
+
+**Decided:** grids use atlas mode, with content-sized pages and a ≥ 2-px slot gutter; standalone stays the default outside a scope ([ADR 0006](docs/decisions/0006-atlas-for-grids.md)). The owner accepted emulator/simulator evidence. Report in [`docs/spikes/C-density.md`](docs/spikes/C-density.md).
 
 ---
 
@@ -274,7 +276,7 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 - Replace the per-animation threads with one clock thread and N workers (N from the tier). Each animation has at most one frame in flight; late frames are dropped. The `maxConcurrent` limit is applied by priority (visible area, then recency), and the rest freeze on their current frame.
 - The clock pauses entirely when nothing is active.
 
-**Accept:** a TSan host stress test (500 animations churning) passes · on device, 60 visible stickers keep raster p90 under budget (number from T0.9) · CPU drops to about 0 when everything is paused.
+**Accept:** a TSan host stress test (500 animations churning) passes · 60 visible standalone stickers on the latest iOS simulator keep raster p90 ≤ 8 ms (spike C measured 5.9 ms; the Android emulator's gralloc is too slow for a standalone budget, see the report) · CPU drops to about 0 when everything is paused. Real-device budgets come from T3.5.
 
 ### [ ] T3.4 Device tiers
 **Model** Sonnet 5.5 · `medium` · **Depends** T2.1, T3.3 · **Track** C
@@ -291,17 +293,25 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 ---
 
 ## Phase 4: Atlas mode (grids)
-*Skip or adjust per the T0.9 decision.*
+*Go ahead: grids use atlas mode ([ADR 0006](docs/decisions/0006-atlas-for-grids.md)).*
 
 ### [ ] T4.1 Slot allocator
 **Model** Sonnet 5.5 · `high` · **Depends** T0.9 · **Track** A
-- Pure C++ shelf packing per bucket in a 2048² atlas: alloc/free/compaction stats. Allocation fails when full so the caller can add a page.
+- Pure C++ shelf packing per bucket in atlas pages up to 2048 px wide: alloc/free/compaction stats. Allocation fails when full so the caller can grow the page or add one.
+- From spike C ([ADR 0006](docs/decisions/0006-atlas-for-grids.md)):
+  - Page height is the rows in use, rounded up to 16 px, not a fixed 2048. Report the page size so callers can resize.
+  - Each slot has a ≥ 2-px transparent gutter: the slot pitch is the bucket + 2 × gutter, still 16-px aligned.
 
 **Accept:** unit tests plus a randomized alloc/free property test.
 
 ### [ ] T4.2 Native atlas compositor
 **Model** Opus 5.5 · `xhigh` · **Depends** T4.1, T3.3 · **Track** A
 - One platform texture per atlas page. Scheduler workers write frames into slot regions of the locked buffer and present once per tick per page. Animations can switch between standalone and atlas.
+- From spike C:
+  - Lock the whole buffer (`dirty = nullptr`) so the producer never copies back.
+  - Rewrite every live slot, and clear its gutter, on every tick, because queued buffers hold stale frames.
+  - Notify once per page per tick; on Android, one `scheduleFrame()` per page.
+  - Report buffer memory per page as distinct buffers × page bytes.
 
 **Accept:** a TSan stress test passes · the device demo shows 60+ animations with one texture per page.
 
@@ -309,7 +319,7 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 **Model** Opus 5.5 · `high` · **Depends** T4.2 · **Track** A
 - An inherited scope owns the atlas pages. Child `WebmSticker`s render a clipped and translated `Texture(atlasId)` for their slot, and slots are released when children deactivate.
 
-**Accept:** the Stress page in atlas mode matches standalone output visually (golden) · perf meets the T0.9 targets.
+**Accept:** the Stress page in atlas mode matches standalone output visually, with no slot bleed (golden) · perf meets the T0.9 targets: with 60 stickers, Flutter renders at the content rate (no extra frames) and every tick is delivered on the API 37 emulator and the latest iOS simulator, and iOS simulator raster p90 is ≤ 3 ms (spike C measured 2.0 ms).
 
 ### ~~T4.4 Dart `ui.Image` atlas fallback (only if T0.8 requires it)~~ (dropped)
 **Dropped:** T0.8 found that platform textures composite alpha correctly ([ADR 0005](docs/decisions/0005-no-ui-image-fallback.md)).

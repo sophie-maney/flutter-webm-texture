@@ -1,6 +1,6 @@
 # Spike C: grid density, 60 textures vs one atlas
 
-- **Task:** T0.9 🛑 · **Status:** measured, **waiting for the owner's decision** (see [Decision](#decision)).
+- **Task:** T0.9 🛑 · **Status:** done. **Decision:** grids use atlas mode ([ADR 0006](../decisions/0006-atlas-for-grids.md)).
 - **Date:** 2026-11-09 · **Flutter:** 3.47.9 (`.fvmrc`)
 - **Code:** [`example/spike_c/`](../../example/spike_c/) (throwaway). Reproduce with the commands in [Reproducing](#reproducing).
 - **Data:** every run's result is one line in [`C-density/results.jsonl`](C-density/results.jsonl). The tables below come from `tool/table.py` on that file.
@@ -167,12 +167,14 @@ The comparison above is consistent, but every absolute number comes from an emul
 
 ## Decision
 
-**Pending: a human picks the default grid mode and updates `PLAN.md`.** This spike makes no decision.
+**Decided by the owner at the gate: grids use atlas mode** ([ADR 0006](../decisions/0006-atlas-for-grids.md)).
 
-For the owner:
-- **What the data supports:** making atlas mode (`StickerAtlasScope`) the **default for grids**, with **content-sized pages** (not a fixed 2048²) and a **2-px gutter**, and keeping standalone textures for small inline counts.
-- **The trade-off:** the atlas spends graphics memory per page instead of per sticker. A 2048² page costs 32 MB (iOS) to 80–112 MB (Android emulator queue depth), and a 2048×512 page costs a quarter of that.
-- **The open question:** where the crossover lies. The spike only measured 60 and 120 stickers, so it can't say at what count (likely somewhere below 30) textures mode is the better default.
+- `StickerAtlasScope` is the documented way to show grids and pickers. Standalone textures stay the default outside a scope, for example inline chat stickers.
+- Atlas pages are sized to their content (≤ 2048 wide, height rounded to 16 px), not fixed at 2048².
+- Every slot has a ≥ 2-px transparent gutter.
+- The owner accepted the emulator/simulator evidence.
+
+The rules under [Implications for later tasks](#implications-for-later-tasks) moved into T4.1–T4.3. The T3.3 and T4.3 perf targets are set from the measured simulator numbers, and real-device budgets come from T3.5. The crossover count at which standalone stops being cheaper is still unmeasured.
 
 ## Reproducing
 
