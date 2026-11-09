@@ -80,6 +80,11 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     if (f.duration_ns <= 0) __builtin_trap();
   }
   if (!index.frames.empty() &&
+      uint64_t{index.video.width} * index.video.height * index.frames.size() >
+          limits.max_total_pixels) {
+    __builtin_trap();
+  }
+  if (!index.frames.empty() &&
       (index.video.width == 0 || index.video.height == 0 ||
        index.video.width > limits.max_dimension ||
        index.video.height > limits.max_dimension)) {

@@ -163,7 +163,7 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 
 **Accept:** golden tests (T1.6) pass for VP8 and VP9 · an alpha-less file gives alpha = 255.
 
-### [ ] T1.5 Limits and probe
+### [x] T1.5 Limits and probe
 **Model** Sonnet 5.5 · `medium` · **Depends** T1.3 · **Track** B
 - Enforce `wt_limits` (max dimension, frames, duration, bytes, total decoded pixels) at sniff, demux and decode time.
 - `wt_probe()` fills `wt_info` with codec, w, h, fps, frame count, duration, has_alpha and has_audio.

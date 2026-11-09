@@ -21,8 +21,10 @@
 //     ends at the first element that can't be a Cluster child.
 //   - Lacing and ContentEncodings on the video track are unsupported.
 //
-// T1.3 enforces limits.max_dimension and limits.max_frames, which bound the
-// index itself. Duration and pixel-budget limits belong to T1.5.
+// Limits (T1.3, T1.5): max_dimension and max_frames bound the index itself and
+// max_total_pixels is checked as each frame is added, so a hostile file is
+// refused before it costs more than max_frames entries. max_duration_ms needs
+// every frame's duration, so it is checked once the whole file is indexed.
 #ifndef WT_DEMUX_WEBM_H_
 #define WT_DEMUX_WEBM_H_
 
@@ -92,12 +94,16 @@ struct WebmIndex {
 };
 
 // Indexes the WebM in `bytes` into *out (which is reset first) and returns
-// out->status. limits must have non-zero max_dimension and max_frames.
+// out->status. Every wt_limits field the demuxer reads must be non-zero
+// (max_dimension, max_frames, max_total_pixels, max_duration_ms), or the
+// result is WT_ERR_INVALID_ARGUMENT.
 //
 // Besides the statuses above: WT_ERR_INVALID_DATA for malformed input or a
 // video track with no frames, WT_ERR_UNSUPPORTED for a well-formed file
 // outside what we play (no VP8/VP9 track, lacing, ContentEncodings), and
-// WT_ERR_LIMIT when the size or frame count exceeds limits.
+// WT_ERR_LIMIT when the size, frame count, decode budget (width x height x
+// frames) or total duration exceeds limits. A limit error wins over
+// truncation and leaves `frames` empty.
 //
 // Never reads outside `bytes`. Every span in the result lies inside it.
 // Thread: background thread (linear in the input size). Reentrant.
