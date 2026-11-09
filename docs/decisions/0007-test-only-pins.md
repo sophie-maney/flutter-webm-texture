@@ -1,6 +1,6 @@
 # 0007: Test-only dependencies are pinned in `third_party/test-deps.lock`
 
-- **Status:** Proposed (T1.1)
+- **Status:** Accepted (T1.1, confirmed by the owner in review)
 - **Date:** 2026-11-09
 
 ## Context
