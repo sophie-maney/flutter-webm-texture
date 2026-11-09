@@ -39,7 +39,7 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 
 **Accept:** `fvm flutter analyze` is clean · `fvm flutter test` passes · the example builds with `fvm flutter build apk --debug` and `fvm flutter build ios --simulator --debug`.
 
-### [ ] T0.2 CI skeleton
+### [x] T0.2 CI skeleton
 **Model** Sonnet 5.5 · `low` · **Depends** T0.1 · **Track** A
 - `.github/workflows/ci.yml`: set up fvm from `.fvmrc`, then format check, analyze, `flutter test`, and example Android + iOS-simulator debug builds. Cache pub and gradle.
 

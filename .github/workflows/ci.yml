@@ -1,0 +1,136 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  FVM_HOME: ${{ github.workspace }}/.fvm_home
+
+jobs:
+  check:
+    name: Format, analyze, test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install fvm
+        run: |
+          curl -fsSL https://fvm.app/install.sh | bash
+          echo "$HOME/fvm/bin" >> "$GITHUB_PATH"
+
+      - name: Cache fvm SDK
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.FVM_HOME }}
+          key: fvm-${{ runner.os }}-${{ hashFiles('.fvmrc') }}
+
+      - name: Cache pub
+        uses: actions/cache@v4
+        with:
+          path: ~/.pub-cache
+          key: pub-${{ runner.os }}-${{ hashFiles('**/pubspec.yaml') }}
+          restore-keys: pub-${{ runner.os }}-
+
+      - name: Install pinned Flutter
+        run: fvm install
+
+      - run: fvm flutter pub get
+      - run: fvm dart format --set-exit-if-changed .
+      - run: fvm flutter analyze
+      - run: fvm flutter test
+
+      - name: clang-format
+        run: |
+          git ls-files 'src/*.cc' 'src/*.h' | xargs -r clang-format --dry-run -Werror
+
+  android:
+    name: Example APK (debug)
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Install fvm
+        run: |
+          curl -fsSL https://fvm.app/install.sh | bash
+          echo "$HOME/fvm/bin" >> "$GITHUB_PATH"
+
+      - name: Cache fvm SDK
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.FVM_HOME }}
+          key: fvm-${{ runner.os }}-${{ hashFiles('.fvmrc') }}
+
+      - name: Cache pub
+        uses: actions/cache@v4
+        with:
+          path: ~/.pub-cache
+          key: pub-${{ runner.os }}-${{ hashFiles('**/pubspec.yaml') }}
+          restore-keys: pub-${{ runner.os }}-
+
+      - name: Cache gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - run: fvm install
+      - run: fvm flutter pub get
+      - name: Build debug APK
+        working-directory: example
+        run: fvm flutter build apk --debug
+
+  ios:
+    name: Example iOS simulator build (debug)
+    needs: check
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install fvm
+        run: |
+          curl -fsSL https://fvm.app/install.sh | bash
+          echo "$HOME/fvm/bin" >> "$GITHUB_PATH"
+
+      - name: Cache fvm SDK
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.FVM_HOME }}
+          key: fvm-${{ runner.os }}-${{ hashFiles('.fvmrc') }}
+
+      - name: Cache pub
+        uses: actions/cache@v4
+        with:
+          path: ~/.pub-cache
+          key: pub-${{ runner.os }}-${{ hashFiles('**/pubspec.yaml') }}
+          restore-keys: pub-${{ runner.os }}-
+
+      - name: Cache CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: example/ios/Pods
+          key: pods-${{ runner.os }}-${{ hashFiles('example/ios/Podfile.lock', 'ios/*.podspec') }}
+          restore-keys: pods-${{ runner.os }}-
+
+      - run: fvm install
+      - run: fvm flutter pub get
+      - name: Build debug simulator app
+        working-directory: example
+        run: fvm flutter build ios --simulator --debug --no-codesign
