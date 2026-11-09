@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.22)
+project(spike_c CXX)
+set(CMAKE_CXX_STANDARD 17)
+add_library(spike_c SHARED spike_c.cc)
+target_compile_options(spike_c PRIVATE -Wall -Wextra -O2 -fno-exceptions -fno-rtti)
+target_link_libraries(spike_c android log)
+target_link_options(spike_c PRIVATE "-Wl,-z,max-page-size=16384")
