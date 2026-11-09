@@ -1,6 +1,6 @@
 # 0001: Sampled, gzipped reference frames
 
-- **Status:** Proposed (T0.3)
+- **Status:** Accepted (T0.3)
 - **Date:** 2026-11-09
 
 ## Context
