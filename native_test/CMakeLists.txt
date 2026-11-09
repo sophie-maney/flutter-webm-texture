@@ -23,8 +23,13 @@ add_executable(wt_native_tests
   api_test.cc
   deps_test.cc
   sanitizer_test.cc
+  source_test.cc
 )
 target_link_libraries(wt_native_tests PRIVATE wt_core GTest::gtest_main)
+# Internal headers (demux/…) are tested directly, besides the public C ABI.
+target_include_directories(wt_native_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../src")
+target_compile_definitions(wt_native_tests PRIVATE
+  WT_TEST_ASSETS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../test_assets")
 target_compile_options(wt_native_tests PRIVATE -Wall -Wextra $<$<BOOL:${WT_WERROR}>:-Werror>)
 
 include(GoogleTest)

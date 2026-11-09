@@ -47,6 +47,8 @@ endif()
 # --- Core -------------------------------------------------------------------
 add_library(wt_core STATIC
   api/wt_api.cc
+  demux/sniff.cc
+  demux/source.cc
 )
 # Consumers include "wt_api.h"; core sources include "api/wt_api.h" etc.
 target_include_directories(wt_core

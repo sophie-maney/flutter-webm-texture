@@ -106,17 +106,6 @@ TEST(SourceTest, MemoryArgumentChecks) {
   EXPECT_EQ(source, nullptr);
 }
 
-TEST(SourceTest, MemoryIsUnimplemented) {
-  const uint8_t byte = 0;
-  const wt_limits limits = DefaultLimits();
-  wt_source* source = nullptr;
-  EXPECT_EQ(wt_source_create_memory(&byte, 1, &limits, &source),
-            WT_ERR_UNIMPLEMENTED);
-  EXPECT_EQ(wt_source_create_memory(&byte, 1, nullptr, &source),
-            WT_ERR_UNIMPLEMENTED);
-  EXPECT_EQ(source, nullptr);
-}
-
 TEST(SourceTest, FileArgumentChecks) {
   wt_source* source = reinterpret_cast<wt_source*>(uintptr_t{1});
   EXPECT_EQ(wt_source_create_file("x.webm", nullptr, nullptr),
@@ -126,13 +115,6 @@ TEST(SourceTest, FileArgumentChecks) {
   EXPECT_EQ(source, nullptr);
   EXPECT_EQ(wt_source_create_file("", nullptr, &source),
             WT_ERR_INVALID_ARGUMENT);
-}
-
-TEST(SourceTest, FileIsUnimplemented) {
-  wt_source* source = nullptr;
-  EXPECT_EQ(wt_source_create_file("x.webm", nullptr, &source),
-            WT_ERR_UNIMPLEMENTED);
-  EXPECT_EQ(source, nullptr);
 }
 
 TEST(ProbeTest, ArgumentChecks) {

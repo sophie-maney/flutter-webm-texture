@@ -8,10 +8,20 @@
 
 #include <cstdint>
 #include <cstring>
+#include <memory>
+#include <new>
+#include <utility>
 
-// The handles are empty until T1.2 (sources) and T1.4 (animations) give them
-// state. Defined here so the destroy functions are already correct.
-struct wt_source {};
+#include "demux/sniff.h"
+#include "demux/source.h"
+
+// The source owns its bytes and the limits every later probe/decode checks.
+// The animation handle stays empty until T1.4 gives it state.
+struct wt_source {
+  std::unique_ptr<wt::ByteSource> bytes;
+  wt_limits limits;
+  wt_format format;  // Sniffed once at creation.
+};
 struct wt_anim {};
 
 namespace {
@@ -29,6 +39,29 @@ bool LimitsValid(const wt_limits* limits) {
   return limits->max_bytes != 0 && limits->max_total_pixels != 0 &&
          limits->max_dimension != 0 && limits->max_frames != 0 &&
          limits->max_duration_ms != 0;
+}
+
+// Wraps bytes in a wt_source once the factory has succeeded.
+wt_status FinishSource(wt_status status, std::unique_ptr<wt::ByteSource> bytes,
+                       const wt_limits& limits, wt_source** out_source) {
+  if (status != WT_OK) return status;
+  wt_source* source = new (std::nothrow) wt_source;
+  if (source == nullptr) return WT_ERR_NO_MEMORY;
+  source->limits = limits;
+  source->format = wt::Sniff(bytes->whole());
+  source->bytes = std::move(bytes);
+  *out_source = source;
+  return WT_OK;
+}
+
+wt_limits ResolveLimits(const wt_limits* limits) {
+  wt_limits resolved;
+  if (limits != nullptr) {
+    resolved = *limits;
+  } else {
+    wt_limits_init_default(&resolved);
+  }
+  return resolved;
 }
 
 bool PixelFormatValid(wt_pixel_format format) {
@@ -90,7 +123,11 @@ wt_status wt_source_create_memory(const uint8_t* data, size_t size,
   if ((data == nullptr && size != 0) || !LimitsValid(limits)) {
     return WT_ERR_INVALID_ARGUMENT;
   }
-  return WT_ERR_UNIMPLEMENTED;  // T1.2
+  const wt_limits resolved = ResolveLimits(limits);
+  std::unique_ptr<wt::ByteSource> bytes;
+  const wt_status status =
+      wt::ByteSource::CreateMemory(data, size, resolved.max_bytes, &bytes);
+  return FinishSource(status, std::move(bytes), resolved, out_source);
 }
 
 wt_status wt_source_create_file(const char* path, const wt_limits* limits,
@@ -100,7 +137,11 @@ wt_status wt_source_create_file(const char* path, const wt_limits* limits,
   if (path == nullptr || path[0] == '\0' || !LimitsValid(limits)) {
     return WT_ERR_INVALID_ARGUMENT;
   }
-  return WT_ERR_UNIMPLEMENTED;  // T1.2
+  const wt_limits resolved = ResolveLimits(limits);
+  std::unique_ptr<wt::ByteSource> bytes;
+  const wt_status status =
+      wt::ByteSource::OpenFile(path, resolved.max_bytes, &bytes);
+  return FinishSource(status, std::move(bytes), resolved, out_source);
 }
 
 void wt_source_destroy(wt_source* source) { delete source; }
