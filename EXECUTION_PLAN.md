@@ -78,7 +78,7 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 
 **Accept:** the script runs from a clean checkout on macOS · `lipo -info` shows the expected slices · the per-slice size is reported in the PR.
 
-### [ ] T0.5 Android prebuilt libraries
+### [x] T0.5 Android prebuilt libraries
 **Model** Opus 5.5 · `high` · **Depends** T0.1 · **Track** C (parallel with T0.4)
 - `third_party/build/build-android.sh`: NDK r28+, API 24, with ABIs arm64-v8a, armeabi-v7a (NEON) and x86_64 (x86 optional, behind a flag). Produces static `.a` files plus headers. Link flags for the later `.so`: `-Wl,-z,max-page-size=16384`.
 

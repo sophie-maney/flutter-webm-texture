@@ -44,6 +44,7 @@ Each command works once the task that introduces it has landed (that task's ID i
 | Analyze | `fvm flutter analyze` |
 | Dart tests | `fvm flutter test` |
 | Build iOS prebuilts [T0.4] | `third_party/build/build-ios.sh` (macOS + Xcode, `brew install cmake nasm`) → `third_party/prebuilt/ios/WebmTextureDeps.xcframework` |
+| Build Android prebuilts [T0.5] | `third_party/build/build-android.sh [--with-x86]` (NDK r28+, `cmake`, `nasm`) → `third_party/prebuilt/android/{include,<abi>/libwebm_texture_deps.a}` |
 | Third-party licenses [T0.4] | `third_party/build/collect-licenses.sh` → `third_party/LICENSES.md` (commit it) |
 | Fetch native libs [T0.6] | `fvm dart run tool/fetch_prebuilts.dart` |
 | Native host tests [T1.1] | `cmake -S . -B build/host -DWT_HOST_TESTS=ON -DWT_SANITIZE=ON && cmake --build build/host -j && ctest --test-dir build/host --output-on-failure` |
