@@ -57,7 +57,7 @@ Platform glue                                 FrameCache (disk: LZ4 YUVA420 fram
 - **Size buckets:** the target size rounds up to buckets in physical pixels (e.g. 64/96/128/192/256/384/512). Decoding happens at display size, never at 512 when the widget is 80 px.
 - **Two render modes, one widget:**
   1. **Standalone** (default): one platform texture per Animation.
-  2. **Atlas** (`StickerAtlasScope`, for grids): one large texture per scope (e.g. 2048², 16-px aligned slots). Native code blits each visible Animation into its slot. Each widget draws the atlas `Texture` clipped and translated to its slot. This avoids 60 platform textures and 60 buffer queues, and matches Telegram iOS's multi-animation renderer.
+  2. **Atlas** (`StickerAtlasScope`, **the mode for grids**, per [ADR 0006](docs/decisions/0006-atlas-for-grids.md)): one texture per atlas page. Pages are up to 2048 px wide and only as tall as the rows they need, rounded up to 16 px; a full 2048² page costs 32 MB (iOS) to 80–112 MB (Android) once the buffer queue is counted. Slots are 16-px aligned, with a ≥ 2-px transparent gutter against bilinear bleed. Native code blits each visible Animation into its slot. Each widget draws the atlas `Texture` clipped and translated to its slot. This avoids 60 platform textures and 60 buffer queues, and matches Telegram iOS's multi-animation renderer.
 - **Scheduler:** a single clock running at min(display Hz, tier cap). Each tick, it queues due frames to a small worker pool. Each Animation has at most one frame in flight, and late frames are dropped rather than queued.
 - **Frame cache:** the first playback decodes and writes `<hash>_<bucket>_v1.wsc` in the background. That file holds a header, per-frame durations, an offset table, and **LZ4-compressed YUVA420** frames (2.5 B/px before compression, versus 4 B/px for RGBA). Later loops and later sessions read only from the cache: LZ4 decompress plus a NEON YUV→RGBA pass per frame. The disk budget defaults to 200 MB with LRU eviction. RAM holds only 2 frame buffers per active Animation, plus atlas memory.
 - **Pausing:** a widget animates only when `TickerMode` is enabled **and** it intersects the viewport. Off-screen widgets inside `cacheExtent` keep their first frame ready. Everything pauses on `AppLifecycleState.paused`.
@@ -127,8 +127,9 @@ tool/                      # fetch_prebuilts, gen_corpus.sh (ffmpeg), bench
 4. **Spike B — texture transparency.** On Android, test `SurfaceProducer` under Impeller Vulkan **and** the OpenGLES fallback, on 3+ real devices. On iOS, test `CVPixelBuffer` BGRA. Verify premultiplied alpha composites correctly over non-opaque backgrounds.
    - **Outcome:** every reachable renderer/producer pairing composites premultiplied alpha correctly (±1/255), on emulators and the simulator, which the owner accepted. The `ui.Image` fallback is dropped. Skia + `manual` lifecycle loses the image in the background, so the glue uses `resetInBackground` and redraws in `onSurfaceAvailable` ([report](docs/spikes/B-texture-alpha.md), [ADR 0005](docs/decisions/0005-no-ui-image-fallback.md)).
 5. **Spike C — density.** On a low-end Android device and an older iPhone, measure 60 standalone textures against a single atlas texture: raster time, memory, and battery.
+   - **Outcome:** the atlas was cheaper on every device and backend (60 stickers: iOS raster p90 2.0 vs 5.9 ms; Android API 37 1.2 vs 18.5 ms, where textures mode couldn't sustain 30 fps updates). Its cost is memory per page, so pages are sized to their content. Grids use atlas mode; standalone stays the default outside a scope. Measured on emulators and the simulator, which the owner accepted ([report](docs/spikes/C-density.md), [ADR 0006](docs/decisions/0006-atlas-for-grids.md)).
 
-**Exit criteria:** alpha is correct on both platforms, and the default grid mode is chosen from the measurements. ~~Fallback if Android textures can't do alpha: a Dart-side `ui.Image` per atlas per tick.~~ Not needed: Spike B showed textures composite alpha correctly ([ADR 0005](docs/decisions/0005-no-ui-image-fallback.md)).
+**Exit criteria:** alpha is correct on both platforms, and the default grid mode is chosen from the measurements (done: atlas, [ADR 0006](docs/decisions/0006-atlas-for-grids.md)). ~~Fallback if Android textures can't do alpha: a Dart-side `ui.Image` per atlas per tick.~~ Not needed: Spike B showed textures composite alpha correctly ([ADR 0005](docs/decisions/0005-no-ui-image-fallback.md)).
 
 ### Phase 1: Native core (host-testable)
 - Format sniffing; WebM demux (tracks, `AlphaMode`, `DefaultDuration`/timestamps, per-frame durations); VP8/VP9 color+alpha decode; libyuv scaling to a bucket and YUVA conversion; `probe()`.
@@ -147,8 +148,9 @@ tool/                      # fetch_prebuilts, gen_corpus.sh (ffmpeg), bench
 - Tier detection on each platform plus runtime downgrades (thermal state, Low Power Mode).
 
 ### Phase 4: Atlas mode
-- `StickerAtlasScope`: slot allocator (shelf packing per bucket), native compositor that writes into one platform buffer, and clipped `Texture` children.
-- Slots are reclaimed when items scroll out, and the atlas grows or splits when full.
+- `StickerAtlasScope`: slot allocator (shelf packing per bucket), native compositor that writes into one platform buffer, and clipped `Texture` children. This is the documented way to show grids ([ADR 0006](docs/decisions/0006-atlas-for-grids.md)).
+- Pages are sized to content (≤ 2048 wide, height rounded to 16 px) and every slot has a ≥ 2-px transparent gutter.
+- Slots are reclaimed when items scroll out, and the atlas grows (taller page) or splits (new page) when full.
 
 ### Phase 5: Animated WebP + GIF
 - `WebPAnimDecoder` (RGBA canvas), converted to the same YUVA cache path.
@@ -166,7 +168,8 @@ tool/                      # fetch_prebuilts, gen_corpus.sh (ffmpeg), bench
 | Risk | Mitigation |
 |---|---|
 | Android `Texture` alpha/premultiply differs between backends | Spike B found no difference ([ADR 0005](docs/decisions/0005-no-ui-image-fallback.md)); the remaining risk is surface lifecycle, handled in T2.2 |
-| Too many platform textures in grids | Atlas mode (Phase 4); Spike C picks the default |
+| Too many platform textures in grids | Grids use atlas mode (Phase 4, [ADR 0006](docs/decisions/0006-atlas-for-grids.md)) |
+| Atlas graphics memory (16 MB per 2048² buffer × queue depth) | Content-sized pages, freed with the scope; memory reported per page |
 | Hostile/malformed user uploads (libvpx has had in-the-wild CVEs) | Size limits, our own limit checks, a demuxer that allocates nothing sized by input (ADR 0004), fuzzing, fast upstream bumps |
 | Binary size per ABI | Decoders only; no highbitdepth; `-Oz` + LTO for our core; report size per ABI in CI |
 | CocoaPods vs SwiftPM both needed during transition | Ship both from one vendored xcframework |
