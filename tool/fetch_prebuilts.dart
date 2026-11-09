@@ -2,7 +2,7 @@
 //
 //   fvm dart run tool/fetch_prebuilts.dart [options]
 //
-// Reads third_party/versions.lock, derives the release tag `deps-<lockhash>`,
+// Reads third_party/versions.lock and third_party/build/, derives the release tag `deps-<hash>`,
 // downloads `SHA256SUMS` and the per-platform archives from that release,
 // verifies every archive against `SHA256SUMS`, and unpacks them into
 // third_party/prebuilt/{android,ios}.
@@ -19,6 +19,7 @@
 //                               WT_PREBUILT_BASE_URL). Used by tests and for
 //                               locally built archives.
 //   --lock FILE                 versions.lock to hash (default: the repo's)
+//   --build-dir DIR             build recipe to hash (default: third_party/build)
 //   --out DIR                   output directory (default: third_party/prebuilt)
 //   --force                     re-fetch even if the marker says it is current
 //   --print-tag                 print the release tag and exit
@@ -77,11 +78,16 @@ class FetchException implements Exception {
 // ---------------------------------------------------------------------------
 // Lock hash
 
-/// The release tag for a `versions.lock` text.
+/// The release tag for a `versions.lock` text plus the build recipe.
 ///
-/// Only the data rows matter: comments, blank lines and column alignment don't
-/// change the tag, so editing the lock's prose does not trigger a rebuild.
-String lockTag(String lockText) {
+/// [recipe] holds the files in `third_party/build/` (name → bytes). The tag
+/// covers them so that changing a build script or flag yields a new release
+/// instead of silently reusing stale binaries (docs/decisions/0003).
+///
+/// Of the lock only the data rows matter: comments, blank lines and column
+/// alignment don't change the tag. Recipe files are hashed byte for byte, in
+/// name order.
+String releaseTag(String lockText, [Map<String, List<int>> recipe = const {}]) {
   final rows = <String>[];
   for (final raw in const LineSplitter().convert(lockText)) {
     final line = raw.trim();
@@ -89,8 +95,21 @@ String lockTag(String lockText) {
     rows.add(line.split(RegExp(r'\s+')).join(' '));
   }
   if (rows.isEmpty) throw FetchException('versions.lock has no entries');
-  final digest = sha256Hex(utf8.encode('${rows.join('\n')}\n'));
+  final text = StringBuffer('${rows.join('\n')}\n');
+  for (final name in recipe.keys.toList()..sort()) {
+    text.write('${sha256Hex(recipe[name]!)}  $name\n');
+  }
+  final digest = sha256Hex(utf8.encode(text.toString()));
   return 'deps-${digest.substring(0, 16)}';
+}
+
+/// Reads the regular files directly inside [dir] as a recipe map.
+Map<String, List<int>> readRecipe(Directory dir) {
+  if (!dir.existsSync()) throw FetchException('${dir.path} not found');
+  return {
+    for (final f in dir.listSync(followLinks: false).whereType<File>())
+      f.uri.pathSegments.last: f.readAsBytesSync(),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -313,6 +332,7 @@ class Options {
     required this.repo,
     required this.baseUrl,
     required this.lockFile,
+    required this.buildDir,
     required this.outDir,
     required this.force,
     required this.printTag,
@@ -322,6 +342,7 @@ class Options {
   final String repo;
   final String? baseUrl;
   final File lockFile;
+  final Directory buildDir;
   final Directory outDir;
   final bool force;
   final bool printTag;
@@ -341,6 +362,7 @@ Options parseArgs(List<String> args, {Map<String, String>? environment}) {
   String? repo = env['WT_PREBUILT_REPO'];
   String? baseUrl = env['WT_PREBUILT_BASE_URL'];
   String? lock;
+  String? buildDir;
   String? out;
   var force = false;
   var printTag = false;
@@ -361,6 +383,8 @@ Options parseArgs(List<String> args, {Map<String, String>? environment}) {
         baseUrl = value(i++, a);
       case '--lock':
         lock = value(i++, a);
+      case '--build-dir':
+        buildDir = value(i++, a);
       case '--out':
         out = value(i++, a);
       case '--force':
@@ -387,6 +411,7 @@ Options parseArgs(List<String> args, {Map<String, String>? environment}) {
     repo: effectiveRepo,
     baseUrl: baseUrl,
     lockFile: File(lock ?? '${root.path}/third_party/versions.lock'),
+    buildDir: Directory(buildDir ?? '${root.path}/third_party/build'),
     outDir: Directory(out ?? '${root.path}/third_party/prebuilt'),
     force: force,
     printTag: printTag,
@@ -469,7 +494,10 @@ Future<int> run(List<String> args, {Map<String, String>? environment}) async {
     if (!o.lockFile.existsSync()) {
       throw FetchException('${o.lockFile.path} not found');
     }
-    final tag = lockTag(o.lockFile.readAsStringSync());
+    final tag = releaseTag(
+      o.lockFile.readAsStringSync(),
+      readRecipe(o.buildDir),
+    );
     if (o.printTag) {
       stdout.writeln(tag);
       return 0;
@@ -517,6 +545,7 @@ Usage: fvm dart run tool/fetch_prebuilts.dart [options]
   --repo OWNER/NAME           release repository (default: $defaultRepo)
   --base-url URL              asset directory instead of the GitHub release
   --lock FILE                 versions.lock to hash
+  --build-dir DIR             build recipe to hash (default: third_party/build)
   --out DIR                   output directory (default: third_party/prebuilt)
   --force                     re-fetch even if up to date
   --print-tag                 print the release tag and exit''';

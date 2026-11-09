@@ -61,15 +61,15 @@ void main() {
     });
   });
 
-  group('lockTag', () {
+  group('releaseTag', () {
     const rows = 'libvpx 1.0 aa https://x/a.tar.gz\nlz4 2.0 bb https://x/b\n';
 
     test('ignores comments, blank lines and column alignment', () {
-      final base = lockTag(rows);
+      final base = releaseTag(rows);
       expect(base, matches(RegExp(r'^deps-[0-9a-f]{16}$')));
-      expect(lockTag('# note\n\n$rows'), base);
+      expect(releaseTag('# note\n\n$rows'), base);
       expect(
-        lockTag(
+        releaseTag(
           'libvpx   1.0   aa   https://x/a.tar.gz\n'
           'lz4 2.0 bb https://x/b\n',
         ),
@@ -78,13 +78,32 @@ void main() {
     });
 
     test('changes when any row changes', () {
-      expect(lockTag(rows.replaceFirst('1.0', '1.1')), isNot(lockTag(rows)));
-      expect(lockTag(rows.replaceFirst('bb', 'bc')), isNot(lockTag(rows)));
+      expect(
+        releaseTag(rows.replaceFirst('1.0', '1.1')),
+        isNot(releaseTag(rows)),
+      );
+      expect(
+        releaseTag(rows.replaceFirst('bb', 'bc')),
+        isNot(releaseTag(rows)),
+      );
+    });
+
+    test('covers the build recipe, in name order', () {
+      final a = utf8.encode('a');
+      final b = utf8.encode('b');
+      final base = releaseTag(rows, {'x.sh': a, 'y.sh': b});
+      expect(base, isNot(releaseTag(rows)));
+      expect(releaseTag(rows, {'y.sh': b, 'x.sh': a}), base);
+      expect(
+        releaseTag(rows, {'x.sh': a, 'y.sh': utf8.encode('c')}),
+        isNot(base),
+      );
+      expect(releaseTag(rows, {'x.sh': a, 'z.sh': b}), isNot(base));
     });
 
     test('rejects an empty lock', () {
       expect(
-        () => lockTag('# only comments\n'),
+        () => releaseTag('# only comments\n'),
         throwsA(isA<FetchException>()),
       );
     });
@@ -117,12 +136,15 @@ void main() {
     late Directory release;
     late Directory out;
     late File lock;
+    late Directory buildDir;
 
     List<String> args([List<String> extra = const []]) => [
       '--base-url',
       release.uri.toString(),
       '--lock',
       lock.path,
+      '--build-dir',
+      buildDir.path,
       '--out',
       out.path,
       ...extra,
@@ -172,6 +194,8 @@ void main() {
       tmp = Directory.systemTemp.createTempSync('fetch_prebuilts_test');
       release = Directory('${tmp.path}/release')..createSync();
       out = Directory('${tmp.path}/prebuilt');
+      buildDir = Directory('${tmp.path}/build')..createSync();
+      File('${buildDir.path}/build.sh').writeAsStringSync('make\n');
       lock = File('${tmp.path}/versions.lock')
         ..writeAsStringSync('libvpx 1.0 aa https://x/a.tar.gz\n');
       await makeArchive('android', fillAndroid);
@@ -193,7 +217,7 @@ void main() {
             .existsSync(),
         isTrue,
       );
-      final tag = lockTag(lock.readAsStringSync());
+      final tag = releaseTag(lock.readAsStringSync(), readRecipe(buildDir));
       expect(
         File('${out.path}/android/.release').readAsStringSync().trim(),
         tag,
@@ -209,6 +233,13 @@ void main() {
     test('a changed lock refetches', () async {
       expect(await _run(args()), 0);
       lock.writeAsStringSync('libvpx 1.1 aa https://x/a.tar.gz\n');
+      release.deleteSync(recursive: true);
+      expect(await _run(args()), 1);
+    });
+
+    test('a changed build script refetches', () async {
+      expect(await _run(args()), 0);
+      File('${buildDir.path}/build.sh').writeAsStringSync('make -j\n');
       release.deleteSync(recursive: true);
       expect(await _run(args()), 1);
     });
@@ -295,7 +326,16 @@ void main() {
     });
 
     test('--print-tag prints the tag without touching the network', () async {
-      expect(await _run(['--lock', lock.path, '--print-tag']), 0);
+      expect(
+        await _run([
+          '--lock',
+          lock.path,
+          '--build-dir',
+          buildDir.path,
+          '--print-tag',
+        ]),
+        0,
+      );
     });
 
     test('bad arguments exit 64', () async {

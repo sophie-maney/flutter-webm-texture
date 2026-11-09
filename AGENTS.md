@@ -74,7 +74,7 @@ Sticker files come from other users, so treat every input as hostile.
 
 ## Native libraries
 - Versions and sha256s live only in `third_party/versions.lock`. Bump them via a PR that reruns the prebuilt workflow.
-- The release tag `deps-<lockhash>` hashes only the `versions.lock` rows. After changing a build script or flag without touching the lock, run the Prebuilts workflow manually with `force` so the release is rebuilt.
+- The release tag `deps-<hash>` covers the `versions.lock` rows and every file in `third_party/build/`, so changing either gets a fresh release. `force` on the Prebuilts workflow replaces an existing one.
 - Never commit binaries. `third_party/prebuilt/` is gitignored and filled by `tool/fetch_prebuilts.dart`.
 - Android `.so` files must be 16 KB page aligned. Check with `llvm-readelf -l <so> | grep LOAD`, where alignment must be `0x4000`.
 

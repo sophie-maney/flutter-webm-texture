@@ -1,18 +1,18 @@
 name: Prebuilts
 
 # Builds the native dependency archives (third_party/build/*) and publishes
-# them to a GitHub Release named `deps-<lockhash>`, together with SHA256SUMS.
+# them to a GitHub Release named `deps-<hash>`, together with SHA256SUMS.
 # tool/fetch_prebuilts.dart derives the same tag from third_party/versions.lock
-# and downloads from that release, so the tag is computed by that tool and
-# nowhere else.
+# and third_party/build/ and downloads from that release, so the tag is computed
+# by that tool and nowhere else.
 #
 # - Pull requests build both platforms to prove the change builds; they never
 #   publish.
 # - A push to main publishes only when the release for the current lock does not
 #   exist yet.
-# - A manual run with `force` rebuilds and replaces an existing release. Use it
-#   after changing a build script or flag without touching versions.lock: the
-#   tag covers the lock rows only, so it does not change by itself.
+# - A manual run with `force` rebuilds and replaces an existing release, e.g.
+#   to re-run after a flaky upstream. Lock and build-script changes get a new
+#   tag on their own.
 
 on:
   push:

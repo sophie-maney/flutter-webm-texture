@@ -86,7 +86,7 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 
 ### [x] T0.6 Prebuilt CI + fetch tool
 **Model** Sonnet 5.5 · `medium` · **Depends** T0.4, T0.5 · **Track** C
-- `.github/workflows/prebuilts.yml`: runs on changes to `third_party/**` or on manual dispatch. Builds both platforms and uploads to a GitHub Release `deps-<lockhash>` with `SHA256SUMS`.
+- `.github/workflows/prebuilts.yml`: runs on changes to `third_party/**` or on manual dispatch. Builds both platforms and uploads to a GitHub Release `deps-<hash>` with `SHA256SUMS`, where the hash covers `versions.lock` and `third_party/build/` ([ADR 0003](docs/decisions/0003-release-tag-covers-build-recipe.md)).
 - `tool/fetch_prebuilts.dart`: reads `versions.lock`, downloads the matching release, verifies sha256 and unpacks into `third_party/prebuilt/{android,ios}`. It must fail closed on a mismatch.
 
 **Accept:** a fresh clone followed by `fvm dart run tool/fetch_prebuilts.dart` populates `prebuilt/` · a tampered checksum fails.
