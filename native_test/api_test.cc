@@ -1,6 +1,5 @@
-// Tests for the C ABI surface in src/api/wt_api.h (T1.1: argument checks and
-// stubs). Later tasks replace the WT_ERR_UNIMPLEMENTED expectations with real
-// behaviour.
+// Tests for the C ABI surface in src/api/wt_api.h: argument checks and
+// stubs. Behaviour has its own suites (source_test.cc, anim_test.cc).
 #include <cstdint>
 #include <cstring>
 #include <set>

@@ -12,8 +12,8 @@
 # libFuzzer writes new inputs into the first corpus directory, so committed
 # seeds (fuzz/corpus/, test_assets/) always go after a scratch directory.
 #
-# T1.1 added the wiring and fuzz_probe, and T1.3 the demux-only fuzz_webm.
-# T1.7 extends fuzz_webm to decoding, adds fuzz_sniff, and owns the CI runs.
+# T1.1 added the wiring and fuzz_probe, T1.3 fuzz_webm's demuxing and T1.4
+# its decoding. T1.7 adds fuzz_sniff and owns the timed and nightly CI runs.
 function(wt_add_fuzzer name)
   add_executable(${name} ${ARGN})
   target_link_libraries(${name} PRIVATE wt_core)
