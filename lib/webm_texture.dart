@@ -1,4 +1,3 @@
-
 import 'webm_texture_platform_interface.dart';
 
 class WebmTexture {
