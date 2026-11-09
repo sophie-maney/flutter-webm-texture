@@ -28,6 +28,7 @@ add_executable(wt_native_tests
   api_test.cc
   decode_test.cc
   deps_test.cc
+  golden_test.cc
   manifest.cc
   probe_test.cc
   ref_frames.cc

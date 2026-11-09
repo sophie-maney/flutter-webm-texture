@@ -30,6 +30,13 @@ std::vector<uint8_t> BoxDownscale(const std::vector<uint8_t>& rgba,
                                   uint32_t width, uint32_t height,
                                   uint32_t factor);
 
+// Area-averages 4-byte pixels to any smaller size (each output pixel is the
+// coverage-weighted mean of the source pixels it spans). Needs
+// dst_w <= width and dst_h <= height.
+std::vector<uint8_t> AreaDownscale(const std::vector<uint8_t>& rgba,
+                                   uint32_t width, uint32_t height,
+                                   uint32_t dst_w, uint32_t dst_h);
+
 }  // namespace wt_test
 
 #endif  // WT_NATIVE_TEST_REF_FRAMES_H_
