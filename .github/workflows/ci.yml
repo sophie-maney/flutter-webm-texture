@@ -44,6 +44,9 @@ jobs:
         run: fvm install
 
       - run: fvm flutter pub get
+      # Spike B app (T0.8) is a separate Flutter app; analyze needs its deps.
+      - run: fvm flutter pub get
+        working-directory: example/spike_b
       - run: fvm dart format --set-exit-if-changed .
       - run: fvm flutter analyze
       - run: fvm flutter test

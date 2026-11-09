@@ -79,5 +79,5 @@ Sticker files come from other users, so treat every input as hostile.
 - Android `.so` files must be 16 KB page aligned. Check with `llvm-readelf -l <so> | grep LOAD`, where alignment must be `0x4000`.
 
 ## Devices
-- Prefer the Android emulator (API 24 and the latest) and the iOS Simulator (iOS 15 and the latest).
+- Prefer the Android emulator (API 24 and the latest) and the latest iOS Simulator. No iOS 15 simulator runtime is available, so skip iOS 15.
 - Tasks marked **needs real device** (transparency and performance spikes, benchmarks) must say which device was used. If you have no device, stop and ask; don't substitute an emulator silently.
