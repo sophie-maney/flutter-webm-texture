@@ -22,7 +22,7 @@ lib/                 Dart public API (lib/webm_texture.dart) + lib/src/ internal
 pigeons/             Pigeon definitions → generated code in lib/src/gen, android/, ios/
 src/                 C++17 core (demux/ decode/ convert/ cache/ sched/ atlas/ api/)
   api/wt_api.h       The ONLY C ABI surface (FFI + platform glue include this)
-third_party/         versions.lock, build scripts; prebuilt/ is gitignored
+third_party/         versions.lock, test-deps.lock, build scripts; prebuilt/ is gitignored
 android/             Kotlin plugin + JNI + CMake
 ios/webm_texture/    Package.swift + .podspec, Swift + ObjC++ shim
 native_test/         GoogleTest host tests
@@ -30,7 +30,7 @@ fuzz/                libFuzzer targets + seed corpus
 test/                Dart unit/widget tests
 test_assets/         Generated corpus (tool/gen_corpus.sh) + reference frames
 example/             Demo app + integration_test/
-tool/                fetch_prebuilts.dart, gen_corpus.sh, bench scripts
+tool/                fetch_prebuilts.dart, build_host_deps.sh, gen_corpus.sh, bench scripts
 docs/                spikes/, decisions/, cache-format.md
 ```
 
@@ -40,13 +40,14 @@ Each command works once the task that introduces it has landed (that task's ID i
 | Purpose | Command |
 |---|---|
 | Deps | `fvm flutter pub get` |
-| Format | `fvm dart format --set-exit-if-changed .` · `clang-format --dry-run -Werror $(git ls-files 'src/*.cc' 'src/*.h')` |
+| Format | `fvm dart format --set-exit-if-changed .` · `clang-format --dry-run -Werror $(git ls-files 'src/*.cc' 'src/*.h' 'native_test/*.cc' 'native_test/*.c' 'fuzz/*.cc')` (clang-format 23.1.5, as in CI) |
 | Analyze | `fvm flutter analyze` |
 | Dart tests | `fvm flutter test` |
 | Build iOS prebuilts [T0.4] | `third_party/build/build-ios.sh` (macOS + Xcode, `brew install cmake nasm`) → `third_party/prebuilt/ios/WebmTextureDeps.xcframework` |
 | Build Android prebuilts [T0.5] | `third_party/build/build-android.sh [--with-x86]` (NDK r28+, `cmake`, `nasm`) → `third_party/prebuilt/android/{include,<abi>/libwebm_texture_deps.a}` |
 | Third-party licenses [T0.4] | `third_party/build/collect-licenses.sh` → `third_party/LICENSES.md` (commit it) |
 | Fetch native libs [T0.6] | `fvm dart run tool/fetch_prebuilts.dart` |
+| Host deps [T1.1] | `tool/build_host_deps.sh` (`cmake`, `nasm` on x86_64) → `build/deps/host-core/prefix`; rerun after `versions.lock` or `test-deps.lock` changes |
 | Native host tests [T1.1] | `cmake -S . -B build/host -DWT_HOST_TESTS=ON -DWT_SANITIZE=ON && cmake --build build/host -j && ctest --test-dir build/host --output-on-failure` |
 | Fuzz (60 s smoke) [T1.7] | `cmake -S . -B build/fuzz -DWT_FUZZ=ON -DCMAKE_CXX_COMPILER=clang++ && cmake --build build/fuzz -j && build/fuzz/fuzz_webm -max_total_time=60 fuzz/corpus/webm` |
 | Regenerate bindings | `fvm dart run pigeon --input pigeons/messages.dart` · `fvm dart run ffigen --config ffigen.yaml` |
@@ -73,7 +74,7 @@ Sticker files come from other users, so treat every input as hostile.
 - Host tests run under ASan/UBSan. A sanitizer finding blocks merge.
 
 ## Native libraries
-- Versions and sha256s live only in `third_party/versions.lock`. Bump them via a PR that reruns the prebuilt workflow.
+- Versions and sha256s live only in `third_party/versions.lock` (shipped libraries) and `third_party/test-deps.lock` (test-only tools, never linked into the plugin; [ADR 0007](docs/decisions/0007-test-only-pins.md)). Bump shipped libraries via a PR that reruns the prebuilt workflow.
 - The release tag `deps-<hash>` covers the `versions.lock` rows and every file in `third_party/build/`, so changing either gets a fresh release. `force` on the Prebuilts workflow replaces an existing one.
 - Never commit binaries. `third_party/prebuilt/` is gitignored and filled by `tool/fetch_prebuilts.dart`.
 - Android `.so` files must be 16 KB page aligned. Check with `llvm-readelf -l <so> | grep LOAD`, where alignment must be `0x4000`.
