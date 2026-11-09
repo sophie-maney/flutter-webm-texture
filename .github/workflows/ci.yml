@@ -101,8 +101,15 @@ jobs:
     name: Example iOS simulator build (debug)
     needs: check
     runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: webm_texture
     steps:
+      # SwiftPM derives the package identity from the directory name, which must
+      # match the plugin name rather than the repository name.
       - uses: actions/checkout@v4
+        with:
+          path: webm_texture
 
       - name: Install fvm
         run: |
@@ -113,24 +120,24 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.FVM_HOME }}
-          key: fvm-${{ runner.os }}-${{ hashFiles('.fvmrc') }}
+          key: fvm-${{ runner.os }}-${{ hashFiles('webm_texture/.fvmrc') }}
 
       - name: Cache pub
         uses: actions/cache@v4
         with:
           path: ~/.pub-cache
-          key: pub-${{ runner.os }}-${{ hashFiles('**/pubspec.yaml') }}
+          key: pub-${{ runner.os }}-${{ hashFiles('webm_texture/**/pubspec.yaml') }}
           restore-keys: pub-${{ runner.os }}-
 
       - name: Cache CocoaPods
         uses: actions/cache@v4
         with:
-          path: example/ios/Pods
-          key: pods-${{ runner.os }}-${{ hashFiles('example/ios/Podfile.lock', 'ios/*.podspec') }}
+          path: webm_texture/example/ios/Pods
+          key: pods-${{ runner.os }}-${{ hashFiles('webm_texture/example/ios/Podfile.lock', 'webm_texture/ios/*.podspec') }}
           restore-keys: pods-${{ runner.os }}-
 
       - run: fvm install
       - run: fvm flutter pub get
       - name: Build debug simulator app
-        working-directory: example
+        working-directory: webm_texture/example
         run: fvm flutter build ios --simulator --debug --no-codesign
