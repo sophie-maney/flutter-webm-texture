@@ -505,6 +505,14 @@ class Parser {
     if (out_->frames.size() >= limits_.max_frames) {
       return Fail(WT_ERR_LIMIT, "more frames than max_frames");
     }
+    // Decode budget: every frame is decoded at source size, so the pass costs
+    // width x height per frame. Both factors are <= max_dimension (checked
+    // with the track) and the count is < max_frames <= 2^32, so this cannot
+    // overflow 64 bits.
+    const uint64_t pixels = uint64_t{out_->video.width} * out_->video.height;
+    if ((out_->frames.size() + 1) * pixels > limits_.max_total_pixels) {
+      return Fail(WT_ERR_LIMIT, "decode budget over max_total_pixels");
+    }
     // Pitfall 3: BlockAdditions mean alpha only when AlphaMode is 1.
     if (!out_->video.has_alpha()) f.alpha = Span{};
     // Pitfall 1: the streams come from independent encoders, so a frame is a
@@ -642,7 +650,8 @@ void FinishDurations(WebmIndex* index) {
 wt_status DemuxWebm(ByteView bytes, const wt_limits& limits, WebmIndex* out) {
   *out = WebmIndex();
   if ((bytes.data == nullptr && bytes.size != 0) || limits.max_frames == 0 ||
-      limits.max_dimension == 0) {
+      limits.max_dimension == 0 || limits.max_total_pixels == 0 ||
+      limits.max_duration_ms == 0) {
     out->status = WT_ERR_INVALID_ARGUMENT;
     out->error = "bad arguments";
     return out->status;
@@ -659,6 +668,22 @@ wt_status DemuxWebm(ByteView bytes, const wt_limits& limits, WebmIndex* out) {
   }
   if (s != WT_OK && s != WT_ERR_TRUNCATED) out->frames.clear();
   FinishDurations(out);
+  if (s == WT_OK || s == WT_ERR_TRUNCATED) {
+    // Frames are pushed in file order, so the duration is only known now.
+    // Stops at the first frame that pushes the sum over the limit.
+    const int64_t max_ns =
+        static_cast<int64_t>(limits.max_duration_ms) * 1000000;
+    int64_t total_ns = 0;
+    for (const WebmFrame& f : out->frames) {
+      if (__builtin_add_overflow(total_ns, f.duration_ns, &total_ns) ||
+          total_ns > max_ns) {
+        s = WT_ERR_LIMIT;
+        out->error = "duration over max_duration_ms";
+        out->frames.clear();
+        break;
+      }
+    }
+  }
   out->status = s;
   return s;
 }

@@ -1,9 +1,9 @@
 // wt::Anim: the playback cursor behind a wt_anim handle.
 //
-// T1.4 scope: WebM (VP8/VP9, with or without alpha) only, decoded
-// synchronously on every NextFrame with no frame cache. WebP and GIF arrive
-// in Phase 5, the cache in T3.1, and limit enforcement beyond what the
-// demuxer checks (duration, pixel budget) in T1.5.
+// Scope: WebM (VP8/VP9, with or without alpha) only, decoded synchronously on
+// every NextFrame with no frame cache. WebP and GIF arrive in Phase 5 and the
+// cache in T3.1. Limits (wt_limits) are enforced when the file is indexed
+// (ProbeSource) and, as a guard, while decoding.
 //
 // Per frame: decode at source size (VpxDecoder) -> scale into a YUVA 4:2:0
 // frame at the output size (YuvaImage) -> premultiplied RGBA/BGRA in the
@@ -31,13 +31,26 @@ namespace wt {
 // WT_ERR_TRUNCATED. Durations saturate rather than overflow.
 void WebmInfo(const WebmIndex& index, wt_info* out);
 
+// Reads the headers and frame index of `bytes` (sniffed as `format`) and
+// fills *out_info, enforcing every wt_limits field except max_bytes, which
+// the source checked on creation. This is wt_probe, and wt_anim_create runs it
+// too, so both fail identically. *out_info is zeroed on failure.
+//
+// Errors: WT_ERR_INVALID_DATA for an unknown format or malformed input,
+// WT_ERR_UNSUPPORTED for WebP and GIF (Phase 5) and files the core won't
+// play, WT_ERR_TRUNCATED when no complete frame exists, WT_ERR_LIMIT.
+// A file cut after its first frame succeeds with out_info->truncated set.
+// If `index` is non-null it receives the frame index on success.
+// Thread: background thread.
+wt_status ProbeSource(ByteView bytes, wt_format format, const wt_limits& limits,
+                      wt_info* out_info, WebmIndex* index);
+
 class Anim {
  public:
   // Demuxes `bytes` (which must outlive the Anim) and prepares to decode it
   // at width x height, or at source size for 0 x 0. A non-zero size must be
   // in 1..limits.max_dimension on both axes (WT_ERR_INVALID_ARGUMENT).
-  // Fails like the demuxer for unplayable input; WebP and GIF are
-  // WT_ERR_UNSUPPORTED until Phase 5.
+  // Fails like ProbeSource for unplayable input.
   static wt_status Create(ByteView bytes, wt_format format,
                           const wt_limits& limits, uint32_t width,
                           uint32_t height, std::unique_ptr<Anim>* out);
@@ -77,6 +90,11 @@ class Anim {
   // The last packet decoded, so the decoder can continue from next_decode_
   // rather than waiting for a keyframe.
   bool decoder_healthy_ = true;
+  // Decode budget of the current pass: source-size pixels decoded since the
+  // last Seek (or creation). ProbeSource already bounds a full pass; this
+  // catches a decoder that does more work than the index promised.
+  uint64_t pass_pixels_ = 0;
+  uint64_t max_pass_pixels_ = 0;
   uint32_t cursor_ = 0;       // Next frame NextFrame returns.
   uint32_t next_decode_ = 0;  // Next frame the decoder expects.
 };

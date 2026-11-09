@@ -54,8 +54,10 @@
  * Android writes WT_PIXEL_FORMAT_RGBA8888 and iOS WT_PIXEL_FORMAT_BGRA8888.
  *
  * Status of this header (T1.1): the types and signatures are final for Phase 1.
- * Functions that later tasks implement return WT_ERR_UNIMPLEMENTED after
- * checking their arguments (as of T1.4, only wt_probe, which is T1.5's).
+ * As of T1.5 every function is implemented for WebM; WebP and GIF sources
+ * sniff correctly but wt_probe and wt_anim_create return WT_ERR_UNSUPPORTED
+ * for them until Phase 5. WT_ERR_UNIMPLEMENTED is reserved for functions a
+ * later phase adds before it fills them in.
  * The frame cache, scheduler and atlas (Phases 3-4) will add functions here;
  * they won't change the existing ones without bumping WT_API_VERSION.
  */
@@ -273,6 +275,16 @@ WT_API void wt_source_destroy(wt_source* source);
  * Decodes no pixels. Returns WT_ERR_INVALID_DATA, WT_ERR_UNSUPPORTED,
  * WT_ERR_TRUNCATED or WT_ERR_LIMIT for input the core won't play; *out_info is
  * then zeroed.
+ *
+ * Every wt_limits field of the source is enforced here, so a file that probes
+ * OK is within them: max_dimension (WT_ERR_LIMIT for a larger width or
+ * height), max_frames, max_duration_ms, and max_total_pixels (width x height
+ * x frame_count). max_bytes was checked when the source was created. The
+ * frame vector is bounded by max_frames, so a hostile file can't make the
+ * index grow past it.
+ *
+ * Probing the same source again returns the same result; wt_anim_create
+ * applies the same checks.
  * Thread: background thread. Safe to call concurrently on the same source.
  */
 WT_API wt_status wt_probe(wt_source* source, wt_info* out_info);

@@ -56,6 +56,32 @@ void WebmInfo(const WebmIndex& index, wt_info* out) {
   out->truncated = index.status == WT_ERR_TRUNCATED;
 }
 
+wt_status ProbeSource(ByteView bytes, wt_format format, const wt_limits& limits,
+                      wt_info* out_info, WebmIndex* index) {
+  std::memset(out_info, 0, sizeof(*out_info));
+  switch (format) {
+    case WT_FORMAT_WEBM:
+      break;
+    case WT_FORMAT_WEBP:
+    case WT_FORMAT_GIF:
+      return WT_ERR_UNSUPPORTED;  // Phase 5.
+    default:
+      return WT_ERR_INVALID_DATA;
+  }
+  WebmIndex local;
+  WebmIndex* idx = index != nullptr ? index : &local;
+  const wt_status demux = DemuxWebm(bytes, limits, idx);
+  // A truncated file plays the complete frames before the cut (ADR 0008).
+  if (demux != WT_OK && !(demux == WT_ERR_TRUNCATED && !idx->frames.empty())) {
+    return demux;
+  }
+  if (idx->frames.empty() || idx->video.width == 0 || idx->video.height == 0) {
+    return WT_ERR_INTERNAL;  // The demuxer promises a playable track.
+  }
+  WebmInfo(*idx, out_info);
+  return WT_OK;
+}
+
 Anim::~Anim() = default;
 
 wt_status Anim::Create(ByteView bytes, wt_format format,
@@ -66,30 +92,15 @@ wt_status Anim::Create(ByteView bytes, wt_format format,
       height > limits.max_dimension) {
     return WT_ERR_INVALID_ARGUMENT;
   }
-  switch (format) {
-    case WT_FORMAT_WEBM:
-      break;
-    case WT_FORMAT_WEBP:
-    case WT_FORMAT_GIF:
-      return WT_ERR_UNSUPPORTED;  // Phase 5.
-    default:
-      return WT_ERR_INVALID_DATA;
-  }
 
   std::unique_ptr<Anim> anim(new (std::nothrow) Anim);
   if (anim == nullptr) return WT_ERR_NO_MEMORY;
   anim->bytes_ = bytes;
-  const wt_status demux = DemuxWebm(bytes, limits, &anim->index_);
-  // A truncated file plays the complete frames before the cut (ADR 0008).
-  if (demux != WT_OK &&
-      !(demux == WT_ERR_TRUNCATED && !anim->index_.frames.empty())) {
-    return demux;
-  }
+  const wt_status probe =
+      ProbeSource(bytes, format, limits, &anim->info_, &anim->index_);
+  if (probe != WT_OK) return probe;
   const WebmVideoTrack& track = anim->index_.video;
-  if (anim->index_.frames.empty() || track.width == 0 || track.height == 0) {
-    return WT_ERR_INTERNAL;  // The demuxer promises a playable track.
-  }
-  WebmInfo(anim->index_, &anim->info_);
+  anim->max_pass_pixels_ = limits.max_total_pixels;
 
   wt_status s = anim->decoder_.Init(track.codec, track.width, track.height,
                                     track.has_alpha());
@@ -122,11 +133,14 @@ wt_status Anim::Seek(uint32_t frame_index) {
     next_decode_ = start;
   }
   cursor_ = frame_index;
+  pass_pixels_ = 0;
   return WT_OK;
 }
 
 wt_status Anim::DecodeFrame(uint32_t index, bool present) {
   const WebmFrame& f = index_.frames[index];
+  pass_pixels_ += uint64_t{info_.width} * info_.height;
+  if (pass_pixels_ > max_pass_pixels_) return WT_ERR_LIMIT;
   VpxDecoder::Output out;
   const wt_status s = decoder_.Decode(SpanView(bytes_, f.data),
                                       SpanView(bytes_, f.alpha), &out);

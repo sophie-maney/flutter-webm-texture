@@ -170,7 +170,8 @@ wt_status wt_probe(wt_source* source, wt_info* out_info) {
   if (out_info == nullptr) return WT_ERR_INVALID_ARGUMENT;
   std::memset(out_info, 0, sizeof(*out_info));
   if (source == nullptr) return WT_ERR_INVALID_ARGUMENT;
-  return WT_ERR_UNIMPLEMENTED;  // T1.5
+  return wt::ProbeSource(source->bytes->whole(), source->format, source->limits,
+                         out_info, nullptr);
 }
 
 wt_status wt_anim_create(wt_source* source, uint32_t width, uint32_t height,

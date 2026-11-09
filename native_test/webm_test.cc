@@ -579,6 +579,52 @@ TEST(WebmDemuxTest, DimensionLimit) {
       WT_ERR_LIMIT);
 }
 
+// Decode budget: width x height x frames, checked as frames are added.
+TEST(WebmDemuxTest, PixelBudget) {
+  wt::WebmIndex index;
+  const Bytes three =
+      Cat({SimpleBlock(1, 0), SimpleBlock(1, 33), SimpleBlock(1, 66)});
+  const Bytes file = File(VideoTrack(1, "V_VP9", 64, 48), Cluster(0, three));
+  wt_limits limits = DefaultLimits();
+  limits.max_total_pixels = uint64_t{64} * 48 * 3;
+  EXPECT_EQ(Demux(file, &index, limits), WT_OK);
+  limits.max_total_pixels -= 1;
+  EXPECT_EQ(Demux(file, &index, limits), WT_ERR_LIMIT);
+  EXPECT_TRUE(index.frames.empty());
+  // One frame at the full default dimension fits the default budget.
+  EXPECT_EQ(Demux(File(VideoTrack(1, "V_VP9", 1024, 1024),
+                       Cluster(0, SimpleBlock(1, 0))),
+                  &index),
+            WT_OK);
+}
+
+// Duration: the sum of every frame's display duration, checked at the end.
+TEST(WebmDemuxTest, DurationLimit) {
+  wt::WebmIndex index;
+  // Frames at 0, 40 and 100 ms; the last takes its BlockDuration (25 ms).
+  const Bytes three = Cat({SimpleBlock(1, 0), SimpleBlock(1, 40),
+                           BlockGroup(1, 100, U(kBlockDuration, 25))});
+  const Bytes file = File(VideoTrack(1), Cluster(0, three));
+  wt_limits limits = DefaultLimits();
+  limits.max_duration_ms = 125;
+  EXPECT_EQ(Demux(file, &index, limits), WT_OK);
+  limits.max_duration_ms = 124;
+  EXPECT_EQ(Demux(file, &index, limits), WT_ERR_LIMIT);
+  EXPECT_TRUE(index.frames.empty());
+  EXPECT_STREQ(index.error, "duration over max_duration_ms");
+}
+
+TEST(WebmDemuxTest, ZeroLimitsAreInvalidArguments) {
+  wt::WebmIndex index;
+  const Bytes file = OneFrameFile();
+  wt_limits limits = DefaultLimits();
+  limits.max_total_pixels = 0;
+  EXPECT_EQ(Demux(file, &index, limits), WT_ERR_INVALID_ARGUMENT);
+  limits = DefaultLimits();
+  limits.max_duration_ms = 0;
+  EXPECT_EQ(Demux(file, &index, limits), WT_ERR_INVALID_ARGUMENT);
+}
+
 TEST(WebmDemuxTest, LacedVideoIsUnsupported) {
   wt::WebmIndex index;
   for (uint8_t lacing : {0x02, 0x04, 0x06}) {

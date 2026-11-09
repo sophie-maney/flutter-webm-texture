@@ -29,6 +29,7 @@ add_executable(wt_native_tests
   decode_test.cc
   deps_test.cc
   manifest.cc
+  probe_test.cc
   ref_frames.cc
   sanitizer_test.cc
   source_test.cc
