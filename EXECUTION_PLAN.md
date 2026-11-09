@@ -155,7 +155,7 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 
 **Accept:** index tests against `manifest.json` for every corpus WebM · `truncated.webm` produces a partial index plus a `WT_ERR_TRUNCATED` flag and no crash · a demux-only libFuzzer target runs 60 s clean (AGENTS.md: a new parser ships with a fuzz target).
 
-### [ ] T1.4 VPX decode, alpha merge and scaling
+### [x] T1.4 VPX decode, alpha merge and scaling
 **Model** Opus 5.5 · `high` · **Depends** T1.3 · **Track** A
 - `src/decode/vpx_decoder.*`: a colour context plus a lazily created alpha context. Output is YUVA420 at source size.
 - `src/convert/`: libyuv scale to the size bucket (64/96/128/192/256/384/512), and conversion of YUVA420 to premultiplied RGBA or BGRA into a caller-provided buffer with stride.

@@ -55,9 +55,9 @@
  *
  * Status of this header (T1.1): the types and signatures are final for Phase 1.
  * Functions that later tasks implement return WT_ERR_UNIMPLEMENTED after
- * checking their arguments. The frame cache, scheduler and atlas (Phases 3-4)
- * will add functions here; they won't change the existing ones without bumping
- * WT_API_VERSION.
+ * checking their arguments (as of T1.4, only wt_probe, which is T1.5's).
+ * The frame cache, scheduler and atlas (Phases 3-4) will add functions here;
+ * they won't change the existing ones without bumping WT_API_VERSION.
  */
 #ifndef WT_API_H_
 #define WT_API_H_
@@ -196,7 +196,7 @@ typedef struct wt_info {
 typedef struct wt_frame_info {
   uint32_t index;       /* 0-based frame number. */
   uint32_t duration_ms; /* How long to show this frame. */
-  int64_t pts_ms;       /* Presentation time from the start of the stream. */
+  int64_t pts_ms;       /* Presentation time relative to frame 0. */
 } wt_frame_info;
 
 /* Encoded sticker bytes, from memory or a file. Opaque. */
@@ -333,8 +333,12 @@ WT_API wt_status wt_anim_seek(wt_anim* anim, uint32_t frame_index);
  * out_frame:    receives the frame's metadata; may be NULL.
  *
  * Returns WT_END, writing nothing, when the cursor is past the last frame.
- * On an error dst may hold a partial frame; the caller should keep showing
- * the previous one.
+ * Returns WT_ERR_INVALID_ARGUMENT for a buffer that is too small, without
+ * decoding or advancing. Any other error still advances the cursor, so one
+ * broken frame doesn't stall playback; dst may hold a partial frame, and the
+ * caller should keep showing the previous one. A frame whose alpha payload
+ * is missing or broken is not an error: it keeps the last good alpha until
+ * the alpha stream's next keyframe.
  * Thread: background thread, not concurrently with another call on anim.
  */
 WT_API wt_status wt_anim_next_frame(wt_anim* anim, uint8_t* dst,

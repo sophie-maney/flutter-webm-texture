@@ -46,7 +46,10 @@ endif()
 
 # --- Core -------------------------------------------------------------------
 add_library(wt_core STATIC
+  api/anim.cc
   api/wt_api.cc
+  convert/yuva.cc
+  decode/vpx_decoder.cc
   demux/sniff.cc
   demux/source.cc
   demux/webm.cc

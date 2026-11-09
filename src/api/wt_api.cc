@@ -1,28 +1,37 @@
 // Implementation of the C ABI in wt_api.h.
 //
-// T1.1: every function checks its arguments; those whose work belongs to a
+// Every function checks its arguments first; those whose work belongs to a
 // later task then return WT_ERR_UNIMPLEMENTED. Nothing here may throw: the
 // core builds with -fno-exceptions and every failure is a wt_status.
 
 #include "api/wt_api.h"
 
+#include <atomic>
 #include <cstdint>
 #include <cstring>
 #include <memory>
 #include <new>
 #include <utility>
 
+#include "api/anim.h"
 #include "demux/sniff.h"
 #include "demux/source.h"
 
 // The source owns its bytes and the limits every later probe/decode checks.
-// The animation handle stays empty until T1.4 gives it state.
+// It is shared by the caller's handle and every animation made from it, and
+// freed when the last of them lets go.
 struct wt_source {
+  std::atomic<uint32_t> refs{1};
   std::unique_ptr<wt::ByteSource> bytes;
   wt_limits limits;
   wt_format format;  // Sniffed once at creation.
 };
-struct wt_anim {};
+
+// An animation holds a reference to its source, whose bytes it reads.
+struct wt_anim {
+  wt_source* source = nullptr;
+  std::unique_ptr<wt::Anim> anim;
+};
 
 namespace {
 
@@ -52,6 +61,17 @@ wt_status FinishSource(wt_status status, std::unique_ptr<wt::ByteSource> bytes,
   source->bytes = std::move(bytes);
   *out_source = source;
   return WT_OK;
+}
+
+void SourceRef(wt_source* source) {
+  source->refs.fetch_add(1, std::memory_order_relaxed);
+}
+
+void SourceUnref(wt_source* source) {
+  if (source != nullptr &&
+      source->refs.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+    delete source;
+  }
 }
 
 wt_limits ResolveLimits(const wt_limits* limits) {
@@ -144,7 +164,7 @@ wt_status wt_source_create_file(const char* path, const wt_limits* limits,
   return FinishSource(status, std::move(bytes), resolved, out_source);
 }
 
-void wt_source_destroy(wt_source* source) { delete source; }
+void wt_source_destroy(wt_source* source) { SourceUnref(source); }
 
 wt_status wt_probe(wt_source* source, wt_info* out_info) {
   if (out_info == nullptr) return WT_ERR_INVALID_ARGUMENT;
@@ -160,10 +180,27 @@ wt_status wt_anim_create(wt_source* source, uint32_t width, uint32_t height,
   if (source == nullptr || ((width == 0) != (height == 0))) {
     return WT_ERR_INVALID_ARGUMENT;
   }
-  return WT_ERR_UNIMPLEMENTED;  // T1.4
+  wt_anim* handle = new (std::nothrow) wt_anim;
+  if (handle == nullptr) return WT_ERR_NO_MEMORY;
+  const wt_status status =
+      wt::Anim::Create(source->bytes->whole(), source->format, source->limits,
+                       width, height, &handle->anim);
+  if (status != WT_OK) {
+    delete handle;
+    return status;
+  }
+  SourceRef(source);
+  handle->source = source;
+  *out_anim = handle;
+  return WT_OK;
 }
 
-void wt_anim_destroy(wt_anim* anim) { delete anim; }
+void wt_anim_destroy(wt_anim* anim) {
+  if (anim == nullptr) return;
+  wt_source* source = anim->source;
+  delete anim;  // The animation first: it reads the source's bytes.
+  SourceUnref(source);
+}
 
 wt_status wt_anim_get_info(const wt_anim* anim, wt_info* out_info,
                            uint32_t* out_width, uint32_t* out_height) {
@@ -171,13 +208,15 @@ wt_status wt_anim_get_info(const wt_anim* anim, wt_info* out_info,
   if (out_width != nullptr) *out_width = 0;
   if (out_height != nullptr) *out_height = 0;
   if (anim == nullptr) return WT_ERR_INVALID_ARGUMENT;
-  return WT_ERR_UNIMPLEMENTED;  // T1.4
+  if (out_info != nullptr) *out_info = anim->anim->info();
+  if (out_width != nullptr) *out_width = anim->anim->width();
+  if (out_height != nullptr) *out_height = anim->anim->height();
+  return WT_OK;
 }
 
 wt_status wt_anim_seek(wt_anim* anim, uint32_t frame_index) {
-  (void)frame_index;
   if (anim == nullptr) return WT_ERR_INVALID_ARGUMENT;
-  return WT_ERR_UNIMPLEMENTED;  // T1.4
+  return anim->anim->Seek(frame_index);
 }
 
 wt_status wt_anim_next_frame(wt_anim* anim, uint8_t* dst, size_t dst_size,
@@ -188,7 +227,7 @@ wt_status wt_anim_next_frame(wt_anim* anim, uint8_t* dst, size_t dst_size,
       !PixelFormatValid(pixel_format)) {
     return WT_ERR_INVALID_ARGUMENT;
   }
-  return WT_ERR_UNIMPLEMENTED;  // T1.4
+  return anim->anim->NextFrame(dst, dst_size, stride, pixel_format, out_frame);
 }
 
 }  // extern "C"

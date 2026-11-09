@@ -70,9 +70,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install nasm
+      # zlib reads the gzipped reference frames in the host tests (ADR 0001).
+      - name: Install nasm and zlib
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y nasm
+        run: sudo apt-get update && sudo apt-get install -y nasm zlib1g-dev
 
       # Release builds of the deps plus the GoogleTest sources, keyed on
       # everything that decides their contents.
