@@ -45,7 +45,7 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 
 **Accept:** the workflow is green on the PR.
 
-### [ ] T0.3 Test corpus generator
+### [x] T0.3 Test corpus generator
 **Model** Sonnet 5.5 · `medium` · **Depends** T0.1 · **Track** B
 - `tool/gen_corpus.sh`: uses ffmpeg (`libvpx-vp9`/`libvpx`, `-pix_fmt yuva420p`) to generate our **own** clips into `test_assets/`, one per case:
 
@@ -64,7 +64,7 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
   | `anim.webp` | Animated WebP |
   | `anim_disposal.gif` | Covers every GIF disposal mode |
 
-- Reference frames: `test_assets/ref/<name>/<frame>.rgba` (raw premultiplied RGBA) decoded with `ffmpeg -c:v libvpx-vp9`, plus `manifest.json` (w, h, frame count, durations).
+- Reference frames: `test_assets/ref/<name>/<frame>.rgba.gz` (gzipped raw premultiplied RGBA), decoded with `ffmpeg -c:v libvpx-vp9`, for a sampled set of frames listed in `manifest.json` (w, h, frame count, durations, `ref_frames`). See [ADR 0001](docs/decisions/0001-sampled-reference-frames.md).
 - Keep the corpus under 5 MB and commit it. Use no third-party or Telegram stickers.
 
 **Accept:** the script is idempotent · `manifest.json` validates against the files · the size limit holds.
