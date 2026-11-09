@@ -360,9 +360,15 @@ link_check() { # <slice> <triple> <sdk> <xcframework dir>
     "$WT_ROOT/third_party/build/smoke.cc" "$XCF/$4/lib$FRAMEWORK.a" \
     -o "$IOS_WORK/smoke-$1" >"$IOS_WORK/smoke-$1.log" 2>&1 ||
     { cat "$IOS_WORK/smoke-$1.log" >&2; wt_die "smoke test does not link for $1"; }
-  # Any linker warning (e.g. a platform mismatch) fails the check too.
-  [ ! -s "$IOS_WORK/smoke-$1.log" ] ||
-    { cat "$IOS_WORK/smoke-$1.log" >&2; wt_die "smoke test link for $1 printed warnings"; }
+  # Any linker warning (e.g. a platform mismatch) fails the check too, except
+  # one known-benign case: newer linkers warn that libvpx's x86_64 NASM objects
+  # (*.asm.o) carry no platform load command and assume the simulator, which is
+  # what they are. The pattern pins the assumed platform, so the same objects in
+  # a device slice (assumed "iOS") or any other warning still fails.
+  grep -v -E 'no platform load command found in .*\.asm\.o\)., assuming: iOS-simulator$' \
+    "$IOS_WORK/smoke-$1.log" >"$IOS_WORK/smoke-$1.filtered.log" || true
+  [ ! -s "$IOS_WORK/smoke-$1.filtered.log" ] ||
+    { cat "$IOS_WORK/smoke-$1.filtered.log" >&2; wt_die "smoke test link for $1 printed warnings"; }
 }
 link_check ios-arm64 "arm64-apple-ios$IOS_MIN" iphoneos ios-arm64
 link_check ios-sim-arm64 "arm64-apple-ios$IOS_MIN-simulator" iphonesimulator ios-arm64_x86_64-simulator
