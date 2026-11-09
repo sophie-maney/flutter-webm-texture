@@ -28,7 +28,7 @@ struct ByteView {
 
 class ByteSource {
  public:
-  virtual ~ByteSource() = default;
+  ~ByteSource();
   ByteSource(const ByteSource&) = delete;
   ByteSource& operator=(const ByteSource&) = delete;
 
@@ -59,9 +59,16 @@ class ByteSource {
   // untouched, when the range isn't entirely inside the source.
   bool Read(uint64_t offset, size_t length, void* dst) const;
 
- protected:
+ private:
   ByteSource() = default;
-  ByteView view_;  // Set once by the factory before the source is returned.
+
+  // Not polymorphic on purpose: the core builds without RTTI, while the tests
+  // (which use this header) build with it, so a vtable would trip UBSan's
+  // vptr check. Exactly one of owned_ / map_base_ is set for a non-empty
+  // source.
+  ByteView view_;
+  std::unique_ptr<uint8_t[]> owned_;  // Memory backend.
+  void* map_base_ = nullptr;          // File backend: the mmap base.
 };
 
 }  // namespace wt

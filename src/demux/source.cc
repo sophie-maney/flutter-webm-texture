@@ -14,45 +14,6 @@
 namespace wt {
 namespace {
 
-class MemorySource final : public ByteSource {
- public:
-  static std::unique_ptr<MemorySource> Copy(const uint8_t* data, size_t size) {
-    std::unique_ptr<MemorySource> source(new (std::nothrow) MemorySource);
-    if (source == nullptr) return nullptr;
-    if (size != 0) {
-      source->bytes_.reset(new (std::nothrow) uint8_t[size]);
-      if (source->bytes_ == nullptr) return nullptr;
-      std::memcpy(source->bytes_.get(), data, size);
-    }
-    source->view_ = ByteView{source->bytes_.get(), size};
-    return source;
-  }
-
- private:
-  MemorySource() = default;
-  std::unique_ptr<uint8_t[]> bytes_;
-};
-
-class MappedSource final : public ByteSource {
- public:
-  // Takes ownership of an existing mapping of size > 0 bytes.
-  static std::unique_ptr<MappedSource> Adopt(void* base, size_t size) {
-    std::unique_ptr<MappedSource> source(new (std::nothrow) MappedSource);
-    if (source == nullptr) return nullptr;
-    source->base_ = base;
-    source->view_ = ByteView{static_cast<const uint8_t*>(base), size};
-    return source;
-  }
-
-  ~MappedSource() override {
-    if (base_ != nullptr) munmap(base_, view_.size);
-  }
-
- private:
-  MappedSource() = default;
-  void* base_ = nullptr;
-};
-
 // Closes the descriptor on every exit path. The mapping outlives it.
 class ScopedFd {
  public:
@@ -70,6 +31,10 @@ class ScopedFd {
 
 }  // namespace
 
+ByteSource::~ByteSource() {
+  if (map_base_ != nullptr) munmap(map_base_, view_.size);
+}
+
 wt_status ByteSource::CreateMemory(const uint8_t* data, size_t size,
                                    uint64_t max_bytes,
                                    std::unique_ptr<ByteSource>* out) {
@@ -77,8 +42,14 @@ wt_status ByteSource::CreateMemory(const uint8_t* data, size_t size,
   out->reset();
   if (data == nullptr && size != 0) return WT_ERR_INVALID_ARGUMENT;
   if (static_cast<uint64_t>(size) > max_bytes) return WT_ERR_LIMIT;
-  std::unique_ptr<MemorySource> source = MemorySource::Copy(data, size);
+  std::unique_ptr<ByteSource> source(new (std::nothrow) ByteSource);
   if (source == nullptr) return WT_ERR_NO_MEMORY;
+  if (size != 0) {
+    source->owned_.reset(new (std::nothrow) uint8_t[size]);
+    if (source->owned_ == nullptr) return WT_ERR_NO_MEMORY;
+    std::memcpy(source->owned_.get(), data, size);
+  }
+  source->view_ = ByteView{source->owned_.get(), size};
   *out = std::move(source);
   return WT_OK;
 }
@@ -111,19 +82,18 @@ wt_status ByteSource::OpenFile(const char* path, uint64_t max_bytes,
   const size_t size = static_cast<size_t>(file_size);
 
   if (size == 0) {  // mmap rejects a zero length.
-    std::unique_ptr<MemorySource> empty = MemorySource::Copy(nullptr, 0);
-    if (empty == nullptr) return WT_ERR_NO_MEMORY;
-    *out = std::move(empty);
-    return WT_OK;
+    return CreateMemory(nullptr, 0, max_bytes, out);
   }
 
   void* base = mmap(nullptr, size, PROT_READ, MAP_PRIVATE, fd.get(), 0);
   if (base == MAP_FAILED) return errno == ENOMEM ? WT_ERR_NO_MEMORY : WT_ERR_IO;
-  std::unique_ptr<MappedSource> source = MappedSource::Adopt(base, size);
+  std::unique_ptr<ByteSource> source(new (std::nothrow) ByteSource);
   if (source == nullptr) {
     munmap(base, size);
     return WT_ERR_NO_MEMORY;
   }
+  source->map_base_ = base;
+  source->view_ = ByteView{static_cast<const uint8_t*>(base), size};
   *out = std::move(source);
   return WT_OK;
 }
