@@ -1,5 +1,7 @@
 # webm_texture — Plan
 
+> Step-by-step tasks for agents: [`EXECUTION_PLAN.md`](EXECUTION_PLAN.md). Agent rules: [`AGENTS.md`](AGENTS.md).
+
 A Flutter plugin (Android + iOS) that plays animated stickers inline the way Telegram does: transparent, looping, cheap enough for a grid of 60. It decodes in software through a shared C++ core, caches frames once, and renders them to Flutter `Texture`s.
 
 ## Decisions
