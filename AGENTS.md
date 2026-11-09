@@ -47,7 +47,7 @@ Each command works once the task that introduces it has landed (that task's ID i
 | Native host tests [T1.1] | `cmake -S . -B build/host -DWT_HOST_TESTS=ON -DWT_SANITIZE=ON && cmake --build build/host -j && ctest --test-dir build/host --output-on-failure` |
 | Fuzz (60 s smoke) [T1.7] | `cmake -S . -B build/fuzz -DWT_FUZZ=ON -DCMAKE_CXX_COMPILER=clang++ && cmake --build build/fuzz -j && build/fuzz/fuzz_webm -max_total_time=60 fuzz/corpus/webm` |
 | Regenerate bindings | `fvm dart run pigeon --input pigeons/messages.dart` · `fvm dart run ffigen --config ffigen.yaml` |
-| Regenerate corpus [T0.3] | `tool/gen_corpus.sh` (needs `ffmpeg` with libvpx, `img2webp`, `gifsicle`) |
+| Regenerate corpus [T0.3] | `tool/gen_corpus.sh` (needs `ffmpeg` with libvpx + libopus, `img2webp`, `gif2webp`, `gifsicle`, `jq`) · validate: `tool/gen_corpus.sh --check` |
 | Android build | `cd example && fvm flutter build apk --debug` |
 | iOS build | `cd example && fvm flutter build ios --simulator --debug` |
 | Integration tests | `cd example && fvm flutter test integration_test -d <device>` |
