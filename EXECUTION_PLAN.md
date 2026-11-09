@@ -29,7 +29,7 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 
 ## Phase 0: Scaffold and de-risk
 
-### [ ] T0.1 Pin Flutter and scaffold the plugin
+### [x] T0.1 Pin Flutter and scaffold the plugin
 **Model** Sonnet 5.5 · `low` · **Depends** none · **Track** A
 - `fvm install 3.47.9 && fvm use 3.47.9` (commits `.fvmrc`; add `.fvm/` to `.gitignore`).
 - `fvm flutter create --template=plugin --platforms=android,ios -a kotlin -i swift --org <org> --project-name webm_texture .` Keep the existing `README.md` content, `PLAN.md`, `AGENTS.md` and `assets/`.
