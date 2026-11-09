@@ -27,16 +27,21 @@ TEST(SanitizerTest, AsanIsCompiledIn) {
 #endif
 }
 
-// volatile keeps the compiler from proving the bugs away (or deleting the
-// malloc/free pair) at -O2.
-int HeapOverflow(volatile int index) {
+// Results go to a volatile sink and inputs come through volatile, so the
+// compiler can neither fold the bugs away nor drop them as dead code (GCC
+// removes an unused overflowing add, checks included).
+volatile int g_sink;
+
+// UBSan is off here so the report comes from ASan: GCC's UBSan object-size
+// check would otherwise catch the read first.
+__attribute__((no_sanitize("undefined"))) void HeapOverflow(
+    volatile int index) {
   volatile int* p = static_cast<int*>(std::calloc(4, sizeof(int)));
-  int value = p[index];
+  g_sink = p[index];
   std::free(const_cast<int*>(p));
-  return value;
 }
 
-int SignedOverflow(volatile int x) { return x + 1; }
+void SignedOverflow(volatile int x) { g_sink = x + 1; }
 
 TEST(SanitizerDeathTest, AsanCatchesHeapOverflow) {
   GTEST_FLAG_SET(death_test_style, "threadsafe");
