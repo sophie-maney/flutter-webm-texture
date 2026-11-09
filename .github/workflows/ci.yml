@@ -54,9 +54,58 @@ jobs:
       - run: fvm flutter analyze
       - run: fvm flutter test
 
+      # Pinned so CI and local runs format identically (brew/pip: 23.1.5).
       - name: clang-format
         run: |
-          git ls-files 'src/*.cc' 'src/*.h' | xargs -r clang-format --dry-run -Werror
+          git ls-files 'src/*.cc' 'src/*.h' 'native_test/*.cc' 'native_test/*.c' 'fuzz/*.cc' |
+            xargs -r pipx run clang-format==23.1.5 --dry-run -Werror
+
+  native:
+    name: Native host tests (${{ matrix.os }}, ASan + UBSan)
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install nasm
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y nasm
+
+      # Release builds of the deps plus the GoogleTest sources, keyed on
+      # everything that decides their contents.
+      - name: Cache host deps
+        id: deps
+        uses: actions/cache@v4
+        with:
+          path: build/deps/host-core/prefix
+          key: host-deps-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('third_party/versions.lock', 'third_party/test-deps.lock', 'third_party/build/common.sh', 'tool/build_host_deps.sh') }}
+
+      - name: Build host deps
+        if: steps.deps.outputs.cache-hit != 'true'
+        run: tool/build_host_deps.sh
+
+      - name: Configure
+        run: cmake -S . -B build/host -DWT_HOST_TESTS=ON -DWT_SANITIZE=ON -DWT_WERROR=ON
+
+      - name: Build
+        run: cmake --build build/host -j 4
+
+      - name: Test
+        env:
+          ASAN_OPTIONS: abort_on_error=1:strict_string_checks=1:detect_stack_use_after_return=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: ctest --test-dir build/host --output-on-failure
+
+      # The libFuzzer wiring only; T1.7 owns the real fuzz runs.
+      - name: Fuzz build smoke
+        if: runner.os == 'Linux'
+        run: |
+          cmake -S . -B build/fuzz -DWT_FUZZ=ON -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DWT_WERROR=ON
+          cmake --build build/fuzz -j 4
+          build/fuzz/fuzz_probe -runs=10000 test_assets
 
   android:
     name: Example APK (debug)

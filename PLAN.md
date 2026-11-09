@@ -102,7 +102,8 @@ pigeons/                   # Pigeon definitions
 src/                       # C++ core + CMakeLists.txt (shared by Android CMake & iOS)
   demux/ decode/ cache/ sched/ convert/ api/ (C ABI for FFI + glue)
 third_party/
-  versions.lock            # pinned tags (or commit) + sha256 of every upstream; see ADR 0002
+  versions.lock            # pinned tags (or commit) + sha256 of every shipped upstream; see ADR 0002
+  test-deps.lock           # same format, for test-only tools such as GoogleTest; never shipped (ADR 0007)
   build/                   # build-android.sh, build-ios.sh (xcframework), license collector
   prebuilt/                # gitignored; filled by tool/fetch_prebuilts.dart from GitHub Releases
 android/                   # Kotlin plugin, JNI bridge, CMake → links prebuilt .a
@@ -111,7 +112,7 @@ example/                   # demo: chat list, picker grid, stress test, integrat
 test/                      # Dart unit/widget tests
 native_test/               # GoogleTest host tests, golden frame checksums
 fuzz/                      # libFuzzer targets + seed corpus
-tool/                      # fetch_prebuilts, gen_corpus.sh (ffmpeg), bench
+tool/                      # fetch_prebuilts, build_host_deps.sh (host tests), gen_corpus.sh (ffmpeg), bench
 .github/workflows/         # prebuilt libs, host tests+fuzz, Android/iOS integration, publish dry-run
 ```
 
@@ -133,7 +134,7 @@ tool/                      # fetch_prebuilts, gen_corpus.sh (ffmpeg), bench
 
 ### Phase 1: Native core (host-testable)
 - Format sniffing; WebM demux (tracks, `AlphaMode`, `DefaultDuration`/timestamps, per-frame durations); VP8/VP9 color+alpha decode; libyuv scaling to a bucket and YUVA conversion; `probe()`.
-- A C ABI in `src/api/` (`wt_probe`, `wt_anim_create/destroy`, `wt_anim_render_into(buffer, stride, format)`, ...), with `ffigen` bindings.
+- A C ABI in `src/api/wt_api.h` (`wt_source_create_memory/file`, `wt_probe`, `wt_anim_create/destroy`, `wt_anim_seek`, `wt_anim_next_frame(dst, dst_size, stride, format)`, ...), with `ffigen` bindings. Its shape is in [ADR 0008](docs/decisions/0008-c-abi-shape.md).
 - GoogleTest on macOS/Linux CI: golden checksums per frame against reference decodes, limit enforcement, and corrupt-file handling. libFuzzer targets for each demuxer and for the full pipeline, run for a short time on every PR and longer nightly.
 
 ### Phase 2: Platform textures + standalone widget

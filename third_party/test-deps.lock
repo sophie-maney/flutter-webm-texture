@@ -1,0 +1,9 @@
+# Pinned third-party sources used only by host tests. Nothing here is bundled
+# into the plugin or the prebuilts (ADR 0007).
+#
+# Same format as versions.lock, and read by the same sha256-checking fetcher in
+# third_party/build/common.sh (tool/build_host_deps.sh points it at this file).
+# It lives outside versions.lock so that bumping a test tool doesn't change the
+# `deps-<hash>` release tag or LICENSES.md.
+
+googletest  1.18.0  6e3191c1455468b3fc35a417fb565c1c5071aee1b7e7f85e30cf48a98d37d8b5  https://github.com/google/googletest/releases/download/v1.18.0/googletest-1.18.0.tar.gz

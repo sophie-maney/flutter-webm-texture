@@ -127,7 +127,7 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 
 ## Phase 1: Native core (host-testable)
 
-### [ ] T1.1 Core skeleton and C ABI
+### [x] T1.1 Core skeleton and C ABI
 **Model** Opus 5.5 · `high` · **Depends** T0.7 · **Track** A
 - Root `CMakeLists.txt` with these options: `WT_HOST_TESTS`, `WT_SANITIZE` (ASan + UBSan), `WT_FUZZ`. It links the prebuilts, or a host build of the deps for macOS/Linux CI.
 - `src/api/wt_api.h` defines:
