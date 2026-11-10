@@ -5,6 +5,8 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:webm_texture/webm_texture.dart';
 
+import 'texture_demo.dart';
+
 void main() {
   runApp(const MyApp());
 }
@@ -52,9 +54,27 @@ class _MyAppState extends State<MyApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      home: Scaffold(
-        appBar: AppBar(title: const Text('Plugin example app')),
-        body: Center(child: Text('Running on: $_platformVersion\n')),
+      home: Builder(
+        builder: (context) => Scaffold(
+          appBar: AppBar(title: const Text('Plugin example app')),
+          body: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('Running on: $_platformVersion\n'),
+                FilledButton(
+                  key: const Key('openTextures'),
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const TextureDemoPage(),
+                    ),
+                  ),
+                  child: const Text('Textures'),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

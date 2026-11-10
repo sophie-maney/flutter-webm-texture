@@ -34,11 +34,26 @@ let package = Package(
                 .unsafeFlags(["-fno-exceptions", "-fno-rtti"]),
             ]
         ),
+        // ObjC++ shim over wt_api.h that decodes into CVPixelBuffers (T2.3).
+        // Swift can't mix with ObjC in one target, so it is its own target.
+        .target(
+            name: "wt_ios",
+            dependencies: ["wt_core"],
+            path: "Sources/wt_ios",
+            publicHeadersPath: "include",
+            cxxSettings: [
+                .unsafeFlags(["-fno-exceptions", "-fno-rtti"]),
+            ],
+            linkerSettings: [
+                .linkedFramework("CoreVideo"),
+            ]
+        ),
         .target(
             name: "webm_texture",
             dependencies: [
                 .product(name: "FlutterFramework", package: "FlutterFramework"),
                 "wt_core",
+                "wt_ios",
             ],
             resources: [
                 // If your plugin requires a privacy manifest, for example if it uses any required

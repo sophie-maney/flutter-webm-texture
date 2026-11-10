@@ -107,7 +107,7 @@ third_party/
   build/                   # build-android.sh, build-ios.sh (xcframework), license collector
   prebuilt/                # gitignored; filled by tool/fetch_prebuilts.dart from GitHub Releases
 android/                   # Kotlin plugin, JNI bridge, CMake → libwebm_texture.so (core + prebuilt .a; Dart opens it)
-ios/webm_texture/          # Package.swift (SwiftPM only), Swift + ObjC++ shim; Sources/wt_core = symlinks to src/ (ADR 0009)
+ios/webm_texture/          # Package.swift (SwiftPM only); Sources/webm_texture = Swift, Sources/wt_ios = ObjC++ shim, Sources/wt_core = symlinks to src/ (ADR 0009)
 example/                   # demo: chat list, picker grid, stress test, integration_test/
 test/                      # Dart unit/widget tests
 native_test/               # GoogleTest host tests, golden frame checksums
