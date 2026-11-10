@@ -215,7 +215,7 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 
 **Accept:** the example shows animated, transparent stickers on the API 24 and latest emulators · surviving 20 background/foreground cycles · `adb shell dumpsys meminfo` is stable after 100 create/dispose cycles.
 
-### [ ] T2.3 iOS texture glue
+### [x] T2.3 iOS texture glue
 **Model** Opus 5.5 · `high` · **Depends** T2.1, T0.8 · **Track** C (parallel with T2.2)
 - An ObjC++ shim over `wt_api.h`. A Swift `FlutterTexture` uses a `CVPixelBufferPool` (BGRA, IOSurface, Metal-compatible) and native code writes into the locked buffer. Call `textureFrameAvailable` from the worker that produced the frame; spike B found no need to hop to main. Write each frame into a fresh pool buffer, keep the latest one referenced, and return it from every `copyPixelBuffer` call (Flutter asks again after foregrounding).
 - `Package.swift` (binaryTarget plus a C++ target) must build. There is no podspec ([ADR 0009](docs/decisions/0009-ffi-loading-and-native-wiring.md)).
