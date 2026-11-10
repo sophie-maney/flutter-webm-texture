@@ -277,7 +277,7 @@ jobs:
 
   integration-ios:
     name: Integration tests (iOS simulator)
-    timeout-minutes: 25
+    timeout-minutes: 50
     needs: check
     runs-on: macos-latest
     defaults:
@@ -321,5 +321,23 @@ jobs:
 
       - name: Run integration tests
         working-directory: webm_texture/example
-        timeout-minutes: 15
-        run: fvm flutter test integration_test -d "$SIM_UDID" --reporter expanded
+        timeout-minutes: 40
+        # One file at a time, each with its own limit, so a file whose app
+        # never starts fails by name instead of eating the whole job.
+        run: |
+          fail=0
+          for f in integration_test/*_test.dart; do
+            echo "::group::$f"
+            perl -e 'alarm shift; exec @ARGV' 480 \
+              fvm flutter test "$f" -d "$SIM_UDID" --reporter expanded \
+              || { echo "::error::$f failed or timed out"; fail=1; }
+            echo "::endgroup::"
+          done
+          exit $fail
+
+      - name: Simulator logs
+        if: failure()
+        run: |
+          xcrun simctl spawn "$SIM_UDID" log show --last 40m --style compact \
+            --predicate 'process == "Runner" OR process == "SpringBoard" OR eventMessage CONTAINS "Runner"' \
+            | tail -n 300 || true
