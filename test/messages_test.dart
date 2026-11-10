@@ -32,6 +32,7 @@ void main() {
       AnimationSourceMessage(path: '/tmp/a.webm'),
       128,
       96,
+      false,
     );
 
     expect(handle.animId, 7);
@@ -39,7 +40,7 @@ void main() {
     expect(received![0], 'key');
     expect((received![1]! as AnimationSourceMessage).path, '/tmp/a.webm');
     expect((received![1]! as AnimationSourceMessage).bytes, isNull);
-    expect(received!.sublist(2), [128, 96]);
+    expect(received!.sublist(2), [128, 96, false]);
   });
 
   test('bytes sources and signals survive the codec', () {

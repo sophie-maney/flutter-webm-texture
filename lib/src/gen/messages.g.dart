@@ -428,16 +428,19 @@ class WebmTextureHostApi {
   final String pigeonVar_messageChannelSuffix;
 
   /// Creates the decoder and a platform texture sized to the bucket
-  /// ([bucketW] x [bucketH] physical pixels).
+  /// ([bucketW] x [bucketH] physical pixels). The texture shows frame 0 and
+  /// stays inactive until [setActive].
   ///
   /// [sourceKey] is the content hash (or caller key) that names the cache
-  /// entry. Fails with a `PlatformException` carrying a `wt_status` name as
-  /// its code if the core rejects the source.
+  /// entry. With [loop] false, playback stops on the last frame and holds it
+  /// until [seekToFrame]. Fails with a `PlatformException` carrying a
+  /// `wt_status` name as its code if the core rejects the source.
   Future<AnimationHandleMessage> createAnimation(
     String sourceKey,
     AnimationSourceMessage source,
     int bucketW,
     int bucketH,
+    bool loop,
   ) async {
     final pigeonVar_channelName =
         'dev.flutter.pigeon.webm_texture.WebmTextureHostApi.createAnimation$pigeonVar_messageChannelSuffix';
@@ -447,7 +450,7 @@ class WebmTextureHostApi {
       binaryMessenger: pigeonVar_binaryMessenger,
     );
     final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
-      <Object?>[sourceKey, source, bucketW, bucketH],
+      <Object?>[sourceKey, source, bucketW, bucketH, loop],
     );
     final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
     final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
@@ -458,7 +461,7 @@ class WebmTextureHostApi {
     return pigeonVar_replyValue! as AnimationHandleMessage;
   }
 
-  /// Starts or stops playback. Inactive animations keep their first frame.
+  /// Starts or stops playback. Inactive animations keep their current frame.
   Future<void> setActive(int animId, bool active) async {
     final pigeonVar_channelName =
         'dev.flutter.pigeon.webm_texture.WebmTextureHostApi.setActive$pigeonVar_messageChannelSuffix';
@@ -469,6 +472,31 @@ class WebmTextureHostApi {
     );
     final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
       <Object?>[animId, active],
+    );
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+    _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: true,
+    );
+  }
+
+  /// Shows [frame] (0-based) right away, whether or not the animation is
+  /// active; an active one carries on from there. Seeking a non-looping
+  /// animation that has ended lets it play again.
+  ///
+  /// Throws `WT_ERR_INVALID_ARGUMENT` when [frame] is outside the
+  /// animation's frames. An unknown or disposed [animId] is ignored.
+  Future<void> seekToFrame(int animId, int frame) async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.webm_texture.WebmTextureHostApi.seekToFrame$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
+      <Object?>[animId, frame],
     );
     final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
     _extractReplyValueOrThrow(

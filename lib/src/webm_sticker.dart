@@ -19,11 +19,11 @@ typedef StickerErrorWidgetBuilder = Widget Function(
   Object error,
 );
 
-/// Plays and pauses the [WebmSticker]s it is given to.
+/// Plays, pauses and seeks the [WebmSticker]s it is given to.
 ///
 /// Stickers with a controller get an animation of their own, shared only with
-/// other stickers on the same controller, so pausing one never pauses a copy
-/// elsewhere on screen.
+/// other stickers on the same controller, so pausing or seeking one never
+/// affects a copy elsewhere on screen.
 class WebmStickerController extends ChangeNotifier {
   /// Creates a controller that starts playing, or paused if [playing] is
   /// false.
@@ -40,6 +40,25 @@ class WebmStickerController extends ChangeNotifier {
 
   /// Holds the frame that is showing.
   void pause() => _setPlaying(false);
+
+  final Set<_WebmStickerState> _stickers = {};
+
+  /// Shows [frame] (0-based) on every sticker on this controller right away,
+  /// playing or paused. A playing sticker carries on from there, and a
+  /// non-looping one that ended plays again.
+  ///
+  /// A [frame] past a sticker's last frame shows its last frame. A sticker
+  /// that is still loading shows [frame] once its animation is ready; one
+  /// that switches to a new decode size (after a resize, say) starts that
+  /// animation from frame 0.
+  void seekToFrame(int frame) {
+    RangeError.checkNotNegative(frame, 'frame');
+    // Stickers sharing an animation seek it once.
+    final seen = <int>{};
+    for (final sticker in _stickers.toList()) {
+      sticker._seekToFrame(frame, seen);
+    }
+  }
 
   void _setPlaying(bool playing) {
     if (playing == _playing) return;
@@ -67,6 +86,7 @@ class WebmSticker extends StatefulWidget {
     this.height,
     this.fit = BoxFit.contain,
     this.autoplay = true,
+    this.loop = true,
     this.controller,
     this.placeholder,
     this.errorBuilder,
@@ -90,7 +110,15 @@ class WebmSticker extends StatefulWidget {
   /// first frame. Ignored when [controller] is set.
   final bool autoplay;
 
-  /// Plays and pauses the sticker; see [WebmStickerController].
+  /// Whether to start over after the last frame. When false the sticker
+  /// stops on its last frame and holds it, until
+  /// [WebmStickerController.seekToFrame] moves it back.
+  ///
+  /// A non-looping sticker gets an animation of its own, like one with a
+  /// [controller], so it plays once wherever it appears.
+  final bool loop;
+
+  /// Plays, pauses and seeks the sticker; see [WebmStickerController].
   final WebmStickerController? controller;
 
   /// Shown until the first frame is ready. Empty when null.
@@ -124,12 +152,17 @@ class _WebmStickerState extends State<WebmSticker> {
   (int, StickerBucket)? _leaseFor;
   (int, StickerBucket)? _pending;
 
+  /// A seek that the next lease still has to apply.
+  int? _pendingSeek;
+
   bool _visible = false;
   bool _tickerEnabled = true;
   double _devicePixelRatio = 1;
 
-  Object? get _owner =>
-      widget.controller ?? (widget.autoplay ? null : _privateOwner);
+  Object? get _owner => _ownerFor(widget);
+
+  Object? _ownerFor(WebmSticker w) =>
+      w.controller ?? (w.autoplay && w.loop ? null : _privateOwner);
 
   bool get _playing => widget.controller?.isPlaying ?? widget.autoplay;
 
@@ -140,7 +173,7 @@ class _WebmStickerState extends State<WebmSticker> {
   void initState() {
     super.initState();
     _appRunning.addListener(_updateActive);
-    widget.controller?.addListener(_updateActive);
+    _attach(widget.controller);
     _load();
   }
 
@@ -158,15 +191,14 @@ class _WebmStickerState extends State<WebmSticker> {
   void didUpdateWidget(WebmSticker oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.controller != widget.controller) {
-      oldWidget.controller?.removeListener(_updateActive);
-      widget.controller?.addListener(_updateActive);
+      _detach(oldWidget.controller);
+      _attach(widget.controller);
     }
-    final oldOwner =
-        oldWidget.controller ?? (oldWidget.autoplay ? null : _privateOwner);
     if (widget.source != oldWidget.source) {
       _releaseLease();
       _load();
-    } else if (!identical(oldOwner, _owner)) {
+    } else if (!identical(_ownerFor(oldWidget), _owner) ||
+        oldWidget.loop != widget.loop) {
       // Keep showing the current lease until the new animation is ready.
       _generation++;
       _pending = null;
@@ -179,9 +211,37 @@ class _WebmStickerState extends State<WebmSticker> {
     _sourceGeneration++;
     _generation++;
     _appRunning.removeListener(_updateActive);
-    widget.controller?.removeListener(_updateActive);
+    _detach(widget.controller);
     _releaseLease();
     super.dispose();
+  }
+
+  void _attach(WebmStickerController? controller) {
+    controller?.addListener(_updateActive);
+    controller?._stickers.add(this);
+  }
+
+  void _detach(WebmStickerController? controller) {
+    controller?.removeListener(_updateActive);
+    controller?._stickers.remove(this);
+  }
+
+  /// Applies [WebmStickerController.seekToFrame] to the lease, unless one in
+  /// [seen] already did, and keeps it for a lease that is on its way.
+  void _seekToFrame(int frame, Set<int> seen) {
+    final lease = _lease;
+    // The current lease is stale while a new one (another bucket, owner or
+    // loop mode) is on its way or about to be acquired.
+    if (lease == null || _pending != null || _leaseFor?.$1 != _generation) {
+      _pendingSeek = frame;
+    }
+    if (lease != null && seen.add(lease.animId)) _seekLease(lease, frame);
+  }
+
+  void _seekLease(StickerLease lease, int frame) {
+    final info = _info;
+    if (info == null || info.frameCount <= 0) return;
+    lease.seekToFrame(frame.clamp(0, info.frameCount - 1));
   }
 
   void _load() {
@@ -191,6 +251,7 @@ class _WebmStickerState extends State<WebmSticker> {
     _info = null;
     _error = null;
     _pending = null;
+    _pendingSeek = null;
     _runtime.resolver
         .resolve(widget.source)
         .then((resolved) {
@@ -255,6 +316,7 @@ class _WebmStickerState extends State<WebmSticker> {
           source: resolved.source,
           bucket: bucket,
           owner: _owner,
+          loop: widget.loop,
         )
         .then<void>(
           (lease) {
@@ -266,6 +328,9 @@ class _WebmStickerState extends State<WebmSticker> {
             _lease = lease;
             _leaseFor = want;
             _pending = null;
+            final seek = _pendingSeek;
+            _pendingSeek = null;
+            if (seek != null) _seekLease(lease, seek);
             _updateActive();
             old?.release();
             setState(() {});

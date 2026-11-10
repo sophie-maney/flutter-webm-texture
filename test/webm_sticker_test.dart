@@ -98,6 +98,7 @@ void main() {
     Key? key,
     double size = 100,
     bool autoplay = true,
+    bool loop = true,
     WebmStickerController? controller,
     Widget? placeholder,
     StickerErrorWidgetBuilder? errorBuilder,
@@ -107,6 +108,7 @@ void main() {
     width: size,
     height: size,
     autoplay: autoplay,
+    loop: loop,
     controller: controller,
     placeholder: placeholder,
     errorBuilder: errorBuilder,
@@ -578,6 +580,143 @@ void main() {
       expect(playing(), isEmpty);
       await tester.pump(_grace);
       expect(host.disposed, [1]);
+      await finish(tester);
+      controller.dispose();
+    });
+  });
+
+  group('loop and seek', () {
+    testWidgets('a non-looping sticker gets a private animation', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        app(
+          Row(
+            children: [
+              sticker('/a'),
+              sticker('/a'),
+              sticker('/a', loop: false),
+              sticker('/a', loop: false),
+            ],
+          ),
+        ),
+      );
+      await settle(tester);
+      // One shared looping animation, one per non-looping sticker.
+      expect(host.created, hasLength(3));
+      expect(host.loops, [true, false, false]);
+      expect(playing(), {1, 2, 3});
+      await finish(tester);
+    });
+
+    testWidgets('stickers on one controller split by loop mode', (
+      tester,
+    ) async {
+      final controller = WebmStickerController();
+      await tester.pumpWidget(
+        app(
+          Row(
+            children: [
+              sticker('/a', controller: controller),
+              sticker('/a', controller: controller, loop: false),
+              sticker('/a', controller: controller, loop: false),
+            ],
+          ),
+        ),
+      );
+      await settle(tester);
+      expect(host.created, hasLength(2));
+      expect(host.loops, [true, false]);
+      await finish(tester);
+      controller.dispose();
+    });
+
+    testWidgets('changing loop moves to a new animation', (tester) async {
+      Widget build(bool loop) => app(Center(child: sticker('/a', loop: loop)));
+      await tester.pumpWidget(build(true));
+      await settle(tester);
+      await tester.pumpWidget(build(false));
+      await settle(tester);
+      expect(host.loops, [true, false]);
+      expect(tester.widget<Texture>(find.byType(Texture)).textureId, 102);
+      expect(playing(), {2});
+      await tester.pump(_grace);
+      expect(host.disposed, [1]);
+      await finish(tester);
+    });
+
+    testWidgets('seekToFrame seeks each animation once, clamped', (
+      tester,
+    ) async {
+      probes['/b'] = _info(512, 512); // 30 frames, like '/a'.
+      final controller = WebmStickerController(playing: false);
+      await tester.pumpWidget(
+        app(
+          Row(
+            children: [
+              sticker('/a'),
+              sticker('/a', controller: controller),
+              sticker('/a', controller: controller),
+              sticker('/b', controller: controller),
+            ],
+          ),
+        ),
+      );
+      await settle(tester);
+      expect(host.created, hasLength(3));
+
+      controller.seekToFrame(7);
+      await tester.pump();
+      // Not the shared animation (1); once for the two stickers sharing 2.
+      expect(host.seekCalls, [(2, 7), (3, 7)]);
+
+      host.seekCalls.clear();
+      controller.seekToFrame(500);
+      await tester.pump();
+      expect(host.seekCalls, [(2, 29), (3, 29)]);
+      expect(() => controller.seekToFrame(-1), throwsRangeError);
+      await finish(tester);
+      controller.dispose();
+    });
+
+    testWidgets('a seek before the animation is ready applies once it is', (
+      tester,
+    ) async {
+      final controller = WebmStickerController(playing: false);
+      host.gate = Completer<void>();
+      await tester.pumpWidget(
+        app(Center(child: sticker('/a', controller: controller))),
+      );
+      await settle(tester);
+      expect(host.created, hasLength(1));
+      controller.seekToFrame(5);
+      controller.seekToFrame(9);
+      expect(host.seekCalls, isEmpty);
+
+      host.gate!.complete();
+      await settle(tester);
+      expect(host.seekCalls, [(1, 9)]);
+      await finish(tester);
+      controller.dispose();
+    });
+
+    testWidgets('a removed sticker no longer follows the controller', (
+      tester,
+    ) async {
+      final controller = WebmStickerController();
+      Widget build(WebmStickerController? c) =>
+          app(Center(child: sticker('/a', controller: c)));
+      await tester.pumpWidget(build(controller));
+      await settle(tester);
+      await tester.pumpWidget(build(null));
+      await settle(tester);
+      controller.seekToFrame(3);
+      await tester.pump();
+      expect(host.seekCalls, isEmpty);
+
+      await tester.pumpWidget(const SizedBox());
+      controller.seekToFrame(4);
+      expect(host.seekCalls, isEmpty);
       await finish(tester);
       controller.dispose();
     });

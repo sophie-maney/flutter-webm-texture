@@ -14,7 +14,8 @@ import wt_ios
 ///   called from there; spike B found no need to hop to main.
 /// - Flutter calls `copyPixelBuffer` on its raster thread; it only reads
 ///   `latest` under `lock`.
-/// - `setActive` and `dispose` arrive on the main thread and post to `queue`.
+/// - `setActive`, `seek` and `close` arrive on the main thread and post to
+///   `queue`.
 ///
 /// Each frame is written into a fresh buffer from the pool, never into the
 /// one Flutter may be sampling, and the newest one stays referenced so every
@@ -24,6 +25,7 @@ final class StickerTexture: NSObject, FlutterTexture {
   let animId: Int64
   let width: Int
   let height: Int
+  let frameCount: Int
 
   /// Set on `queue` by `attach`, which the main thread posts right after
   /// registration and before playback can start.
@@ -48,6 +50,10 @@ final class StickerTexture: NSObject, FlutterTexture {
   private var anim: WTAnimation?
   private var timer: DispatchSourceTimer?
   private var active = false
+  /// A non-looping animation showed its last frame and holds it.
+  private var ended = false
+  /// Bumped by every seek, so a deferred render of an older one gives up.
+  private var seekGeneration = 0
   private var nextDeadline = DispatchTime.now()
   private var lastDurationMs: UInt32 = StickerTexture.fallbackDurationMs
   private var reportedError = false
@@ -56,6 +62,8 @@ final class StickerTexture: NSObject, FlutterTexture {
   /// reports no duration.
   private static let minDurationMs: UInt32 = 10
   private static let fallbackDurationMs: UInt32 = 33
+  /// wt_status WT_END: a non-looping animation has no frame after its last.
+  private static let wtEnd: Int32 = 1
 
   /// Creates the decoder and renders frame 0, so the texture has content as
   /// soon as it is registered. Background thread: call it on `queue`.
@@ -67,6 +75,7 @@ final class StickerTexture: NSObject, FlutterTexture {
     self.anim = anim
     self.width = Int(anim.width)
     self.height = Int(anim.height)
+    self.frameCount = Int(anim.frameCount)
     self.pool = pool
     self.queue = queue
     self.registry = registry
@@ -75,9 +84,10 @@ final class StickerTexture: NSObject, FlutterTexture {
   }
 
   /// Builds an animation off the main thread and renders its first frame.
-  /// Throws a `PigeonError` whose code is a `wt_status` name.
+  /// With `loop` false, playback stops on the last frame. Throws a
+  /// `PigeonError` whose code is a `wt_status` name.
   static func create(
-    animId: Int64, source: AnimationSourceMessage, bucketW: Int64, bucketH: Int64,
+    animId: Int64, source: AnimationSourceMessage, bucketW: Int64, bucketH: Int64, loop: Bool,
     registry: FlutterTextureRegistry, onError: @escaping (Int64, String, String) -> Void
   ) async throws -> StickerTexture {
     guard (source.bytes == nil) != (source.path == nil) else {
@@ -97,9 +107,9 @@ final class StickerTexture: NSObject, FlutterTexture {
           let h = UInt32(bucketH)
           let anim: WTAnimation
           if let bytes = source.bytes {
-            anim = try WTAnimation(data: bytes.data, width: w, height: h)
+            anim = try WTAnimation(data: bytes.data, width: w, height: h, loop: loop)
           } else {
-            anim = try WTAnimation(path: source.path!, width: w, height: h)
+            anim = try WTAnimation(path: source.path!, width: w, height: h, loop: loop)
           }
           guard let pool = makePool(width: Int(anim.width), height: Int(anim.height)) else {
             anim.close()
@@ -165,17 +175,37 @@ final class StickerTexture: NSObject, FlutterTexture {
   }
 
   /// Starts or pauses playback. A paused animation keeps showing its
-  /// current frame.
+  /// current frame, and so does one that ended.
   func setActive(_ on: Bool) {
     queue.async { [self] in
       guard anim != nil, on != active else { return }
       active = on
       if on {
-        startTimer()
+        if !ended { startTimer() }
       } else {
         timer?.cancel()
         timer = nil
       }
+    }
+  }
+
+  /// Shows `frame` now, active or not; an active animation carries on from
+  /// there with that frame's duration. The caller checks `frame` against
+  /// `frameCount`.
+  func seek(toFrame frame: Int) {
+    queue.async { [self] in
+      guard let anim = anim, frame >= 0, frame < frameCount else { return }
+      let status = anim.seek(toFrame: UInt32(frame))
+      guard status == 0 else {
+        report(status, "seek failed")
+        return
+      }
+      ended = false
+      seekGeneration += 1
+      // Hold the clock until the frame is up, so a tick can't move past it.
+      timer?.cancel()
+      timer = nil
+      showSoughtFrame(seekGeneration)
     }
   }
 
@@ -208,12 +238,34 @@ final class StickerTexture: NSObject, FlutterTexture {
     timer = t
   }
 
+  /// Renders the frame a seek moved the cursor to, retrying while the pool
+  /// is full, then restarts the clock if playing.
+  private func showSoughtFrame(_ generation: Int) {
+    guard generation == seekGeneration, anim != nil else { return }
+    if renderFrame() == nil {
+      queue.asyncAfter(deadline: .now() + .milliseconds(Int(Self.minDurationMs))) {
+        [weak self] in self?.showSoughtFrame(generation)
+      }
+      return
+    }
+    timer?.cancel()
+    timer = nil
+    if active && !ended { startTimer() }
+  }
+
   private func tick() {
     guard active, let timer = timer else { return }
-    if renderFrame() == nil {
+    guard let status = renderFrame() else {
       // The pool is at its cap: Flutter hasn't released old buffers yet.
       // Try again shortly without moving the cursor.
       timer.schedule(deadline: .now() + .milliseconds(Int(Self.minDurationMs)), leeway: .milliseconds(2))
+      return
+    }
+    if status == Self.wtEnd {
+      // Non-looping and past the last frame: hold it until a seek.
+      ended = true
+      timer.cancel()
+      self.timer = nil
       return
     }
     let now = DispatchTime.now()
@@ -227,8 +279,9 @@ final class StickerTexture: NSObject, FlutterTexture {
   }
 
   /// Decodes the next frame into a fresh pool buffer and publishes it.
-  /// Returns the wt_status, or nil when no buffer was available (nothing
-  /// decoded, cursor unchanged).
+  /// Returns the wt_status (WT_END, publishing nothing, after the last frame
+  /// of a non-looping animation), or nil when no buffer was available
+  /// (nothing decoded, cursor unchanged).
   @discardableResult
   private func renderFrame() -> Int32? {
     guard let anim = anim else { return nil }
@@ -239,14 +292,10 @@ final class StickerTexture: NSObject, FlutterTexture {
     var durationMs: UInt32 = 0
     let status = anim.renderNextFrame(into: buffer, durationMs: &durationMs)
     if durationMs > 0 { lastDurationMs = max(durationMs, Self.minDurationMs) }
+    if status == Self.wtEnd { return status }
     guard status == 0 else {
-      // The cursor moved on; keep showing the previous frame. Report the
-      // first failure only, so a broken file doesn't flood the channel.
-      if !reportedError {
-        reportedError = true
-        onError(
-          animId, WTAnimation.name(forStatus: status), "frame decode failed mid-playback")
-      }
+      // The cursor moved on; keep showing the previous frame.
+      report(status, "frame decode failed mid-playback")
       return status
     }
     lock.lock()
@@ -254,5 +303,13 @@ final class StickerTexture: NSObject, FlutterTexture {
     lock.unlock()
     if let id = textureId { registry?.textureFrameAvailable(id) }
     return status
+  }
+
+  /// Reports the first failure only, so a broken file doesn't flood the
+  /// channel.
+  private func report(_ status: Int32, _ message: String) {
+    guard !reportedError else { return }
+    reportedError = true
+    onError(animId, WTAnimation.name(forStatus: status), message)
   }
 }

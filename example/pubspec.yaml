@@ -30,6 +30,9 @@ dependencies:
   cupertino_icons: ^1.0.8
 
 dev_dependencies:
+  # Already a dependency of the plugin; texture_test.dart decodes reference
+  # frames over FFI with it.
+  ffi: ^2.2.0
   integration_test:
     sdk: flutter
   flutter_test:

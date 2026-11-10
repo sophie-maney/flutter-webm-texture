@@ -1,6 +1,6 @@
 # 0012: `WebmSticker` visibility and playback control
 
-- **Status:** Accepted (T2.5)
+- **Status:** Accepted (T2.5). The deferred `loop` and `seekToFrame` landed in T2.9 ([ADR 0014](0014-loop-and-seek.md)).
 - **Date:** 2026-11-10
 
 ## Context

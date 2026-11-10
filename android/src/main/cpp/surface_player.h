@@ -3,9 +3,9 @@
 //
 // Threads:
 // - Create runs on a background thread (it probes and validates the source).
-// - SetWindow, SetActive and the destructor run on the platform main thread.
-//   None of them decodes; SetWindow and the destructor wait for at most one
-//   in-flight frame write so the window is never used after they return.
+// - SetWindow, SetActive, SeekTo and the destructor run on the platform main
+//   thread. None of them decodes; SetWindow and the destructor wait for at most
+//   one in-flight frame write so the window is never used after they return.
 // - Everything that touches the wt_anim runs on the render thread.
 #ifndef WEBM_TEXTURE_ANDROID_SURFACE_PLAYER_H_
 #define WEBM_TEXTURE_ANDROID_SURFACE_PLAYER_H_
@@ -41,12 +41,13 @@ struct ThreadHooks {
 
 class SurfacePlayer {
  public:
-  // Takes ownership of anim. width x height is the anim's output size.
+  // Takes ownership of anim. width x height is the anim's output size. With
+  // loop false, playback stops on the last frame and holds it until SeekTo.
   // on_error is called on the render thread and must not call back into the
   // player.
   static std::unique_ptr<SurfacePlayer> Create(wt_anim* anim, uint32_t width,
                                                uint32_t height,
-                                               uint32_t frame_count,
+                                               uint32_t frame_count, bool loop,
                                                ErrorCallback on_error,
                                                ThreadHooks hooks = {});
 
@@ -66,18 +67,28 @@ class SurfacePlayer {
   // Starts or stops playback. Stopped players keep showing their frame.
   void SetActive(bool active);
 
+  // Shows frame (0-based) as soon as the render thread gets to it, whether
+  // or not the player is active; an active player carries on from there.
+  // Without a window, the frame is drawn when one arrives. Returns
+  // WT_ERR_INVALID_ARGUMENT when frame >= frame_count.
+  wt_status SeekTo(uint32_t frame);
+
  private:
   using Clock = std::chrono::steady_clock;
 
   SurfacePlayer(wt_anim* anim, uint32_t width, uint32_t height,
-                uint32_t frame_count, ErrorCallback on_error,
+                uint32_t frame_count, bool loop, ErrorCallback on_error,
                 ThreadHooks hooks);
 
   void Run();
   void Loop();
-  // Writes the frame at the cursor into the window, looping at the end.
-  // Returns the status of wt_anim_next_frame (WT_OK on success) or 1 when
-  // there was no window to draw into.
+  // Moves the core's cursor (and cursor_) to frame. Reports a failure and
+  // returns false.
+  bool Seek(uint32_t frame);
+  // Writes the frame at the cursor into the window and advances the cursor,
+  // wrapping to frame 0 first when looping. Returns the status of
+  // wt_anim_next_frame (WT_OK on success) or kNoWindow when there was no
+  // window to draw into.
   wt_status DrawNext(wt_frame_info* frame);
   void ReportOnce(bool* reported, const std::string& code,
                   const std::string& message);
@@ -86,6 +97,7 @@ class SurfacePlayer {
   const uint32_t width_;
   const uint32_t height_;
   const uint32_t frame_count_;
+  const bool loop_;
   const ErrorCallback on_error_;
   const ThreadHooks hooks_;
 
@@ -102,6 +114,9 @@ class SurfacePlayer {
   bool has_window_ = false;
   // A new window arrived: draw into it before anything else.
   bool redraw_ = false;
+  // SeekTo asked for seek_frame_.
+  bool seek_pending_ = false;
+  uint32_t seek_frame_ = 0;
   // When the shown frame went up and how long it stays; SetActive(true)
   // resumes from there.
   Clock::time_point shown_at_;
@@ -110,8 +125,13 @@ class SurfacePlayer {
   Clock::time_point next_due_;
 
   // Render thread only.
+  // shown_index_ is the frame on screen, or the one to draw when a window
+  // arrives (after a seek without one). Meaningful once drawn_any_ is set.
   bool drawn_any_ = false;
   uint32_t shown_index_ = 0;
+  // Mirrors the core's cursor: the frame the next wt_anim_next_frame
+  // returns. A non-looping player has ended once it reaches frame_count_.
+  uint32_t cursor_ = 0;
   bool reported_decode_ = false;
   bool reported_surface_ = false;
 

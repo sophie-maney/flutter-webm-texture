@@ -491,14 +491,23 @@ var messagesPigeonMethodCodec = FlutterStandardMethodCodec(readerWriter: Message
 /// Generated protocol from Pigeon that represents a handler of messages from Flutter.
 protocol WebmTextureHostApi {
   /// Creates the decoder and a platform texture sized to the bucket
-  /// ([bucketW] x [bucketH] physical pixels).
+  /// ([bucketW] x [bucketH] physical pixels). The texture shows frame 0 and
+  /// stays inactive until [setActive].
   ///
   /// [sourceKey] is the content hash (or caller key) that names the cache
-  /// entry. Fails with a `PlatformException` carrying a `wt_status` name as
-  /// its code if the core rejects the source.
-  func createAnimation(sourceKey: String, source: AnimationSourceMessage, bucketW: Int64, bucketH: Int64) async throws -> AnimationHandleMessage
-  /// Starts or stops playback. Inactive animations keep their first frame.
+  /// entry. With [loop] false, playback stops on the last frame and holds it
+  /// until [seekToFrame]. Fails with a `PlatformException` carrying a
+  /// `wt_status` name as its code if the core rejects the source.
+  func createAnimation(sourceKey: String, source: AnimationSourceMessage, bucketW: Int64, bucketH: Int64, loop: Bool) async throws -> AnimationHandleMessage
+  /// Starts or stops playback. Inactive animations keep their current frame.
   func setActive(animId: Int64, active: Bool) throws
+  /// Shows [frame] (0-based) right away, whether or not the animation is
+  /// active; an active one carries on from there. Seeking a non-looping
+  /// animation that has ended lets it play again.
+  ///
+  /// Throws `WT_ERR_INVALID_ARGUMENT` when [frame] is outside the
+  /// animation's frames. An unknown or disposed [animId] is ignored.
+  func seekToFrame(animId: Int64, frame: Int64) throws
   /// Releases the animation, its texture and its decoder. Safe to call twice.
   func dispose(animId: Int64) throws
   /// Reads the current device signals.
@@ -512,11 +521,13 @@ class WebmTextureHostApiSetup {
   static func setUp(binaryMessenger: FlutterBinaryMessenger, api: WebmTextureHostApi?, messageChannelSuffix: String = "") {
     let channelSuffix = messageChannelSuffix.count > 0 ? ".\(messageChannelSuffix)" : ""
     /// Creates the decoder and a platform texture sized to the bucket
-    /// ([bucketW] x [bucketH] physical pixels).
+    /// ([bucketW] x [bucketH] physical pixels). The texture shows frame 0 and
+    /// stays inactive until [setActive].
     ///
     /// [sourceKey] is the content hash (or caller key) that names the cache
-    /// entry. Fails with a `PlatformException` carrying a `wt_status` name as
-    /// its code if the core rejects the source.
+    /// entry. With [loop] false, playback stops on the last frame and holds it
+    /// until [seekToFrame]. Fails with a `PlatformException` carrying a
+    /// `wt_status` name as its code if the core rejects the source.
     let createAnimationChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.webm_texture.WebmTextureHostApi.createAnimation\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
     if let api = api {
       createAnimationChannel.setMessageHandler { message, reply in
@@ -525,9 +536,10 @@ class WebmTextureHostApiSetup {
         let sourceArg = args[1] as! AnimationSourceMessage
         let bucketWArg = args[2] as! Int64
         let bucketHArg = args[3] as! Int64
+        let loopArg = args[4] as! Bool
         Task { @MainActor in
           do {
-            let result = try await api.createAnimation(sourceKey: sourceKeyArg, source: sourceArg, bucketW: bucketWArg, bucketH: bucketHArg)
+            let result = try await api.createAnimation(sourceKey: sourceKeyArg, source: sourceArg, bucketW: bucketWArg, bucketH: bucketHArg, loop: loopArg)
             reply(wrapResult(result))
           } catch {
             reply(wrapError(error))
@@ -537,7 +549,7 @@ class WebmTextureHostApiSetup {
     } else {
       createAnimationChannel.setMessageHandler(nil)
     }
-    /// Starts or stops playback. Inactive animations keep their first frame.
+    /// Starts or stops playback. Inactive animations keep their current frame.
     let setActiveChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.webm_texture.WebmTextureHostApi.setActive\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
     if let api = api {
       setActiveChannel.setMessageHandler { message, reply in
@@ -553,6 +565,28 @@ class WebmTextureHostApiSetup {
       }
     } else {
       setActiveChannel.setMessageHandler(nil)
+    }
+    /// Shows [frame] (0-based) right away, whether or not the animation is
+    /// active; an active one carries on from there. Seeking a non-looping
+    /// animation that has ended lets it play again.
+    ///
+    /// Throws `WT_ERR_INVALID_ARGUMENT` when [frame] is outside the
+    /// animation's frames. An unknown or disposed [animId] is ignored.
+    let seekToFrameChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.webm_texture.WebmTextureHostApi.seekToFrame\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      seekToFrameChannel.setMessageHandler { message, reply in
+        let args = message as! [Any?]
+        let animIdArg = args[0] as! Int64
+        let frameArg = args[1] as! Int64
+        do {
+          try api.seekToFrame(animId: animIdArg, frame: frameArg)
+          reply(wrapResult(nil))
+        } catch {
+          reply(wrapError(error))
+        }
+      }
+    } else {
+      seekToFrameChannel.setMessageHandler(nil)
     }
     /// Releases the animation, its texture and its decoder. Safe to call twice.
     let disposeChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.webm_texture.WebmTextureHostApi.dispose\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)

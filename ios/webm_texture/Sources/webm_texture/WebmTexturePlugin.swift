@@ -47,7 +47,8 @@ public class WebmTexturePlugin: NSObject, FlutterPlugin, WebmTextureHostApi {
   // MARK: WebmTextureHostApi
 
   func createAnimation(
-    sourceKey: String, source: AnimationSourceMessage, bucketW: Int64, bucketH: Int64
+    sourceKey: String, source: AnimationSourceMessage, bucketW: Int64, bucketH: Int64,
+    loop: Bool
   ) async throws -> AnimationHandleMessage {
     let animId = await MainActor.run { () -> Int64 in
       lastAnimId += 1
@@ -55,7 +56,8 @@ public class WebmTexturePlugin: NSObject, FlutterPlugin, WebmTextureHostApi {
     }
     // Decodes frame 0 on the animation's own queue, off the main thread.
     let texture = try await StickerTexture.create(
-      animId: animId, source: source, bucketW: bucketW, bucketH: bucketH, registry: registry,
+      animId: animId, source: source, bucketW: bucketW, bucketH: bucketH, loop: loop,
+      registry: registry,
       onError: { [plugin = WeakPlugin(self)] animId, code, message in
         DispatchQueue.main.async {
           plugin.value?.emitError(animId: animId, code: code, message: message)
@@ -79,6 +81,16 @@ public class WebmTexturePlugin: NSObject, FlutterPlugin, WebmTextureHostApi {
     // An id that was already disposed is ignored: Dart may race a dispose
     // with a visibility change.
     animations[animId]?.texture.setActive(active)
+  }
+
+  func seekToFrame(animId: Int64, frame: Int64) throws {
+    guard let texture = animations[animId]?.texture else { return }
+    guard frame >= 0, frame < Int64(texture.frameCount) else {
+      throw PigeonError(
+        code: "WT_ERR_INVALID_ARGUMENT",
+        message: "frame \(frame) is outside 0..<\(texture.frameCount)", details: nil)
+    }
+    texture.seek(toFrame: Int(frame))
   }
 
   func dispose(animId: Int64) throws {

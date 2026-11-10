@@ -28,6 +28,8 @@ import 'package:webm_texture_example/checkerboard_page.dart';
 import 'package:webm_texture_example/corpus.dart';
 import 'package:webm_texture_example/main.dart';
 
+import 'screenshots.dart';
+
 const _updateGoldens = bool.fromEnvironment('UPDATE_GOLDENS');
 
 /// Fraction of pixels allowed to differ by more than [_channelTolerance].
@@ -195,11 +197,7 @@ Rect _stickerRect(WidgetTester tester, [int index = 0]) {
 void main() {
   _binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  setUpAll(() async {
-    // Android draws Flutter into a surface that takeScreenshot can't read
-    // until it is converted to an image.
-    if (Platform.isAndroid) await _binding.convertFlutterSurfaceToImage();
-  });
+  setUpAll(() => prepareScreenshots(_binding));
 
   testWidgets('checkerboard page matches its golden', (tester) async {
     // Disabled tickers hold every sticker on its first frame, which makes

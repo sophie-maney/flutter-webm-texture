@@ -27,17 +27,20 @@ NS_SWIFT_NAME(WTAnimation)
 @interface WTAnimation : NSObject
 
 /// Decodes `data` (copied into the core) scaled to width x height, or the
-/// source size for 0 x 0. Fails with a WTStatusErrorDomain error when the
-/// core rejects the input. Background thread.
+/// source size for 0 x 0. With `loop` NO, -renderNextFrameInto: stops after
+/// the last frame instead of wrapping. Fails with a WTStatusErrorDomain error
+/// when the core rejects the input. Background thread.
 - (nullable instancetype)initWithData:(NSData *)data
                                 width:(uint32_t)width
                                height:(uint32_t)height
+                                 loop:(BOOL)loop
                                 error:(NSError **)error;
 
 /// As above, from a file the core maps read-only. Background thread.
 - (nullable instancetype)initWithPath:(NSString *)path
                                 width:(uint32_t)width
                                height:(uint32_t)height
+                                 loop:(BOOL)loop
                                 error:(NSError **)error;
 
 - (instancetype)init NS_UNAVAILABLE;
@@ -47,9 +50,11 @@ NS_SWIFT_NAME(WTAnimation)
 @property(nonatomic, readonly) uint32_t width;
 @property(nonatomic, readonly) uint32_t height;
 @property(nonatomic, readonly) uint32_t frameCount;
+@property(nonatomic, readonly) BOOL loops;
 
-/// Decodes the frame at the cursor into `buffer` and advances the cursor,
-/// wrapping to frame 0 after the last one.
+/// Decodes the frame at the cursor into `buffer` and advances the cursor.
+/// After the last frame, a looping animation wraps to frame 0; a
+/// non-looping one returns WT_END (1) and writes nothing until -seekToFrame:.
 ///
 /// `buffer` must be kCVPixelFormatType_32BGRA and exactly width x height;
 /// anything else returns WT_ERR_INVALID_ARGUMENT without decoding. The
@@ -63,6 +68,12 @@ NS_SWIFT_NAME(WTAnimation)
 - (int32_t)renderNextFrameInto:(CVPixelBufferRef)buffer
                     durationMs:(uint32_t *_Nullable)outDurationMs
     NS_SWIFT_NAME(renderNextFrame(into:durationMs:));
+
+/// Moves the cursor so the next -renderNextFrameInto: returns `frame`.
+/// Cheap: the decoding happens in that call. Returns a wt_status,
+/// WT_ERR_INVALID_ARGUMENT when frame >= frameCount or after -close.
+/// Background thread.
+- (int32_t)seekToFrame:(uint32_t)frame NS_SWIFT_NAME(seek(toFrame:));
 
 /// Destroys the decoder now instead of at dealloc. Idempotent.
 - (void)close;
