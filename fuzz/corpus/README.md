@@ -9,6 +9,7 @@ inputs into the first corpus directory.
 | `fuzz_sniff` | `test_assets/` |
 | `fuzz_probe` | `test_assets/`, `fuzz/corpus/webm/` |
 | `fuzz_webm` | `fuzz/corpus/webm/` (+ `fuzz/webm.dict`) |
+| `fuzz_wsc` | `fuzz/corpus/wsc/` (+ `fuzz/wsc.dict`) |
 
 When a run finds a bug, fix it and add the reproducer from
 `build/fuzz/artifacts/<target>/` to the target's seed directory as a
@@ -38,3 +39,16 @@ regression input, named after what it triggers.
   ```
 
 `fuzz/webm.dict` lists the EBML IDs and strings the demuxer looks for.
+
+## `wsc/` (`fuzz_wsc`)
+
+Small, valid frame cache files (`docs/cache-format.md`) of corpus clips,
+within the fuzzer's limits (256 px, 64 frames). Regenerate them from a fuzz
+build when the format or the corpus changes:
+
+```sh
+cmake --build build/fuzz --target wsc_seeds
+build/fuzz/wsc_seeds test_assets fuzz/corpus/wsc
+```
+
+`fuzz/wsc.dict` lists the magic and common header values.

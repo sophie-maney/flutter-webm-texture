@@ -66,6 +66,7 @@ wt_status YuvaImage::Allocate(uint32_t width, uint32_t height,
   if (buffer == nullptr) return WT_ERR_NO_MEMORY;
 
   buffer_ = std::move(buffer);
+  data_size_ = total;
   width_ = width;
   height_ = height;
   color_ = YuvColor{};

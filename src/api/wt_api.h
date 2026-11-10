@@ -58,8 +58,9 @@
  * sniff correctly but wt_probe and wt_anim_create return WT_ERR_UNSUPPORTED
  * for them until Phase 5. WT_ERR_UNIMPLEMENTED is reserved for functions a
  * later phase adds before it fills them in.
- * The frame cache, scheduler and atlas (Phases 3-4) will add functions here;
- * they won't change the existing ones without bumping WT_API_VERSION.
+ * T3.1 added wt_anim_create_cached (WT_API_VERSION 2). The scheduler and
+ * atlas (Phases 3-4) will add more functions; they won't change the existing
+ * ones without bumping WT_API_VERSION.
  */
 #ifndef WT_API_H_
 #define WT_API_H_
@@ -78,7 +79,7 @@ extern "C" {
  * Bumped whenever a type or a signature in this header changes, so the Dart
  * bindings can refuse a mismatched native library at load time.
  */
-#define WT_API_VERSION 1
+#define WT_API_VERSION 2
 
 /*
  * Result codes. 0 is success, positive values are non-error outcomes and
@@ -308,7 +309,34 @@ WT_API wt_status wt_anim_create(wt_source* source, uint32_t width,
                                 uint32_t height, wt_anim** out_anim);
 
 /*
+ * Like wt_anim_create, backed by the frame cache file at cache_path (UTF-8):
+ * one animation at one output size, in the format of docs/cache-format.md.
+ * The caller names the file after the content and the size (PLAN.md:
+ * "<hash>_<w>x<h>_v1.wsc") in a directory that exists.
+ *
+ * - A valid cache for this source (checked by size and CRC-32) at this size
+ *   replaces decoding: frames are decompressed from it, never decoded.
+ * - Otherwise the first pass that plays frame 0 to the last frame without a
+ *   seek or an error writes the file as it goes, to a temporary name that is
+ *   fsynced and renamed to cache_path after the last frame. Later loops of
+ *   this animation read it.
+ * - A file that fails validation, here or when a later frame is read, is
+ *   deleted and playback decodes instead.
+ * Cache problems (no file, a read-only directory, a full disk) never fail
+ * this call or a frame; the animation just decodes. cache_path NULL or ""
+ * behaves exactly like wt_anim_create.
+ *
+ * Several animations may use the same cache_path at once, in one process or
+ * several: writers never collide and readers keep the file they mapped.
+ * Thread: background thread (file I/O, CRC of the source).
+ */
+WT_API wt_status wt_anim_create_cached(wt_source* source, uint32_t width,
+                                       uint32_t height, const char* cache_path,
+                                       wt_anim** out_anim);
+
+/*
  * Destroys anim and releases its reference to the source. NULL does nothing.
+ * An unfinished cache file it was writing is deleted.
  * Thread: any thread, but not concurrently with another call on anim.
  */
 WT_API void wt_anim_destroy(wt_anim* anim);
@@ -351,6 +379,8 @@ WT_API wt_status wt_anim_seek(wt_anim* anim, uint32_t frame_index);
  * caller should keep showing the previous one. A frame whose alpha payload
  * is missing or broken is not an error: it keeps the last good alpha until
  * the alpha stream's next keyframe.
+ * With a cache (wt_anim_create_cached) this may also write, rename or delete
+ * the cache file.
  * Thread: background thread, not concurrently with another call on anim.
  */
 WT_API wt_status wt_anim_next_frame(wt_anim* anim, uint8_t* dst,

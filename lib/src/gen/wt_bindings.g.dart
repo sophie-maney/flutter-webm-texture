@@ -61,7 +61,61 @@ class WtBindings {
         )
       >();
 
+  /// Like wt_anim_create, backed by the frame cache file at cache_path (UTF-8):
+  /// one animation at one output size, in the format of docs/cache-format.md.
+  /// The caller names the file after the content and the size (PLAN.md:
+  /// "<hash>_<w>x<h>_v1.wsc") in a directory that exists.
+  ///
+  /// - A valid cache for this source (checked by size and CRC-32) at this size
+  /// replaces decoding: frames are decompressed from it, never decoded.
+  /// - Otherwise the first pass that plays frame 0 to the last frame without a
+  /// seek or an error writes the file as it goes, to a temporary name that is
+  /// fsynced and renamed to cache_path after the last frame. Later loops of
+  /// this animation read it.
+  /// - A file that fails validation, here or when a later frame is read, is
+  /// deleted and playback decodes instead.
+  /// Cache problems (no file, a read-only directory, a full disk) never fail
+  /// this call or a frame; the animation just decodes. cache_path NULL or ""
+  /// behaves exactly like wt_anim_create.
+  ///
+  /// Several animations may use the same cache_path at once, in one process or
+  /// several: writers never collide and readers keep the file they mapped.
+  /// Thread: background thread (file I/O, CRC of the source).
+  int wt_anim_create_cached(
+    ffi.Pointer<wt_source> source,
+    int width,
+    int height,
+    ffi.Pointer<ffi.Char> cache_path,
+    ffi.Pointer<ffi.Pointer<wt_anim>> out_anim,
+  ) {
+    return _wt_anim_create_cached(source, width, height, cache_path, out_anim);
+  }
+
+  late final _wt_anim_create_cachedPtr =
+      _lookup<
+        ffi.NativeFunction<
+          wt_status Function(
+            ffi.Pointer<wt_source>,
+            ffi.Uint32,
+            ffi.Uint32,
+            ffi.Pointer<ffi.Char>,
+            ffi.Pointer<ffi.Pointer<wt_anim>>,
+          )
+        >
+      >('wt_anim_create_cached');
+  late final _wt_anim_create_cached = _wt_anim_create_cachedPtr
+      .asFunction<
+        int Function(
+          ffi.Pointer<wt_source>,
+          int,
+          int,
+          ffi.Pointer<ffi.Char>,
+          ffi.Pointer<ffi.Pointer<wt_anim>>,
+        )
+      >();
+
   /// Destroys anim and releases its reference to the source. NULL does nothing.
+  /// An unfinished cache file it was writing is deleted.
   /// Thread: any thread, but not concurrently with another call on anim.
   void wt_anim_destroy(ffi.Pointer<wt_anim> anim) {
     return _wt_anim_destroy(anim);
@@ -126,6 +180,8 @@ class WtBindings {
   /// caller should keep showing the previous one. A frame whose alpha payload
   /// is missing or broken is not an error: it keeps the last good alpha until
   /// the alpha stream's next keyframe.
+  /// With a cache (wt_anim_create_cached) this may also write, rename or delete
+  /// the cache file.
   /// Thread: background thread, not concurrently with another call on anim.
   int wt_anim_next_frame(
     ffi.Pointer<wt_anim> anim,
@@ -341,7 +397,7 @@ class WtBindings {
       .asFunction<ffi.Pointer<ffi.Char> Function(int)>();
 }
 
-const int WT_API_VERSION = 1;
+const int WT_API_VERSION = 2;
 
 const int WT_CODEC_GIF = 4;
 

@@ -1,0 +1,5 @@
+# fuzz_wsc: the .wsc magic (docs/cache-format.md) and small field values.
+magic="WTSC\x0d\x0a\x1a\x0a"
+version_1="\x01\x00\x00\x00"
+header_size="\x40\x00\x00\x00"
+flag_alpha="\x01\x00\x00\x00"

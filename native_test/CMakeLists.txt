@@ -26,6 +26,7 @@ add_executable(wt_native_tests
   $<TARGET_OBJECTS:wt_c_abi_check>
   anim_test.cc
   api_test.cc
+  cache_test.cc
   decode_test.cc
   deps_test.cc
   golden_test.cc

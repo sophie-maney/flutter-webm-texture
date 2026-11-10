@@ -263,7 +263,7 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 
 ## Phase 3: Cache, scheduler, tiers
 
-### [ ] T3.1 Frame cache format (`.wsc`)
+### [x] T3.1 Frame cache format (`.wsc`)
 **Model** Opus 5.5 · `high` · **Depends** T1.4 · **Track** A
 - `docs/cache-format.md` specifies: magic, version, w/h, frame count, durations, offset table, LZ4 YUVA420 frames, and a CRC per frame.
 - Writer: streams frames while the first playback runs, writes to a temp file then fsync and rename. Reader: mmap and bounds-checked.
@@ -274,6 +274,7 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 ### [ ] T3.2 Disk budget and eviction
 **Model** Sonnet 5.5 · `medium` · **Depends** T3.1 · **Track** A
 - LRU by access time under `diskBudgetBytes`, plus `clearCache()` and `cacheStats()` exposed through FFI. Evict on startup and after each write.
+- Wire `wt_anim_create_cached` into the Android and iOS glue: name each file `<hash>_<w>x<h>_v1.wsc` from `sourceKey` under the cache directory, and remove stray `*.tmp` files when evicting ([ADR 0015](docs/decisions/0015-frame-cache-file-and-abi.md)).
 
 **Accept:** unit tests for budget enforcement and concurrent access (two animations writing).
 
