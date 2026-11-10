@@ -139,7 +139,7 @@ tool/                      # fetch_prebuilts, build_host_deps.sh (host tests), g
 
 ### Phase 2: Platform textures + standalone widget
 - Pigeon API ([ADR 0010](docs/decisions/0010-pigeon-api-shape.md)): `createAnimation(sourceKey, source, bucketW, bucketH) → {animId, textureId}`, `setActive`, `dispose`, `deviceSignals`, plus a `streamErrors` event channel.
-- Android: a `SurfaceProducer` per Animation, passed to native code as `ANativeWindow` (`RGBA_8888`). Handle `onSurfaceAvailable`/`onSurfaceCleanup`, because the surface is destroyed in the background and has to be recreated.
+- Android: a `SurfaceProducer` per Animation (`resetInBackground`), passed to native code as `ANativeWindow` (`RGBA_8888`). Handle `onSurfaceAvailable`/`onSurfaceCleanup`, because the surface is destroyed in the background and has to be recreated. The JNI glue and its render threads are compiled into `libwebm_texture.so` with the core ([ADR 0011](docs/decisions/0011-android-texture-glue.md)).
 - iOS: a `FlutterTexture` with a `CVPixelBufferPool` (BGRA, IOSurface, Metal-compatible), where native code writes into the locked buffer. Confirm from which thread `textureFrameAvailable` may be called.
 - Dart: `WebmSticker`, `StickerRegistry` (refcounted dedupe by hash+bucket), visibility via a custom render object (viewport intersection + `TickerMode`), app lifecycle handling, and placeholder/error states.
 

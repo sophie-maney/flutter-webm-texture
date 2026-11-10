@@ -51,13 +51,17 @@ android {
     defaultConfig {
         minSdk = 24
 
+        // Keeps the JNI entry points and callbacks through app R8 passes.
+        consumerProguardFiles("proguard-rules.pro")
+
         // The prebuilts cover these ABIs (x86 is opt-in; see build-android.sh).
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
         }
     }
 
-    // The C++ core as libwebm_texture.so, loaded by dart:ffi.
+    // The C++ core plus the JNI texture glue as libwebm_texture.so, loaded by
+    // dart:ffi and System.loadLibrary.
     externalNativeBuild {
         cmake {
             path = file("CMakeLists.txt")

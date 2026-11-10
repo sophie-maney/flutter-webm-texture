@@ -40,7 +40,7 @@ Each command works once the task that introduces it has landed (that task's ID i
 | Purpose | Command |
 |---|---|
 | Deps | `fvm flutter pub get` |
-| Format | `fvm dart format --set-exit-if-changed .` · `clang-format --dry-run -Werror $(git ls-files 'src/*.cc' 'src/*.h' 'native_test/*.cc' 'native_test/*.c' 'native_test/*.h' 'fuzz/*.cc')` (clang-format 23.1.5, as in CI) |
+| Format | `fvm dart format --set-exit-if-changed .` · `clang-format --dry-run -Werror $(git ls-files 'src/*.cc' 'src/*.h' 'native_test/*.cc' 'native_test/*.c' 'native_test/*.h' 'fuzz/*.cc' 'android/src/main/cpp/*.cc' 'android/src/main/cpp/*.h')` (clang-format 23.1.5, as in CI) |
 | Analyze | `fvm flutter analyze` |
 | Dart tests | `fvm flutter test` |
 | Build iOS prebuilts [T0.4] | `third_party/build/build-ios.sh` (macOS + Xcode, `brew install cmake nasm`) → `third_party/prebuilt/ios/WebmTextureDeps.xcframework` |
@@ -55,7 +55,7 @@ Each command works once the task that introduces it has landed (that task's ID i
 | Regenerate corpus [T0.3] | `tool/gen_corpus.sh` (needs `ffmpeg` with libvpx + libopus, `img2webp`, `gif2webp`, `gifsicle`, `jq`) · validate: `tool/gen_corpus.sh --check` |
 | Android build | `cd example && fvm flutter build apk --debug` |
 | iOS build | `cd example && fvm flutter build ios --simulator --debug` |
-| Integration tests | `cd example && fvm flutter test integration_test -d <device>` (`probe_test.dart` [T1.8] probes the corpus over FFI; `texture_test.dart` [T2.3] drives the texture glue, iOS until T2.2) |
+| Integration tests | `cd example && fvm flutter test integration_test -d <device>` (`probe_test.dart` [T1.8] probes the corpus over FFI; `texture_test.dart` [T2.2, T2.3] drives the texture glue) |
 
 ## Conventions
 - **Dart**: `flutter_lints` plus the rules in `analysis_options.yaml`. Public API is documented with dartdoc. Don't export anything from `lib/src/` unless the API in `PLAN.md` lists it.

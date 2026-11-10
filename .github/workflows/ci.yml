@@ -57,7 +57,7 @@ jobs:
       # Pinned so CI and local runs format identically (brew/pip: 23.1.5).
       - name: clang-format
         run: |
-          git ls-files 'src/*.cc' 'src/*.h' 'native_test/*.cc' 'native_test/*.c' 'native_test/*.h' 'fuzz/*.cc' |
+          git ls-files 'src/*.cc' 'src/*.h' 'native_test/*.cc' 'native_test/*.c' 'native_test/*.h' 'fuzz/*.cc' 'android/src/main/cpp/*.cc' 'android/src/main/cpp/*.h' |
             xargs -r pipx run clang-format==23.1.5 --dry-run -Werror
 
   native:

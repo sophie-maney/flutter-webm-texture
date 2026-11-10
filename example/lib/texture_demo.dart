@@ -9,16 +9,32 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:webm_texture/src/gen/messages.g.dart';
 
-/// Corpus files shown on the page, with the bucket each one is created at
-/// (0 x 0 means the source size).
+/// A corpus file and the aspect ratio it is shown at.
+class _Sticker {
+  const _Sticker(this.asset, this.aspect);
+
+  final String asset;
+
+  /// Width / height of the source.
+  final double aspect;
+}
+
 const _stickers = [
-  ('vp9_alpha_512.webm', 256, 256),
-  ('vp8_alpha_256.webm', 256, 256),
-  ('vp9_alpha_vfr.webm', 256, 256),
-  ('vp9_opaque_256.webm', 128, 128),
-  ('vp9_odd_301x199.webm', 0, 0),
-  ('vp9_single_frame.webm', 256, 256),
+  _Sticker('vp9_alpha_512.webm', 1),
+  _Sticker('vp8_alpha_256.webm', 1),
+  _Sticker('vp9_alpha_vfr.webm', 1),
+  _Sticker('vp9_odd_301x199.webm', 301 / 199),
+  _Sticker('vp9_single_frame.webm', 1),
+  _Sticker('vp9_opaque_256.webm', 1),
+  _Sticker('vp9_with_audio.webm', 1),
+  // Rejected by the core (WT_ERR_LIMIT): its tile shows the error code.
+  _Sticker('vp9_2048.webm', 1),
 ];
+
+/// Created once and disposed, so their status names land in the log.
+const _rejected = ['garbage.bin', 'truncated.webm'];
+
+const _tileWidth = 110.0;
 
 class TextureDemoPage extends StatefulWidget {
   const TextureDemoPage({super.key});
@@ -27,36 +43,54 @@ class TextureDemoPage extends StatefulWidget {
   State<TextureDemoPage> createState() => _TextureDemoPageState();
 }
 
-class _Live {
-  _Live(this.name, this.handle, this.width, this.height);
-  final String name;
-  final AnimationHandleMessage handle;
-  final int width;
-  final int height;
+class _Tile {
+  _Tile(this.sticker);
+
+  final _Sticker sticker;
+  AnimationHandleMessage? handle;
+  String? error;
 }
 
 class _TextureDemoPageState extends State<TextureDemoPage> {
   final _api = WebmTextureHostApi();
-  final _live = <_Live>[];
+  final _tiles = [for (final s in _stickers) _Tile(s)];
+  final _bytes = <String, Uint8List>{};
   final _log = <String>[];
   StreamSubscription<AnimationErrorMessage>? _errors;
   bool _playing = true;
+  bool _started = false;
   bool _busy = false;
+  int _cycled = 0;
+  int _streamErrors = 0;
+  double _dpr = 1;
 
   @override
   void initState() {
     super.initState();
-    _errors = streamErrors().listen(
-      (e) => _say('anim ${e.animId}: ${e.code} ${e.message}'),
-    );
-    unawaited(_createAll());
+    _errors = streamErrors().listen((e) {
+      _streamErrors++;
+      _say('anim ${e.animId}: ${e.code} ${e.message}');
+    });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Until the platform reports window metrics the view is 0 x 0 with a
+    // device pixel ratio of 1; wait for real ones before picking buckets.
+    if (!_started && !MediaQuery.sizeOf(context).isEmpty) {
+      _started = true;
+      _dpr = MediaQuery.devicePixelRatioOf(context);
+      unawaited(_createAll());
+    }
   }
 
   @override
   void dispose() {
     _errors?.cancel();
-    for (final l in _live) {
-      _api.dispose(l.handle.animId);
+    for (final t in _tiles) {
+      final h = t.handle;
+      if (h != null) _api.dispose(h.animId);
     }
     super.dispose();
   }
@@ -66,36 +100,46 @@ class _TextureDemoPageState extends State<TextureDemoPage> {
     setState(() => _log.insert(0, line));
   }
 
+  Future<Uint8List> _load(String asset) async =>
+      _bytes[asset] ??= (await rootBundle.load('test_assets/$asset')).buffer
+          .asUint8List();
+
   Future<AnimationSourceMessage> _source(
     String name, {
     bool asFile = false,
   }) async {
-    final bytes = (await rootBundle.load('test_assets/$name')).buffer
-        .asUint8List();
+    final bytes = await _load(name);
     if (!asFile) return AnimationSourceMessage(bytes: bytes);
     final file = File('${Directory.systemTemp.path}/wt_demo_$name');
     await file.writeAsBytes(bytes, flush: true);
     return AnimationSourceMessage(path: file.path);
   }
 
+  /// The physical-pixel bucket for a tile, so the texture is drawn 1:1.
+  (int, int) _bucket(_Sticker s) {
+    final w = (_tileWidth * _dpr).round();
+    return (w, (w / s.aspect).round());
+  }
+
   Future<void> _createAll() async {
-    for (final (i, (name, w, h)) in _stickers.indexed) {
+    for (final (i, t) in _tiles.indexed) {
+      final s = t.sticker;
       try {
         // Alternate bytes and paths so both source kinds are exercised.
-        final src = await _source(name, asFile: i.isOdd);
-        final handle = await _api.createAnimation(name, src, w, h);
-        await _api.setActive(handle.animId, _playing);
+        final src = await _source(s.asset, asFile: i.isOdd);
+        final (w, h) = _bucket(s);
+        final handle = await _api.createAnimation(s.asset, src, w, h);
         if (!mounted) {
           await _api.dispose(handle.animId);
           return;
         }
-        setState(() => _live.add(_Live(name, handle, w, h)));
+        await _api.setActive(handle.animId, _playing);
+        setState(() => t.handle = handle);
       } on PlatformException catch (e) {
-        _say('$name: ${e.code}');
+        if (mounted) setState(() => t.error = e.code);
       }
     }
-    // Rejected input must fail with the core's status name.
-    for (final name in ['vp9_2048.webm', 'garbage.bin', 'truncated.webm']) {
+    for (final name in _rejected) {
       try {
         final handle = await _api.createAnimation(
           name,
@@ -112,28 +156,31 @@ class _TextureDemoPageState extends State<TextureDemoPage> {
   }
 
   Future<void> _togglePlay() async {
-    _playing = !_playing;
-    for (final l in _live) {
-      await _api.setActive(l.handle.animId, _playing);
+    setState(() => _playing = !_playing);
+    for (final t in _tiles) {
+      final h = t.handle;
+      if (h != null) await _api.setActive(h.animId, _playing);
     }
-    setState(() {});
   }
 
-  /// Creates, plays one frame's worth and disposes an animation [n] times,
-  /// for leak checks (Instruments / `leaks`, or `dumpsys meminfo`).
+  /// Creates, plays and disposes an animation [n] times, for leak checks
+  /// (Instruments / `leaks`, or `dumpsys meminfo`).
   Future<void> _cycle(int n) async {
     setState(() => _busy = true);
     final sw = Stopwatch()..start();
-    final src = await _source('vp9_alpha_512.webm');
-    for (var i = 0; i < n; i++) {
-      final h = await _api.createAnimation('cycle', src, 256, 256);
-      await _api.setActive(h.animId, true);
+    final s = _stickers.first;
+    final src = await _source(s.asset);
+    final (w, h) = _bucket(s);
+    for (var i = 0; i < n && mounted; i++) {
+      final handle = await _api.createAnimation('cycle', src, w, h);
+      await _api.setActive(handle.animId, true);
       await Future<void>.delayed(const Duration(milliseconds: 20));
-      await _api.dispose(h.animId);
-      await _api.dispose(h.animId); // idempotent
+      await _api.dispose(handle.animId);
+      await _api.dispose(handle.animId); // idempotent
+      if (mounted) setState(() => _cycled++);
     }
     _say('cycled $n in ${sw.elapsedMilliseconds} ms');
-    setState(() => _busy = false);
+    if (mounted) setState(() => _busy = false);
   }
 
   @override
@@ -161,13 +208,14 @@ class _TextureDemoPageState extends State<TextureDemoPage> {
           Wrap(
             spacing: 8,
             runSpacing: 8,
-            children: [
-              for (final l in _live)
-                _Tile(label: l.name, textureId: l.handle.textureId),
-            ],
+            children: [for (final t in _tiles) _TileView(t)],
           ),
           const SizedBox(height: 12),
-          Text('${_live.length} live', key: const Key('liveCount')),
+          Text(
+            'live ${_tiles.where((t) => t.handle != null).length} · '
+            'cycled $_cycled · errors $_streamErrors',
+            key: const Key('status'),
+          ),
           for (final line in _log)
             Text(line, style: const TextStyle(fontSize: 12)),
         ],
@@ -176,33 +224,46 @@ class _TextureDemoPageState extends State<TextureDemoPage> {
   }
 }
 
-class _Tile extends StatelessWidget {
-  const _Tile({required this.label, required this.textureId});
-  final String label;
-  final int textureId;
+class _TileView extends StatelessWidget {
+  const _TileView(this.tile);
+
+  final _Tile tile;
 
   @override
   Widget build(BuildContext context) {
+    final h = tile.handle;
+    final Widget content;
+    if (h != null) {
+      content = Texture(
+        textureId: h.textureId,
+        filterQuality: FilterQuality.none,
+      );
+    } else {
+      content = Center(
+        child: Text(
+          tile.error ?? '…',
+          textAlign: TextAlign.center,
+          style: const TextStyle(fontSize: 11, color: Colors.red),
+        ),
+      );
+    }
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        SizedBox(
-          width: 110,
-          height: 110,
-          child: CustomPaint(
-            painter: _Checker(),
-            child: Texture(
-              textureId: textureId,
-              filterQuality: FilterQuality.medium,
-            ),
+        CustomPaint(
+          painter: const _Checker(),
+          child: SizedBox(
+            width: _tileWidth,
+            height: _tileWidth / tile.sticker.aspect,
+            child: content,
           ),
         ),
         SizedBox(
-          width: 110,
+          width: _tileWidth,
           child: Text(
-            label,
-            style: const TextStyle(fontSize: 10),
+            tile.sticker.asset,
             overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 10),
           ),
         ),
       ],
@@ -212,6 +273,8 @@ class _Tile extends StatelessWidget {
 
 /// A checkerboard behind each texture, so transparency is visible.
 class _Checker extends CustomPainter {
+  const _Checker();
+
   @override
   void paint(Canvas canvas, Size size) {
     const cell = 10.0;
@@ -223,7 +286,15 @@ class _Checker extends CustomPainter {
     for (var y = 0; y * cell < size.height; y++) {
       for (var x = 0; x * cell < size.width; x++) {
         if ((x + y).isOdd) {
-          canvas.drawRect(Rect.fromLTWH(x * cell, y * cell, cell, cell), dark);
+          canvas.drawRect(
+            Rect.fromLTWH(
+              x * cell,
+              y * cell,
+              cell,
+              cell,
+            ).intersect(Offset.zero & size),
+            dark,
+          );
         }
       }
     }

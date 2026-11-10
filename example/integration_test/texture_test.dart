@@ -1,5 +1,5 @@
-// Drives the platform texture glue (T2.3 on iOS; T2.2 enables Android) over
-// the Pigeon host API: create from bytes and paths, rejected input, playback
+// Drives the platform texture glue (T2.2 on Android, T2.3 on iOS) over the
+// Pigeon host API: create from bytes and paths, rejected input, playback
 // toggles and create/dispose cycles. Run with:
 //
 //   cd example && fvm flutter test integration_test/texture_test.dart -d <device>
@@ -11,9 +11,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:webm_texture/src/gen/messages.g.dart';
-
-/// T2.2 removes this once the Android glue lands.
-final bool _skip = !Platform.isIOS;
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -79,7 +76,7 @@ void main() {
       }
     }
     expect(ids, isNotEmpty);
-  }, skip: _skip);
+  });
 
   testWidgets('rejects malformed requests', (tester) async {
     final data = await load('vp9_alpha_512.webm');
@@ -109,7 +106,7 @@ void main() {
       ),
       throwsCode('WT_ERR_IO'),
     );
-  }, skip: _skip);
+  });
 
   testWidgets('dispose is idempotent and unknown ids are ignored', (
     tester,
@@ -124,7 +121,7 @@ void main() {
     await api.dispose(h.animId);
     await api.setActive(h.animId, true);
     await api.dispose(-1);
-  }, skip: _skip);
+  });
 
   testWidgets('survives 100 create/play/dispose cycles', (tester) async {
     final src = AnimationSourceMessage(bytes: await load('vp9_alpha_512.webm'));
@@ -134,5 +131,5 @@ void main() {
       await tester.pump(const Duration(milliseconds: 10));
       await api.dispose(h.animId);
     }
-  }, skip: _skip);
+  });
 }
