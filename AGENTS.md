@@ -40,7 +40,7 @@ Each command works once the task that introduces it has landed (that task's ID i
 | Purpose | Command |
 |---|---|
 | Deps | `fvm flutter pub get` |
-| Format | `fvm dart format --set-exit-if-changed .` · `clang-format --dry-run -Werror $(git ls-files 'src/*.cc' 'src/*.h' 'native_test/*.cc' 'native_test/*.c' 'native_test/*.h' 'fuzz/*.cc')` (clang-format 23.1.5, as in CI) |
+| Format | `fvm dart format --set-exit-if-changed .` · `clang-format --dry-run -Werror $(git ls-files 'src/*.cc' 'src/*.h' 'native_test/*.cc' 'native_test/*.c' 'native_test/*.h' 'fuzz/*.cc' 'android/src/main/cpp/*.cc' 'android/src/main/cpp/*.h')` (clang-format 23.1.5, as in CI) |
 | Analyze | `fvm flutter analyze` |
 | Dart tests | `fvm flutter test` |
 | Build iOS prebuilts [T0.4] | `third_party/build/build-ios.sh` (macOS + Xcode, `brew install cmake nasm`) → `third_party/prebuilt/ios/WebmTextureDeps.xcframework` |

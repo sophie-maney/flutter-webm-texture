@@ -201,7 +201,7 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 
 **Accept:** the generated code is committed, and analyze plus the native builds are clean.
 
-### [ ] T2.2 Android texture glue
+### [x] T2.2 Android texture glue
 **Model** Opus 5.5 · `high` · **Depends** T2.1, T0.8 · **Track** B
 - One `SurfaceProducer` per animation. Pass its `Surface` to native via JNI → `ANativeWindow_fromSurface`, set geometry to the bucket and RGBA_8888.
 - A simple per-animation render thread (replaced in T3.3) calls `wt_anim_next_frame` into `ANativeWindow_lock`'d memory.

@@ -1,45 +1,116 @@
 package com.example.webm_texture
 
+import android.os.Handler
+import android.os.Looper
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
+import io.flutter.view.TextureRegistry
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
-/** WebmTexturePlugin */
+/**
+ * The Android side of the Pigeon API ([ADR 0010](docs/decisions/0010-pigeon-api-shape.md)).
+ * Each animation is a [StickerTexture]: a `SurfaceProducer` filled by a native
+ * render thread. Host API calls arrive on the platform main thread.
+ */
 class WebmTexturePlugin :
     FlutterPlugin,
     MethodCallHandler,
     WebmTextureHostApi {
-    // The MethodChannel that will the communication between Flutter and native Android
-    //
-    // This local reference serves to register the plugin with the Flutter Engine and unregister it
-    // when the Flutter Engine is detached from the Activity
     private lateinit var channel: MethodChannel
+    private var errorChannel: StreamErrorsEventChannel? = null
+    private var textures: TextureRegistry? = null
+    private val main = Handler(Looper.getMainLooper())
+
+    // Main thread only.
+    private val animations = HashMap<Long, StickerTexture>()
+    private var nextAnimId = 1L
+    private var errorSink: PigeonEventSink<AnimationErrorMessage>? = null
 
     override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
+        textures = flutterPluginBinding.textureRegistry
         channel = MethodChannel(flutterPluginBinding.binaryMessenger, "webm_texture")
         channel.setMethodCallHandler(this)
         WebmTextureHostApi.setUp(flutterPluginBinding.binaryMessenger, this)
+        errorChannel = StreamErrorsStreamHandler.register(
+            flutterPluginBinding.binaryMessenger,
+            object : StreamErrorsStreamHandler() {
+                override fun onListen(p0: Any?, sink: PigeonEventSink<AnimationErrorMessage>) {
+                    errorSink = sink
+                }
+
+                override fun onCancel(p0: Any?) {
+                    errorSink = null
+                }
+            },
+        )
     }
 
-    // T2.2 replaces these stubs with the SurfaceProducer glue.
     override suspend fun createAnimation(
         sourceKey: String,
         source: AnimationSourceMessage,
         bucketW: Long,
         bucketH: Long
-    ): AnimationHandleMessage = throw notImplemented("createAnimation")
+    ): AnimationHandleMessage {
+        if ((source.bytes == null) == (source.path == null)) {
+            throw FlutterError("WT_ERR_INVALID_ARGUMENT", "set exactly one of bytes and path", null)
+        }
+        if (bucketW !in 0..Int.MAX_VALUE || bucketH !in 0..Int.MAX_VALUE) {
+            throw FlutterError("WT_ERR_INVALID_ARGUMENT", "bucket ${bucketW}x$bucketH out of range", null)
+        }
+        val animId = nextAnimId++
+        val texture = StickerTexture(animId, ::postError)
 
-    override fun setActive(animId: Long, active: Boolean) = throw notImplemented("setActive")
+        // Probing and decoder setup read the file, so keep them off main.
+        val out = withContext(Dispatchers.IO) {
+            texture.createNative(source, bucketW.toInt(), bucketH.toInt())
+        }
+        val status = out[WtNative.OUT_STATUS]
+        if (status != WtNative.WT_OK) {
+            throw FlutterError(WtNative.nativeStatusName(status), "can't play $sourceKey", null)
+        }
 
-    override fun dispose(animId: Long) = throw notImplemented("dispose")
+        val registry = textures
+        if (registry == null) {
+            texture.dispose()
+            throw FlutterError("ENGINE_DETACHED", "the Flutter engine was detached", null)
+        }
+        val producer = try {
+            registry.createSurfaceProducer(TextureRegistry.SurfaceLifecycle.resetInBackground)
+        } catch (e: RuntimeException) {
+            // "Cannot execute operation because FlutterJNI is not attached to
+            // native" when the engine is detaching (spike B).
+            texture.dispose()
+            throw FlutterError("ENGINE_DETACHED", e.message, null)
+        }
+        texture.attach(producer, out[WtNative.OUT_WIDTH], out[WtNative.OUT_HEIGHT])
+        animations[animId] = texture
+        return AnimationHandleMessage(animId, texture.textureId)
+    }
+
+    override fun setActive(animId: Long, active: Boolean) {
+        animations[animId]?.setActive(active)
+    }
+
+    override fun dispose(animId: Long) {
+        animations.remove(animId)?.dispose()
+    }
 
     // T3.4 reports the real device signals.
-    override fun deviceSignals(): DeviceSignalsMessage = throw notImplemented("deviceSignals")
+    override fun deviceSignals(): DeviceSignalsMessage =
+        throw FlutterError("UNIMPLEMENTED", "deviceSignals is not implemented on Android yet", null)
 
-    private fun notImplemented(method: String) =
-        FlutterError("UNIMPLEMENTED", "$method is not implemented on Android yet", null)
+    /** Any thread: forwards a native failure to Dart on [streamErrors]. */
+    private fun postError(animId: Long, code: String, message: String) {
+        main.post {
+            if (animations.containsKey(animId)) {
+                errorSink?.success(AnimationErrorMessage(animId, code, message))
+            }
+        }
+    }
 
     override fun onMethodCall(
         call: MethodCall,
@@ -55,5 +126,11 @@ class WebmTexturePlugin :
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         channel.setMethodCallHandler(null)
         WebmTextureHostApi.setUp(binding.binaryMessenger, null)
+        errorChannel?.setStreamHandler(null)
+        errorChannel = null
+        errorSink = null
+        animations.values.forEach { it.dispose() }
+        animations.clear()
+        textures = null
     }
 }
