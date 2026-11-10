@@ -6,6 +6,7 @@ import 'package:flutter/widgets.dart';
 import 'probe.dart';
 import 'sticker_info.dart';
 import 'sticker_registry.dart';
+import 'sticker_resolver.dart';
 import 'sticker_source.dart';
 
 /// Reads a sticker's metadata; [probeSticker] outside tests.
@@ -20,8 +21,10 @@ class StickerRuntime {
   StickerRuntime({
     StickerRegistry? registry,
     StickerProber? prober,
+    StickerResolver? resolver,
     this.infoCacheSize = 256,
   }) : registry = registry ?? StickerRegistry(),
+       resolver = resolver ?? StickerResolver(),
        _prober = prober ?? probeSticker;
 
   static StickerRuntime? _default;
@@ -37,6 +40,9 @@ class StickerRuntime {
 
   /// Shares animations between widgets.
   final StickerRegistry registry;
+
+  /// Loads asset and network sources and names every source's content.
+  final StickerResolver resolver;
 
   final StickerProber _prober;
 

@@ -44,6 +44,8 @@ StickerInfo _probeSync(StickerSource source, StickerLimits? limits) {
           nativeLimits,
           outSource,
         );
+      case AssetStickerSource() || NetworkStickerSource():
+        throw ArgumentError.value(source, 'source', 'must be resolved first');
     }
     _check(b, created);
 

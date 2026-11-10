@@ -110,7 +110,7 @@ class _WebmStickerState extends State<WebmSticker> {
   /// Identifies this widget's private animation when it isn't shared.
   final Object _privateOwner = Object();
 
-  late String _key;
+  ResolvedSticker? _resolved;
   StickerInfo? _info;
   Object? _error;
 
@@ -163,7 +163,7 @@ class _WebmStickerState extends State<WebmSticker> {
     }
     final oldOwner =
         oldWidget.controller ?? (oldWidget.autoplay ? null : _privateOwner);
-    if (stickerKeyOf(widget.source) != _key) {
+    if (widget.source != oldWidget.source) {
       _releaseLease();
       _load();
     } else if (!identical(oldOwner, _owner)) {
@@ -187,15 +187,24 @@ class _WebmStickerState extends State<WebmSticker> {
   void _load() {
     final generation = ++_sourceGeneration;
     _generation++;
-    _key = stickerKeyOf(widget.source);
+    _resolved = null;
     _info = null;
     _error = null;
     _pending = null;
-    _runtime
-        .info(_key, widget.source)
+    _runtime.resolver
+        .resolve(widget.source)
+        .then((resolved) {
+          if (!mounted || generation != _sourceGeneration) {
+            return Future<StickerInfo?>.value();
+          }
+          _resolved = resolved;
+          return _runtime.info(resolved.key, resolved.source);
+        })
         .then<void>(
           (info) {
-            if (!mounted || generation != _sourceGeneration) return;
+            if (info == null || !mounted || generation != _sourceGeneration) {
+              return;
+            }
             if (info.width <= 0 || info.height <= 0) {
               setState(
                 () => _error = const StickerException(
@@ -233,6 +242,8 @@ class _WebmStickerState extends State<WebmSticker> {
   /// unless it is already held or on its way. Called during layout, so it
   /// must not mark anything dirty synchronously.
   void _ensureBucket(StickerBucket bucket) {
+    final resolved = _resolved;
+    if (resolved == null) return;
     final want = (_generation, bucket);
     if (_pending == want) return;
     if (_pending == null && _leaseFor == want) return;
@@ -240,8 +251,8 @@ class _WebmStickerState extends State<WebmSticker> {
     final generation = _generation;
     _runtime.registry
         .acquire(
-          key: _key,
-          source: widget.source,
+          key: resolved.key,
+          source: resolved.source,
           bucket: bucket,
           owner: _owner,
         )

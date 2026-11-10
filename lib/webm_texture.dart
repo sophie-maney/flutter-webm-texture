@@ -14,7 +14,16 @@ export 'src/sticker_info.dart'
         StickerInfo,
         StickerLimits;
 export 'src/sticker_source.dart'
-    show BytesStickerSource, FileStickerSource, StickerSource;
+    show
+        AssetStickerSource,
+        BytesFetchResult,
+        BytesStickerSource,
+        FileFetchResult,
+        FileStickerSource,
+        NetworkStickerSource,
+        StickerFetchResult,
+        StickerFetcher,
+        StickerSource;
 export 'src/webm_sticker.dart'
     show StickerErrorWidgetBuilder, WebmSticker, WebmStickerController;
 
@@ -26,8 +35,18 @@ class WebmTexture {
 
 /// Entry points of the plugin that don't need a widget.
 abstract final class WebmStickers {
+  /// Handles [StickerSource.network]. Set it once at startup; without one,
+  /// network stickers fail with a [StateError] that reaches `errorBuilder`.
+  static StickerFetcher? get fetcher =>
+      StickerRuntime.instance.resolver.fetcher;
+  static set fetcher(StickerFetcher? value) {
+    final resolver = StickerRuntime.instance.resolver;
+    resolver.fetcher = value;
+    resolver.clear();
+  }
+
   /// Reads [source]'s metadata (codec, size, frames, duration, alpha, audio)
-  /// without decoding pixels.
+  /// without decoding pixels. Assets and network sources are loaded first.
   ///
   /// Runs on a background isolate, so it is safe to call from the UI isolate.
   /// Input is checked against [limits] (the native defaults when null);
@@ -36,7 +55,10 @@ abstract final class WebmStickers {
   static Future<StickerInfo> probe(
     StickerSource source, {
     StickerLimits? limits,
-  }) => probeSticker(source, limits: limits);
+  }) async {
+    final resolved = await StickerRuntime.instance.resolver.resolve(source);
+    return probeSticker(resolved.source, limits: limits);
+  }
 
   /// How many [WebmSticker]s want to animate right now: playing, on screen,
   /// under an enabled `TickerMode`, with the app in the foreground.

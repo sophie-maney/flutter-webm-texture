@@ -13,7 +13,7 @@ A Flutter plugin (Android + iOS) that plays animated stickers inline the way Tel
 | Formats | VP9 WebM (with alpha), VP8 WebM (with alpha), animated WebP, GIF |
 | Density | Inline chat stickers (1–10 on screen) **and** picker grids (30–60+ on screen) |
 | Min OS | Android API 24, iOS 15 |
-| Sources | `file`, `bytes`, `asset` built in; `network` goes through a pluggable `StickerFetcher` |
+| Sources | `file`, `bytes`, `asset` built in; `network` goes through a pluggable `StickerFetcher`. Content is keyed by SHA-1 of the bytes, a caller `key`, or a file path ([ADR 0013](docs/decisions/0013-sources-and-fetcher.md)) |
 | Native libs | Built by CI per ABI with pinned versions, then vendored into the published package with sha256 checks |
 | Low-end devices | Automatic device tiers; the app can override them |
 | Distribution | Public on pub.dev eventually, so the API, docs, licenses and binary hosting must meet that bar from day one |
@@ -78,7 +78,7 @@ await WebmStickers.configure(StickerConfig(
   cacheDirectory: ..., diskBudgetBytes: 200 << 20,
   tier: StickerTier.auto, maxFps: null, maxConcurrent: null,
   limits: StickerLimits(maxDimension: 1024, maxDuration: Duration(seconds: 10), maxBytes: 2 << 20),
-  fetcher: myFetcher, // implements StickerFetcher for StickerSource.network
+  fetcher: myFetcher, // implements StickerFetcher for StickerSource.network (until `configure` lands: WebmStickers.fetcher = myFetcher, ADR 0013)
 ));
 
 WebmSticker(

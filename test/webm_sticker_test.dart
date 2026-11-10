@@ -7,6 +7,7 @@ import 'package:webm_texture/src/sticker_registry.dart';
 import 'package:webm_texture/src/sticker_runtime.dart';
 import 'package:webm_texture/webm_texture.dart';
 
+import 'fake_fetcher.dart';
 import 'fake_host.dart';
 
 const _grace = Duration(seconds: 2);
@@ -41,7 +42,11 @@ void main() {
       prober: (source) async {
         probeCalls++;
         await probeGate?.future;
-        final path = (source as FileStickerSource).path;
+        final path = switch (source) {
+          FileStickerSource(:final path) => path,
+          BytesStickerSource(:final key) => 'bytes:$key',
+          _ => throw ArgumentError('unresolved $source'),
+        };
         final r = probes[path] ?? _info(512, 512);
         if (r is StickerInfo) return r;
         throw r;
@@ -575,6 +580,167 @@ void main() {
       expect(host.disposed, [1]);
       await finish(tester);
       controller.dispose();
+    });
+  });
+
+  group('sources', () {
+    late FakeFetcher fetcher;
+
+    setUp(() {
+      fetcher = FakeFetcher();
+      runtime.resolver.fetcher = fetcher;
+    });
+
+    Widget networkSticker(
+      String url, {
+      Key? key,
+      String? stickerKey,
+      StickerErrorWidgetBuilder? errorBuilder,
+    }) => WebmSticker(
+      key: key,
+      source: StickerSource.network(url, key: stickerKey),
+      width: 100,
+      height: 100,
+      errorBuilder: errorBuilder,
+    );
+
+    testWidgets('a network sticker is fetched, then created from its bytes', (
+      tester,
+    ) async {
+      final data = Uint8List.fromList([1, 2, 3]);
+      fetcher.result = StickerFetchResult.bytes(data);
+      await tester.pumpWidget(app(Center(child: networkSticker('https://a'))));
+      await settle(tester);
+      expect(fetcher.calls.single.$1, Uri.parse('https://a'));
+      final (key, source, _, _) = host.created.single;
+      expect(key, startsWith('sha1:'));
+      expect(source.bytes, data);
+      expect(find.byType(Texture), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('a fetched file is created by path', (tester) async {
+      fetcher.result = const StickerFetchResult.file('/cache/a.webm');
+      await tester.pumpWidget(app(Center(child: networkSticker('https://a'))));
+      await settle(tester);
+      expect(host.created.single.$1, 'file:/cache/a.webm');
+      expect(host.created.single.$2.path, '/cache/a.webm');
+      await finish(tester);
+    });
+
+    testWidgets('two widgets on one url fetch and create once', (tester) async {
+      await tester.pumpWidget(
+        app(
+          Column(
+            children: [
+              networkSticker('https://a'),
+              networkSticker('https://a'),
+            ],
+          ),
+        ),
+      );
+      await settle(tester);
+      expect(fetcher.calls, hasLength(1));
+      expect(host.created, hasLength(1));
+      await finish(tester);
+    });
+
+    testWidgets('different urls with the same bytes share an animation', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        app(
+          Column(
+            children: [
+              networkSticker('https://a'),
+              networkSticker('https://b'),
+            ],
+          ),
+        ),
+      );
+      await settle(tester);
+      expect(fetcher.calls, hasLength(2));
+      expect(host.created, hasLength(1));
+      await finish(tester);
+    });
+
+    testWidgets('a fetch failure reaches errorBuilder, no platform call', (
+      tester,
+    ) async {
+      fetcher.failWith = StateError('offline');
+      await tester.pumpWidget(
+        app(
+          Center(
+            child: networkSticker(
+              'https://a',
+              errorBuilder: (_, e) => Text('failed: $e'),
+            ),
+          ),
+        ),
+      );
+      await settle(tester);
+      expect(find.textContaining('offline'), findsOneWidget);
+      expect(host.created, isEmpty);
+      await finish(tester);
+    });
+
+    testWidgets('no fetcher configured shows the error', (tester) async {
+      runtime.resolver.fetcher = null;
+      await tester.pumpWidget(
+        app(
+          Center(
+            child: networkSticker(
+              'https://a',
+              errorBuilder: (_, e) => Text('${e.runtimeType}'),
+            ),
+          ),
+        ),
+      );
+      await settle(tester);
+      expect(find.text('StateError'), findsOneWidget);
+      await finish(tester);
+    });
+
+    testWidgets('changing the url loads the new sticker', (tester) async {
+      const k = ValueKey('s');
+      await tester.pumpWidget(
+        app(Center(child: networkSticker('https://a', key: k))),
+      );
+      await settle(tester);
+      fetcher.result = StickerFetchResult.bytes(Uint8List.fromList([9]));
+      await tester.pumpWidget(
+        app(Center(child: networkSticker('https://b', key: k))),
+      );
+      await settle(tester);
+      expect(fetcher.calls.map((c) => c.$1.toString()), [
+        'https://a',
+        'https://b',
+      ]);
+      expect(host.created, hasLength(2));
+      await finish(tester);
+    });
+
+    testWidgets('a bytes sticker is keyed by content hash', (tester) async {
+      Widget bytes(List<int> data) => WebmSticker(
+        source: StickerSource.bytes(Uint8List.fromList(data)),
+        width: 100,
+        height: 100,
+      );
+      await tester.pumpWidget(
+        app(
+          Column(
+            children: [
+              bytes([1, 2]),
+              bytes([1, 2]),
+              bytes([3]),
+            ],
+          ),
+        ),
+      );
+      await settle(tester);
+      // Equal copies share an animation; different content doesn't.
+      expect(host.created, hasLength(2));
+      await finish(tester);
     });
   });
 

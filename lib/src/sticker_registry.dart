@@ -137,8 +137,8 @@ class StickerRegistry {
   int get entryCount => _entries.length;
 
   /// Claims the animation for [key] at [bucket], creating it on the platform
-  /// if needed. [key] is the content hash or the caller's key; [source] is
-  /// only read when the animation has to be created.
+  /// if needed. [key] names the content (see `ResolvedSticker.key`); [source]
+  /// must be resolved and is only read when the animation has to be created.
   ///
   /// Leases with the same non-null [owner] (compared by identity) share an
   /// animation that no other owner sees, so one owner can pause it without
@@ -248,5 +248,7 @@ class StickerRegistry {
       switch (source) {
         FileStickerSource(:final path) => AnimationSourceMessage(path: path),
         BytesStickerSource(:final data) => AnimationSourceMessage(bytes: data),
+        AssetStickerSource() || NetworkStickerSource() =>
+          throw ArgumentError.value(source, 'source', 'must be resolved first'),
       };
 }
