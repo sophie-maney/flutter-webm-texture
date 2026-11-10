@@ -277,7 +277,7 @@ jobs:
 
   integration-ios:
     name: Integration tests (iOS simulator)
-    timeout-minutes: 50
+    timeout-minutes: 60
     needs: check
     runs-on: macos-latest
     defaults:
@@ -321,23 +321,25 @@ jobs:
 
       - name: Run integration tests
         working-directory: webm_texture/example
-        timeout-minutes: 40
-        # One file at a time, each with its own limit, so a file whose app
-        # never starts fails by name instead of eating the whole job.
+        timeout-minutes: 55
+        # One file at a time. On GitHub's macOS runners the simulator
+        # sometimes never starts the app, or the Dart Development Service
+        # fails to start, for a different file on each run, so every file
+        # gets a limit per attempt and up to three attempts.
         run: |
           fail=0
           for f in integration_test/*_test.dart; do
             echo "::group::$f"
-            perl -e 'alarm shift; exec @ARGV' 480 \
-              fvm flutter test "$f" -d "$SIM_UDID" --reporter expanded \
-              || { echo "::error::$f failed or timed out"; fail=1; }
+            ok=0
+            for attempt in 1 2 3; do
+              echo "attempt $attempt"
+              if perl -e 'alarm shift; exec @ARGV' 420 \
+                fvm flutter test "$f" -d "$SIM_UDID" --reporter expanded; then
+                ok=1
+                break
+              fi
+            done
             echo "::endgroup::"
+            if [ "$ok" != 1 ]; then echo "::error::$f failed 3 attempts"; fail=1; fi
           done
           exit $fail
-
-      - name: Simulator logs
-        if: failure()
-        run: |
-          xcrun simctl spawn "$SIM_UDID" log show --last 40m --style compact \
-            --predicate 'process == "Runner" OR process == "SpringBoard" OR eventMessage CONTAINS "Runner"' \
-            | tail -n 300 || true
