@@ -321,18 +321,7 @@ jobs:
 
       - name: Run integration tests
         working-directory: webm_texture/example
-        timeout-minutes: 25
-        # One app launch for every test (all_test.dart). On GitHub's macOS
-        # runners the simulator sometimes never starts the app, or the Dart
-        # Development Service fails to start, so allow three attempts with a
-        # limit each.
-        run: |
-          for attempt in 1 2 3; do
-            echo "attempt $attempt"
-            if perl -e 'alarm shift; exec @ARGV' 420 \
-              fvm flutter test integration_test/all_test.dart -d "$SIM_UDID" --reporter expanded; then
-              exit 0
-            fi
-          done
-          echo "::error::integration tests failed 3 attempts"
-          exit 1
+        timeout-minutes: 30
+        # One app launch for every test (all_test.dart); the script retries
+        # the flaky simulator launches (see its header).
+        run: ../tool/run_integration_ci.sh "$SIM_UDID" integration_test/all_test.dart
