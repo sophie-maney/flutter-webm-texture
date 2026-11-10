@@ -5,14 +5,15 @@
 #   cmake --build build/host -j
 #   ctest --test-dir build/host --output-on-failure
 #
-# The plugin itself doesn't use this file: Android adds src/ from its own
-# CMake build, and iOS builds the sources through SwiftPM/CocoaPods.
+# The plugin itself doesn't use this file: Android adds src/ from
+# android/CMakeLists.txt, and iOS builds the sources through SwiftPM.
 cmake_minimum_required(VERSION 3.22)
 project(webm_texture_core LANGUAGES C CXX)
 
 option(WT_HOST_TESTS "Build the GoogleTest suite in native_test/" OFF)
 option(WT_SANITIZE "Build everything with ASan + UBSan" OFF)
 option(WT_FUZZ "Build the libFuzzer targets in fuzz/ (clang only; implies ASan + UBSan)" OFF)
+option(WT_BUILD_SHARED "Build libwebm_texture (shared) so Dart tests can load it" OFF)
 option(WT_WERROR "Treat warnings in our own code as errors" OFF)
 set(WT_DEPS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/build/deps/host-core/prefix"
     CACHE PATH "Prefix written by tool/build_host_deps.sh")

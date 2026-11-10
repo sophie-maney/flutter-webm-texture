@@ -53,6 +53,23 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
+  assets:
+    # The corpus for integration_test/probe_test.dart, through the symlink to
+    # ../test_assets (no reference frames; they are host-test only).
+    - test_assets/manifest.json
+    - test_assets/vp9_alpha_512.webm
+    - test_assets/vp9_opaque_256.webm
+    - test_assets/vp8_alpha_256.webm
+    - test_assets/vp9_alpha_vfr.webm
+    - test_assets/vp9_odd_301x199.webm
+    - test_assets/vp9_single_frame.webm
+    - test_assets/vp9_with_audio.webm
+    - test_assets/vp9_2048.webm
+    - test_assets/truncated.webm
+    - test_assets/garbage.bin
+    - test_assets/anim.webp
+    - test_assets/anim_disposal.gif
+
   # To add assets to your application, add an assets section, like this:
   # assets:
   #   - images/a_dot_burr.jpeg

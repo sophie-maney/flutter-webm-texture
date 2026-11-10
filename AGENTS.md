@@ -24,7 +24,7 @@ src/                 C++17 core (demux/ decode/ convert/ cache/ sched/ atlas/ ap
   api/wt_api.h       The ONLY C ABI surface (FFI + platform glue include this)
 third_party/         versions.lock, test-deps.lock, build scripts; prebuilt/ is gitignored
 android/             Kotlin plugin + JNI + CMake
-ios/webm_texture/    Package.swift + .podspec, Swift + ObjC++ shim
+ios/webm_texture/    Package.swift (SwiftPM only), Swift + ObjC++ shim
 native_test/         GoogleTest host tests
 fuzz/                libFuzzer targets + seed corpus
 test/                Dart unit/widget tests
@@ -44,17 +44,18 @@ Each command works once the task that introduces it has landed (that task's ID i
 | Analyze | `fvm flutter analyze` |
 | Dart tests | `fvm flutter test` |
 | Build iOS prebuilts [T0.4] | `third_party/build/build-ios.sh` (macOS + Xcode, `brew install cmake nasm`) → `third_party/prebuilt/ios/WebmTextureDeps.xcframework` |
-| Build Android prebuilts [T0.5] | `third_party/build/build-android.sh [--with-x86]` (NDK r28+, `cmake`, `nasm`) → `third_party/prebuilt/android/{include,<abi>/libwebm_texture_deps.a}` |
+| Build Android prebuilts [T0.5] | `third_party/build/build-android.sh [--with-x86]` (NDK r30 for the plugin, [ADR 0009](docs/decisions/0009-ffi-loading-and-native-wiring.md); the script itself accepts r28+, `cmake`, `nasm`) → `third_party/prebuilt/android/{include,<abi>/libwebm_texture_deps.a}` |
 | Third-party licenses [T0.4] | `third_party/build/collect-licenses.sh` → `third_party/LICENSES.md` (commit it) |
 | Fetch native libs [T0.6] | `fvm dart run tool/fetch_prebuilts.dart` |
 | Host deps [T1.1] | `tool/build_host_deps.sh` (`cmake`, `nasm` on x86_64) → `build/deps/host-core/prefix`; rerun after `versions.lock` or `test-deps.lock` changes |
 | Native host tests [T1.1] | `cmake -S . -B build/host -DWT_HOST_TESTS=ON -DWT_SANITIZE=ON && cmake --build build/host -j && ctest --test-dir build/host --output-on-failure` |
 | Fuzz (60 s smoke) [T1.7] | `cmake -S . -B build/fuzz -DWT_FUZZ=ON -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ && cmake --build build/fuzz -j && tool/fuzz.sh 60` (runs `fuzz_sniff`, `fuzz_probe` and `fuzz_webm` in parallel; findings go to `build/fuzz/artifacts/<target>/`. LLVM clang; Apple clang has no libFuzzer, so on macOS use `brew install llvm` and `/opt/homebrew/opt/llvm/bin/clang++`) |
-| Regenerate bindings | `fvm dart run pigeon --input pigeons/messages.dart` · `fvm dart run ffigen --config ffigen.yaml` |
+| Regenerate bindings [T1.8] | `fvm dart run pigeon --input pigeons/messages.dart` · `fvm dart run ffigen --config ffigen.yaml` (needs libclang: `brew install llvm`) |
+| Dart tests against the core [T1.8] | `tool/build_host_ffi_lib.sh` → `WEBM_TEXTURE_LIB=build/ffi/src/libwebm_texture.dylib fvm flutter test test/probe_test.dart` (`.so` on Linux; the test skips without it) |
 | Regenerate corpus [T0.3] | `tool/gen_corpus.sh` (needs `ffmpeg` with libvpx + libopus, `img2webp`, `gif2webp`, `gifsicle`, `jq`) · validate: `tool/gen_corpus.sh --check` |
 | Android build | `cd example && fvm flutter build apk --debug` |
 | iOS build | `cd example && fvm flutter build ios --simulator --debug` |
-| Integration tests | `cd example && fvm flutter test integration_test -d <device>` |
+| Integration tests | `cd example && fvm flutter test integration_test -d <device>` (`probe_test.dart` [T1.8] probes the corpus over FFI) |
 
 ## Conventions
 - **Dart**: `flutter_lints` plus the rules in `analysis_options.yaml`. Public API is documented with dartdoc. Don't export anything from `lib/src/` unless the API in `PLAN.md` lists it.

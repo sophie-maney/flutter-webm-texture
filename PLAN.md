@@ -106,8 +106,8 @@ third_party/
   test-deps.lock           # same format, for test-only tools such as GoogleTest; never shipped (ADR 0007)
   build/                   # build-android.sh, build-ios.sh (xcframework), license collector
   prebuilt/                # gitignored; filled by tool/fetch_prebuilts.dart from GitHub Releases
-android/                   # Kotlin plugin, JNI bridge, CMake → links prebuilt .a
-ios/webm_texture/          # Package.swift (SwiftPM) + .podspec (CocoaPods), Swift + ObjC++ shim
+android/                   # Kotlin plugin, JNI bridge, CMake → libwebm_texture.so (core + prebuilt .a; Dart opens it)
+ios/webm_texture/          # Package.swift (SwiftPM only), Swift + ObjC++ shim; Sources/wt_core = symlinks to src/ (ADR 0009)
 example/                   # demo: chat list, picker grid, stress test, integration_test/
 test/                      # Dart unit/widget tests
 native_test/               # GoogleTest host tests, golden frame checksums
@@ -121,7 +121,7 @@ tool/                      # fetch_prebuilts, build_host_deps.sh (host tests), g
 ### Phase 0: Scaffold + de-risking spikes
 1. Run `fvm install 3.47.9 && fvm use 3.47.9`, then `fvm flutter create --template=plugin --platforms=android,ios -a kotlin -i swift --org <org> webm_texture`. The `plugin_ffi` template is not used because Kotlin/Swift texture glue is required.
 2. Write `third_party/build` scripts and a CI job that produce static libs for arm64-v8a, armeabi-v7a, x86_64 (and x86, if API 24 emulators still matter) plus an iOS xcframework (device arm64, simulator arm64+x86_64).
-   - Android: NDK r28+, `-Wl,-z,max-page-size=16384` (Play requires 16 KB page alignment).
+   - Android: NDK r30 for the plugin build (ADR 0009), `-Wl,-z,max-page-size=16384` (Play requires 16 KB page alignment).
    - libvpx: `--disable-vp8-encoder --disable-vp9-encoder --enable-vp8-decoder --enable-vp9-decoder --disable-vp9-highbitdepth --size-limit=1024x1024 --enable-pic`, with `--enable-runtime-cpu-detect` on x86. libvpx has no `--disable-encoders` switch ([ADR 0002](docs/decisions/0002-pinning-and-prebuilt-contents.md)).
 3. **Spike A — alpha decode.** Generate test WebMs with `ffmpeg -c:v libvpx-vp9 -pix_fmt yuva420p` (and the VP8 equivalent). Confirm that `webm_parser` delivers the `BlockAdditional` payload and that the merged RGBA matches a reference. If `webm_parser` can't do it, write a minimal EBML demuxer instead (Cluster / SimpleBlock / BlockGroup / BlockAdditions only).
    - **Outcome:** both worked, and alpha decoded bit-exact. We chose our own minimal EBML reader for size and for robustness against hostile input ([report](docs/spikes/A-alpha.md), [ADR 0004](docs/decisions/0004-own-webm-demuxer.md)).
@@ -173,7 +173,7 @@ tool/                      # fetch_prebuilts, build_host_deps.sh (host tests), g
 | Atlas graphics memory (16 MB per 2048² buffer × queue depth) | Content-sized pages, freed with the scope; memory reported per page |
 | Hostile/malformed user uploads (libvpx has had in-the-wild CVEs) | Size limits, our own limit checks, a demuxer that allocates nothing sized by input (ADR 0004), fuzzing, fast upstream bumps |
 | Binary size per ABI | Decoders only; no highbitdepth; `-Oz` + LTO for our core; report size per ABI in CI |
-| CocoaPods vs SwiftPM both needed during transition | Ship both from one vendored xcframework |
+| CocoaPods is legacy in Flutter | SwiftPM only; no podspec ([ADR 0009](docs/decisions/0009-ffi-loading-and-native-wiring.md)) |
 | Cache disk usage | Size buckets, YUVA+LZ4, LRU budget, `clearCache()` |
 
 ## Still open (non-blocking)
