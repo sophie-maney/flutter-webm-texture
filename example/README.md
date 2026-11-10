@@ -1,17 +1,13 @@
 # webm_texture_example
 
-Demonstrates how to use the webm_texture plugin.
+Demo app for the `webm_texture` plugin. Run it with `fvm flutter run` from this
+directory; the stickers come from the corpus in `test_assets/`.
 
-## Getting Started
-
-This project is a starting point for a Flutter application.
-
-A few resources to get you started if this is your first Flutter project:
-
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+| Page | What it shows |
+|---|---|
+| Chat | Stickers mixed with text bubbles, in a list where off-screen stickers pause |
+| Checkerboard | Alpha correctness over a checker pattern; toggles dark checks and play/pause |
+| Stress | 200 standalone stickers in a grid, with the active count; the switch gives each cell its own animation |
+| Probe | `WebmStickers.probe` metadata for every corpus file, including the rejected ones |
+| Textures (dev) | The raw platform texture glue (T2.2, T2.3) |
+| Visibility (dev) | A 200-row list with the active counter (T2.5) |
