@@ -235,7 +235,7 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 
 **Accept:** widget tests cover visibility and TickerMode transitions (fake platform) · in a ListView of 200 items in the example, only on-screen items report active (verified via a debug overlay counter).
 
-### [ ] T2.6 Sources and fetcher
+### [x] T2.6 Sources and fetcher
 **Model** Sonnet 5.5 · `medium` · **Depends** T2.4 · **Track** C
 - `StickerSource.file/bytes/asset/network`. `StickerFetcher` is an abstract interface that returns a file path or bytes. Hash the content with SHA-1 of the bytes, or with a caller-provided `key`. Errors surface through `errorBuilder`.
 
