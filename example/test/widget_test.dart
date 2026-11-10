@@ -12,15 +12,18 @@ import 'package:webm_texture_example/texture_demo.dart';
 const _prefix = 'dev.flutter.pigeon.webm_texture.WebmTextureHostApi';
 
 void main() {
-  testWidgets('Verify Platform version', (tester) async {
-    await tester.pumpWidget(const MyApp());
-    expect(
-      find.byWidgetPredicate(
-        (widget) => widget is Text && widget.data!.startsWith('Running on:'),
-      ),
-      findsOneWidget,
-    );
-    expect(find.byKey(const Key('openTextures')), findsOneWidget);
+  testWidgets('the landing page links every page', (tester) async {
+    await tester.pumpWidget(const ExampleApp());
+    for (final key in [
+      'openChat',
+      'openCheckerboard',
+      'openStress',
+      'openProbe',
+      'openTextures',
+      'openVisibility',
+    ]) {
+      expect(find.byKey(Key(key)), findsOneWidget, reason: key);
+    }
   });
 
   testWidgets('shows a texture per playable sticker', (tester) async {

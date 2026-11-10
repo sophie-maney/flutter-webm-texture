@@ -241,7 +241,7 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 
 **Accept:** unit tests for each source type with a fake fetcher.
 
-### [ ] T2.7 Example app
+### [x] T2.7 Example app
 **Model** Sonnet 5.5 · `low` · **Depends** T2.5 · **Track** C
 - Pages: Chat (mixed text and stickers), Checkerboard (alpha correctness), Stress (200-item grid in standalone mode), Probe (file info).
 
