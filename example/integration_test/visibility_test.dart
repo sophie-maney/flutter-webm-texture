@@ -31,6 +31,11 @@ void main() {
 
   /// Pumps until every on-screen sticker has its texture.
   Future<void> waitForTextures(WidgetTester tester) async {
+    // The page loads its assets before building the list.
+    for (var i = 0; i < 200; i++) {
+      if (find.byKey(const Key('stickerList')).evaluate().isNotEmpty) break;
+      await tester.pump(const Duration(milliseconds: 50));
+    }
     for (var i = 0; i < 200; i++) {
       await tester.pump(const Duration(milliseconds: 50));
       if (find.byType(Texture).evaluate().length >= onScreen(tester)) break;

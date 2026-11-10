@@ -63,6 +63,17 @@ Future<_Shot> _decode(List<int> png) async {
   return shot;
 }
 
+/// The [w] x [h] region of [s] at ([x], [y]).
+_Shot _crop(_Shot s, int x, int y, int w, int h) {
+  expect(y + h, lessThanOrEqualTo(s.height), reason: 'screen too short');
+  final out = Uint8List(w * h * 4);
+  for (var row = 0; row < h; row++) {
+    final from = ((y + row) * s.width + x) * 4;
+    out.setRange(row * w * 4, (row + 1) * w * 4, s.rgba, from);
+  }
+  return _Shot(w, h, out);
+}
+
 /// Box-filters [s] down by 2 so goldens stay small.
 _Shot _half(_Shot s) {
   final w = s.width ~/ 2, h = s.height ~/ 2;
@@ -202,7 +213,20 @@ void main() {
     await _elapse(tester, const Duration(milliseconds: 500));
 
     final (full, _) = await _screenshot();
-    final shot = _half(full);
+    // Only the page body, at a fixed size: the system bars and the screen
+    // height differ between emulator API levels.
+    final dpr = tester.view.devicePixelRatio;
+    final body = tester.getRect(find.byKey(const Key('checkerboard')));
+    final w = (body.width * dpr).floor() ~/ 2 * 2;
+    final shot = _half(
+      _crop(
+        full,
+        (body.left * dpr).round(),
+        (body.top * dpr).round(),
+        w,
+        w * 3 ~/ 2,
+      ),
+    );
     final png = await _encodePng(shot);
     const name = 'checkerboard.png';
     if (_updateGoldens) {
