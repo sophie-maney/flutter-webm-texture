@@ -69,6 +69,9 @@ flutter:
     - test_assets/garbage.bin
     - test_assets/anim.webp
     - test_assets/anim_disposal.gif
+    # Screenshot goldens for integration_test/app_test.dart.
+    - integration_test/goldens/android/
+    - integration_test/goldens/ios/
 
   # To add assets to your application, add an assets section, like this:
   # assets:

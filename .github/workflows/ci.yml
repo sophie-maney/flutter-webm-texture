@@ -208,3 +208,115 @@ jobs:
       - name: Build debug simulator app
         working-directory: webm_texture/example
         run: fvm flutter build ios --simulator --debug --no-codesign
+
+  # Screenshot goldens in example/integration_test/goldens/ were recorded on a
+  # 1080x2400 Pixel 6 profile (Android) and an iPhone 17 simulator (iOS); keep
+  # the devices below in sync, or the golden size check fails. Re-record with
+  # the command at the top of example/integration_test/app_test.dart.
+  integration-android:
+    name: Integration tests (Android emulator)
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Install fvm
+        run: |
+          curl -fsSL https://fvm.app/install.sh | bash
+          echo "$HOME/fvm/bin" >> "$GITHUB_PATH"
+
+      - name: Cache fvm SDK
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.FVM_HOME }}
+          key: fvm-${{ runner.os }}-${{ hashFiles('.fvmrc') }}
+
+      - name: Cache pub
+        uses: actions/cache@v4
+        with:
+          path: ~/.pub-cache
+          key: pub-${{ runner.os }}-${{ hashFiles('**/pubspec.yaml') }}
+          restore-keys: pub-${{ runner.os }}-
+
+      - name: Cache gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - run: fvm install
+      - run: fvm flutter pub get
+      - name: Fetch native prebuilts
+        run: fvm dart run tool/fetch_prebuilts.dart --platform android
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run integration tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          disable-animations: true
+          working-directory: example
+          script: fvm flutter test integration_test -d emulator-5554
+
+  integration-ios:
+    name: Integration tests (iOS simulator)
+    needs: check
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: webm_texture
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: webm_texture
+
+      - name: Install fvm
+        run: |
+          curl -fsSL https://fvm.app/install.sh | bash
+          echo "$HOME/fvm/bin" >> "$GITHUB_PATH"
+
+      - name: Cache fvm SDK
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.FVM_HOME }}
+          key: fvm-${{ runner.os }}-${{ hashFiles('webm_texture/.fvmrc') }}
+
+      - name: Cache pub
+        uses: actions/cache@v4
+        with:
+          path: ~/.pub-cache
+          key: pub-${{ runner.os }}-${{ hashFiles('webm_texture/**/pubspec.yaml') }}
+          restore-keys: pub-${{ runner.os }}-
+
+      - run: fvm install
+      - run: fvm flutter pub get
+      - name: Fetch native prebuilts
+        run: fvm dart run tool/fetch_prebuilts.dart --platform ios
+
+      - name: Boot an iPhone 17 simulator
+        run: |
+          UDID=$(xcrun simctl list devices available -j | jq -r '[.devices[][] | select(.name == "iPhone 17")][0].udid')
+          test "$UDID" != null || { echo "no iPhone 17 simulator on this runner"; exit 1; }
+          xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID" -b
+          echo "SIM_UDID=$UDID" >> "$GITHUB_ENV"
+
+      - name: Run integration tests
+        working-directory: webm_texture/example
+        run: fvm flutter test integration_test -d "$SIM_UDID"
