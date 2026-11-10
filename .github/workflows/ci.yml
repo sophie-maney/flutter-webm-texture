@@ -100,15 +100,27 @@ jobs:
           UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
         run: ctest --test-dir build/host --output-on-failure
 
-      # A short smoke run per target; T1.7 owns the timed and nightly runs.
-      - name: Fuzz build smoke
+      - name: Fuzz build
         if: runner.os == 'Linux'
         run: |
           cmake -S . -B build/fuzz -DWT_FUZZ=ON -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DWT_WERROR=ON
           cmake --build build/fuzz -j 4
-          mkdir -p build/fuzz/corpus/probe build/fuzz/corpus/webm
-          build/fuzz/fuzz_probe -runs=10000 build/fuzz/corpus/probe test_assets
-          build/fuzz/fuzz_webm -runs=100000 -dict=fuzz/webm.dict build/fuzz/corpus/webm fuzz/corpus/webm
+
+      # 60 s per target, all targets in parallel. The nightly run in
+      # fuzz-nightly.yml goes for 30 min.
+      - name: Fuzz smoke (60 s)
+        if: runner.os == 'Linux'
+        run: tool/fuzz.sh 60
+
+      - name: Upload fuzz findings
+        if: failure() && runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-findings-pr
+          path: |
+            build/fuzz/artifacts/
+            build/fuzz/logs/
+          if-no-files-found: ignore
 
   android:
     name: Example APK (debug)

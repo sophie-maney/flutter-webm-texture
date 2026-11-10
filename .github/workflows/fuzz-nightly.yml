@@ -1,0 +1,77 @@
+name: Fuzz (nightly)
+
+# 30 min per libFuzzer target, one job each. Crash reproducers and logs are
+# uploaded as artifacts; the grown corpus is cached between runs so each night
+# continues where the last one stopped.
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: Seconds per target
+        default: "1800"
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    name: ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [fuzz_sniff, fuzz_probe, fuzz_webm]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install nasm and zlib
+        run: sudo apt-get update && sudo apt-get install -y nasm zlib1g-dev
+
+      # Same key as ci.yml, so a PR run's deps are reused.
+      - name: Cache host deps
+        id: deps
+        uses: actions/cache@v4
+        with:
+          path: build/deps/host-core/prefix
+          key: host-deps-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('third_party/versions.lock', 'third_party/test-deps.lock', 'third_party/build/common.sh', 'tool/build_host_deps.sh') }}
+
+      - name: Build host deps
+        if: steps.deps.outputs.cache-hit != 'true'
+        run: tool/build_host_deps.sh
+
+      - name: Build fuzzers
+        run: |
+          cmake -S . -B build/fuzz -DWT_FUZZ=ON -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+          cmake --build build/fuzz -j 4 --target ${{ matrix.target }}
+
+      - name: Restore corpus
+        uses: actions/cache/restore@v4
+        with:
+          path: build/fuzz/corpus/${{ matrix.target }}
+          key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+          restore-keys: fuzz-corpus-${{ matrix.target }}-
+
+      - name: Fuzz
+        run: tool/fuzz.sh ${{ inputs.seconds || '1800' }} ${{ matrix.target }}
+
+      # Saved even after a crash: the corpus is still valid input.
+      - name: Save corpus
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: build/fuzz/corpus/${{ matrix.target }}
+          key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+
+      - name: Upload findings
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-findings-${{ matrix.target }}
+          path: |
+            build/fuzz/artifacts/${{ matrix.target }}/
+            build/fuzz/logs/${{ matrix.target }}.log
+          if-no-files-found: ignore
+          retention-days: 30
