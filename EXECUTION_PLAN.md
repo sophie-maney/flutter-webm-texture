@@ -195,7 +195,7 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 
 ## Phase 2: Platform textures + standalone widget
 
-### [ ] T2.1 Pigeon API
+### [x] T2.1 Pigeon API
 **Model** Sonnet 5.5 · `medium` · **Depends** T1.8 · **Track** A
 - `pigeons/messages.dart` defines `createAnimation(sourceKey, bytesOrPath, bucketW, bucketH) → {animId, textureId}`, `setActive(animId, bool)`, `dispose(animId)`, `deviceSignals() → {ramMb, cores, lowRam, perfClass, lowPower, thermal}`, plus an error stream.
 
