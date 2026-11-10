@@ -13,6 +13,7 @@
 
 - `createAnimation(sourceKey, AnimationSourceMessage{bytes?, path?}, bucketW, bucketH) → {animId, textureId}` (async). The platform assigns `animId`. Pigeon has no unions, so the source is a class with two nullable fields; exactly one is set. `sourceKey` is the content hash or caller key naming the cache entry.
 - `setActive(animId, active)`, `dispose(animId)` (idempotent).
+- T2.9 added a `loop` argument to `createAnimation` and `seekToFrame(animId, frame)` ([ADR 0014](0014-loop-and-seek.md)).
 - `deviceSignals() → {ramMb, cores, lowRam, perfClass, lowPower, thermal}`, with `perfClass` and `thermal` as enums that have an `unknown` member for platforms that don't report them.
 - An `@EventChannelApi` `streamErrors()` that emits `{animId, code, message}` for failures after `createAnimation` returned (lost surface, mid-playback decode error). `code` is a `wt_status` name or a platform code such as `SURFACE_LOST`.
 

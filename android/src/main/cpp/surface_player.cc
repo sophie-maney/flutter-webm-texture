@@ -25,19 +25,23 @@ constexpr std::chrono::milliseconds kLockRetry{100};
 
 std::unique_ptr<SurfacePlayer> SurfacePlayer::Create(
     wt_anim* anim, uint32_t width, uint32_t height, uint32_t frame_count,
-    ErrorCallback on_error, ThreadHooks hooks) {
-  if (anim == nullptr || width == 0 || height == 0) return nullptr;
-  return std::unique_ptr<SurfacePlayer>(new SurfacePlayer(
-      anim, width, height, frame_count, std::move(on_error), std::move(hooks)));
+    bool loop, ErrorCallback on_error, ThreadHooks hooks) {
+  if (anim == nullptr || width == 0 || height == 0 || frame_count == 0) {
+    return nullptr;
+  }
+  return std::unique_ptr<SurfacePlayer>(
+      new SurfacePlayer(anim, width, height, frame_count, loop,
+                        std::move(on_error), std::move(hooks)));
 }
 
 SurfacePlayer::SurfacePlayer(wt_anim* anim, uint32_t width, uint32_t height,
-                             uint32_t frame_count, ErrorCallback on_error,
-                             ThreadHooks hooks)
+                             uint32_t frame_count, bool loop,
+                             ErrorCallback on_error, ThreadHooks hooks)
     : anim_(anim),
       width_(width),
       height_(height),
       frame_count_(frame_count),
+      loop_(loop),
       on_error_(std::move(on_error)),
       hooks_(std::move(hooks)) {
   thread_ = std::thread([this] { Run(); });
@@ -96,6 +100,17 @@ void SurfacePlayer::SetActive(bool active) {
   cv_.notify_one();
 }
 
+wt_status SurfacePlayer::SeekTo(uint32_t frame) {
+  if (frame >= frame_count_) return WT_ERR_INVALID_ARGUMENT;
+  {
+    std::lock_guard<std::mutex> lk(mu_);
+    seek_pending_ = true;
+    seek_frame_ = frame;
+  }
+  cv_.notify_one();
+  return WT_OK;
+}
+
 void SurfacePlayer::Run() {
   pthread_setname_np(pthread_self(), "wt-anim");
   if (hooks_.on_start) hooks_.on_start();
@@ -107,9 +122,11 @@ void SurfacePlayer::Loop() {
   std::unique_lock<std::mutex> lk(mu_);
   for (;;) {
     if (quit_) return;
-    const bool can_tick = active_ && has_window_ && frame_count_ > 1;
+    // A non-looping player that drew its last frame holds it.
+    const bool ended = !loop_ && cursor_ >= frame_count_;
+    const bool can_tick = active_ && has_window_ && frame_count_ > 1 && !ended;
     const bool due = can_tick && Clock::now() >= next_due_;
-    if (!redraw_ && !due) {
+    if (!redraw_ && !seek_pending_ && !due) {
       if (can_tick) {
         cv_.wait_until(lk, next_due_);
       } else {
@@ -118,24 +135,34 @@ void SurfacePlayer::Loop() {
       continue;
     }
     const bool redraw = redraw_;
+    const bool seek = seek_pending_;
+    const uint32_t seek_frame = seek_frame_;
     const bool active = active_;
     redraw_ = false;
+    seek_pending_ = false;
     lk.unlock();
 
-    // A new window while paused gets the frame that was already showing. While
-    // playing, the next frame is as good and costs no seek.
-    if (redraw && drawn_any_ && !active) {
-      const wt_status st = wt_anim_seek(anim_, shown_index_);
-      if (st < 0) {
-        ReportOnce(&reported_decode_, wt_status_string(st), "seek failed");
-      }
+    bool sought = false;
+    if (seek) {
+      sought = Seek(seek_frame);
+    } else if (redraw && drawn_any_ && (!active || ended)) {
+      // A new window while paused (or ended) gets the frame that was already
+      // showing. While playing, the next frame is as good and costs no seek.
+      Seek(shown_index_);
     }
     const Clock::time_point start = Clock::now();
     wt_frame_info frame{};
     const wt_status st = DrawNext(&frame);
 
     lk.lock();
-    if (st == kNoWindow) continue;
+    if (st == kNoWindow) {
+      // Draw the requested frame once a window arrives.
+      if (sought) {
+        drawn_any_ = true;
+        shown_index_ = seek_frame;
+      }
+      continue;
+    }
     Clock::duration hold = std::max<Clock::duration>(
         std::chrono::milliseconds(frame.duration_ms), kMinFrameTime);
     if (st == WT_OK) {
@@ -146,16 +173,30 @@ void SurfacePlayer::Loop() {
     } else {
       hold = st == WT_ERR_IO ? kLockRetry : kMinFrameTime;
     }
-    // Stay on the content clock while on time; after a stall (or a redraw),
-    // restart it from this frame rather than rushing to catch up.
-    const bool on_time = due && !redraw && next_due_ + hold >= start;
+    // Stay on the content clock while on time; after a stall (or a redraw or
+    // seek), restart it from this frame rather than rushing to catch up.
+    const bool on_time = due && !redraw && !seek && next_due_ + hold >= start;
     next_due_ = (on_time ? next_due_ : start) + hold;
   }
+}
+
+bool SurfacePlayer::Seek(uint32_t frame) {
+  const wt_status st = wt_anim_seek(anim_, frame);
+  if (st < 0) {
+    ReportOnce(&reported_decode_, wt_status_string(st), "seek failed");
+    return false;
+  }
+  cursor_ = frame;
+  return true;
 }
 
 wt_status SurfacePlayer::DrawNext(wt_frame_info* frame) {
   std::lock_guard<std::mutex> lk(window_mu_);
   if (window_ == nullptr) return kNoWindow;
+  // Wrap before locking the buffer: a locked buffer is always posted, so it
+  // must always receive a frame. Loop never draws an ended non-looping
+  // player; if it did, repeating the last frame beats posting garbage.
+  if (cursor_ >= frame_count_) Seek(loop_ ? 0 : frame_count_ - 1);
 
   ANativeWindow_Buffer buf;
   const int rc = ANativeWindow_lock(window_, &buf, nullptr);
@@ -183,12 +224,17 @@ wt_status SurfacePlayer::DrawNext(wt_frame_info* frame) {
     st = wt_anim_next_frame(anim_, dst, size, stride, WT_PIXEL_FORMAT_RGBA8888,
                             frame);
     if (st == WT_END) {
-      st = wt_anim_seek(anim_, 0);
-      if (st == WT_OK) {
+      // cursor_ fell out of step with the core; the guard above applies.
+      cursor_ = frame_count_;
+      if (Seek(loop_ ? 0 : frame_count_ - 1)) {
         st = wt_anim_next_frame(anim_, dst, size, stride,
                                 WT_PIXEL_FORMAT_RGBA8888, frame);
       }
+      if (st == WT_END) st = WT_ERR_INTERNAL;
     }
+    // Every result but a rejected buffer (which the checks above rule out)
+    // advances the core's cursor.
+    if (st != WT_ERR_INVALID_ARGUMENT) cursor_++;
     if (st == WT_OK) {
       reported_surface_ = false;
     } else {

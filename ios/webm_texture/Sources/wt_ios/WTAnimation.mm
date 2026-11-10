@@ -41,6 +41,7 @@ NSError *StatusError(wt_status status) {
 - (nullable instancetype)initWithData:(NSData *)data
                                 width:(uint32_t)width
                                height:(uint32_t)height
+                                 loop:(BOOL)loop
                                 error:(NSError **)error {
   wt_source *raw = nullptr;
   // An empty NSData may have a NULL bytes pointer; the core rejects size 0.
@@ -50,12 +51,14 @@ NSError *StatusError(wt_status status) {
                        status:st
                         width:width
                        height:height
+                         loop:loop
                         error:error];
 }
 
 - (nullable instancetype)initWithPath:(NSString *)path
                                 width:(uint32_t)width
                                height:(uint32_t)height
+                                 loop:(BOOL)loop
                                 error:(NSError **)error {
   wt_source *raw = nullptr;
   wt_status st = wt_source_create_file(path.fileSystemRepresentation, nullptr,
@@ -64,6 +67,7 @@ NSError *StatusError(wt_status status) {
                        status:st
                         width:width
                        height:height
+                         loop:loop
                         error:error];
 }
 
@@ -72,6 +76,7 @@ NSError *StatusError(wt_status status) {
                                  status:(wt_status)status
                                   width:(uint32_t)width
                                  height:(uint32_t)height
+                                   loop:(BOOL)loop
                                   error:(NSError **)error {
   SourcePtr source(rawSource);
   self = [super init];
@@ -98,6 +103,7 @@ NSError *StatusError(wt_status status) {
   _width = outW;
   _height = outH;
   _frameCount = info.frame_count;
+  _loops = loop;
   return self;
 }
 
@@ -124,7 +130,7 @@ NSError *StatusError(wt_status status) {
     wt_frame_info frame = {};
     st = wt_anim_next_frame(_anim.get(), dst, size, (uint32_t)stride,
                             WT_PIXEL_FORMAT_BGRA8888, &frame);
-    if (st == WT_END) {
+    if (st == WT_END && _loops) {
       st = wt_anim_seek(_anim.get(), 0);
       if (st == WT_OK) {
         st = wt_anim_next_frame(_anim.get(), dst, size, (uint32_t)stride,
@@ -138,6 +144,11 @@ NSError *StatusError(wt_status status) {
   }
   CVPixelBufferUnlockBaseAddress(buffer, 0);
   return st;
+}
+
+- (int32_t)seekToFrame:(uint32_t)frame {
+  if (!_anim) return WT_ERR_INVALID_ARGUMENT;
+  return wt_anim_seek(_anim.get(), frame);
 }
 
 - (void)close {

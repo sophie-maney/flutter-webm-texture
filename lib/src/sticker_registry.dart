@@ -38,6 +38,16 @@ class StickerLease {
     _registry._setLeaseActive(_entry, active);
   }
 
+  /// Shows [frame] (0-based) on the animation, for every lease on it. A
+  /// playing animation carries on from there; a non-looping one that ended
+  /// plays again. [frame] must be below the sticker's frame count: the
+  /// platform rejects others, and the error is dropped. Does nothing once
+  /// released.
+  void seekToFrame(int frame) {
+    if (_released) return;
+    _registry._seek(_entry, frame);
+  }
+
   /// Gives the claim back. Calling it again does nothing. The animation is
   /// disposed once nobody holds it for [StickerRegistry.gracePeriod].
   void release() {
@@ -62,10 +72,11 @@ class _Entry {
 
 @immutable
 class _EntryId {
-  const _EntryId(this.key, this.bucket, this.owner);
+  const _EntryId(this.key, this.bucket, this.owner, this.loop);
 
   final String key;
   final StickerBucket bucket;
+  final bool loop;
 
   /// Compared by identity; null for the shared animation.
   final Object? owner;
@@ -75,15 +86,16 @@ class _EntryId {
       other is _EntryId &&
       other.key == key &&
       other.bucket == bucket &&
+      other.loop == loop &&
       identical(other.owner, owner);
 
   @override
-  int get hashCode => Object.hash(key, bucket, identityHashCode(owner));
+  int get hashCode => Object.hash(key, bucket, loop, identityHashCode(owner));
 }
 
 /// Shares animations between widgets.
 ///
-/// An animation is identified by (content key, [StickerBucket], owner).
+/// An animation is identified by (content key, [StickerBucket], owner, loop).
 /// Asking for one that exists, even one waiting out its grace period, returns
 /// the same texture; the platform is only called for the first claim and the
 /// last release. It plays while any of its leases is active
@@ -142,7 +154,9 @@ class StickerRegistry {
   ///
   /// Leases with the same non-null [owner] (compared by identity) share an
   /// animation that no other owner sees, so one owner can pause it without
-  /// pausing anyone else's. A null [owner] means the shared animation.
+  /// pausing anyone else's. A null [owner] means the shared animation. With
+  /// [loop] false the animation stops on its last frame; it is never shared
+  /// with a looping one.
   ///
   /// Concurrent calls for the same animation share one platform call. If it
   /// fails, every waiting call gets the error and nothing stays registered.
@@ -151,9 +165,10 @@ class StickerRegistry {
     required StickerSource source,
     required StickerBucket bucket,
     Object? owner,
+    bool loop = true,
   }) async {
     if (_disposed) throw StateError('StickerRegistry is disposed');
-    final id = _EntryId(key, bucket, owner);
+    final id = _EntryId(key, bucket, owner, loop);
     var entry = _entries[id];
     if (entry == null) {
       entry = _Entry(id, bucket);
@@ -163,6 +178,7 @@ class StickerRegistry {
         _toMessage(source),
         bucket.width,
         bucket.height,
+        loop,
       );
       final e = entry;
       // A failed creation must not stay registered, whoever is waiting.
@@ -208,6 +224,13 @@ class StickerRegistry {
     // (the engine is detaching, say) leaves nothing to fix up.
     unawaited(
       _host.setActive(entry.handle.animId, active).catchError((Object _) {}),
+    );
+  }
+
+  void _seek(_Entry entry, int frame) {
+    if (_disposed) return;
+    unawaited(
+      _host.seekToFrame(entry.handle.animId, frame).catchError((Object _) {}),
     );
   }
 

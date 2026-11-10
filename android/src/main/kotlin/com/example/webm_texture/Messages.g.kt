@@ -532,15 +532,26 @@ val MessagesPigeonMethodCodec = StandardMethodCodec(MessagesPigeonCodec())
 interface WebmTextureHostApi {
   /**
    * Creates the decoder and a platform texture sized to the bucket
-   * ([bucketW] x [bucketH] physical pixels).
+   * ([bucketW] x [bucketH] physical pixels). The texture shows frame 0 and
+   * stays inactive until [setActive].
    *
    * [sourceKey] is the content hash (or caller key) that names the cache
-   * entry. Fails with a `PlatformException` carrying a `wt_status` name as
-   * its code if the core rejects the source.
+   * entry. With [loop] false, playback stops on the last frame and holds it
+   * until [seekToFrame]. Fails with a `PlatformException` carrying a
+   * `wt_status` name as its code if the core rejects the source.
    */
-  suspend fun createAnimation(sourceKey: String, source: AnimationSourceMessage, bucketW: Long, bucketH: Long): AnimationHandleMessage
-  /** Starts or stops playback. Inactive animations keep their first frame. */
+  suspend fun createAnimation(sourceKey: String, source: AnimationSourceMessage, bucketW: Long, bucketH: Long, loop: Boolean): AnimationHandleMessage
+  /** Starts or stops playback. Inactive animations keep their current frame. */
   fun setActive(animId: Long, active: Boolean)
+  /**
+   * Shows [frame] (0-based) right away, whether or not the animation is
+   * active; an active one carries on from there. Seeking a non-looping
+   * animation that has ended lets it play again.
+   *
+   * Throws `WT_ERR_INVALID_ARGUMENT` when [frame] is outside the
+   * animation's frames. An unknown or disposed [animId] is ignored.
+   */
+  fun seekToFrame(animId: Long, frame: Long)
   /** Releases the animation, its texture and its decoder. Safe to call twice. */
   fun dispose(animId: Long)
   /** Reads the current device signals. */
@@ -564,9 +575,10 @@ interface WebmTextureHostApi {
             val sourceArg = args[1] as AnimationSourceMessage
             val bucketWArg = args[2] as Long
             val bucketHArg = args[3] as Long
+            val loopArg = args[4] as Boolean
             CoroutineScope(Dispatchers.Main).launch {
               val wrapped: List<Any?> = try {
-                listOf(api.createAnimation(sourceKeyArg, sourceArg, bucketWArg, bucketHArg))
+                listOf(api.createAnimation(sourceKeyArg, sourceArg, bucketWArg, bucketHArg, loopArg))
               } catch (exception: Throwable) {
                 MessagesPigeonUtils.wrapError(exception)
               }
@@ -586,6 +598,25 @@ interface WebmTextureHostApi {
             val activeArg = args[1] as Boolean
             val wrapped: List<Any?> = try {
               api.setActive(animIdArg, activeArg)
+              listOf(null)
+            } catch (exception: Throwable) {
+              MessagesPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.webm_texture.WebmTextureHostApi.seekToFrame$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val animIdArg = args[0] as Long
+            val frameArg = args[1] as Long
+            val wrapped: List<Any?> = try {
+              api.seekToFrame(animIdArg, frameArg)
               listOf(null)
             } catch (exception: Throwable) {
               MessagesPigeonUtils.wrapError(exception)

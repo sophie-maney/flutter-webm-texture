@@ -84,7 +84,7 @@ await WebmStickers.configure(StickerConfig(
 WebmSticker(
   source: StickerSource.file(path) | .bytes(data, key:) | .asset(name) | .network(url),
   width: 120, height: 120, fit: BoxFit.contain,
-  autoplay: true, controller: ctrl,                      // play/pause (loop, seekToFrame: T2.9)
+  autoplay: true, loop: true, controller: ctrl,          // play/pause/seekToFrame (ADR 0014)
   placeholder: ..., errorBuilder: (ctx, err) => ...,
 );
 
@@ -142,7 +142,7 @@ tool/                      # fetch_prebuilts, build_host_deps.sh (host tests), g
 - Pigeon API ([ADR 0010](docs/decisions/0010-pigeon-api-shape.md)): `createAnimation(sourceKey, source, bucketW, bucketH) → {animId, textureId}`, `setActive`, `dispose`, `deviceSignals`, plus a `streamErrors` event channel.
 - Android: a `SurfaceProducer` per Animation (`resetInBackground`), passed to native code as `ANativeWindow` (`RGBA_8888`). Handle `onSurfaceAvailable`/`onSurfaceCleanup`, because the surface is destroyed in the background and has to be recreated. The JNI glue and its render threads are compiled into `libwebm_texture.so` with the core ([ADR 0011](docs/decisions/0011-android-texture-glue.md)).
 - iOS: a `FlutterTexture` with a `CVPixelBufferPool` (BGRA, IOSurface, Metal-compatible), where native code writes into the locked buffer. Confirm from which thread `textureFrameAvailable` may be called.
-- Dart: `WebmSticker`, `StickerRegistry` (refcounted dedupe by hash+bucket), visibility via a custom render object (viewport intersection + `TickerMode`), app lifecycle handling, and placeholder/error states. Visibility is checked after each frame. Controlled and `autoplay: false` stickers get a private animation. `loop` and `seekToFrame` follow in T2.9 ([ADR 0012](docs/decisions/0012-sticker-widget-visibility-and-playback.md)).
+- Dart: `WebmSticker`, `StickerRegistry` (refcounted dedupe by hash+bucket), visibility via a custom render object (viewport intersection + `TickerMode`), app lifecycle handling, and placeholder/error states. Visibility is checked after each frame. Controlled, `autoplay: false` and `loop: false` stickers get a private animation ([ADR 0012](docs/decisions/0012-sticker-widget-visibility-and-playback.md)). A non-looping sticker holds its last frame, and `WebmStickerController.seekToFrame` shows any frame, paused or playing ([ADR 0014](docs/decisions/0014-loop-and-seek.md)).
 
 ### Phase 3: Cache, scheduler, tiers
 - `.wsc` cache writer/reader, LRU eviction under budget, versioned format, and atomic writes (temp file + rename).

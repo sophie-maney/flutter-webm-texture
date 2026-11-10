@@ -279,6 +279,47 @@ void main() {
     });
   });
 
+  group('loop and seek', () {
+    test('loop is passed on and keeps animations apart', () async {
+      final looping = await acquire('k');
+      final once = await registry.acquire(
+        key: 'k',
+        source: _file,
+        bucket: _b128,
+        loop: false,
+      );
+      final once2 = await registry.acquire(
+        key: 'k',
+        source: _file,
+        bucket: _b128,
+        loop: false,
+      );
+      expect(host.created, hasLength(2));
+      expect(host.loops, [true, false]);
+      expect(once.animId, once2.animId);
+      expect(once.animId, isNot(looping.animId));
+    });
+
+    test('seekToFrame reaches the platform until released', () async {
+      final a = await acquire('k');
+      a.seekToFrame(12);
+      await pumpEventQueue();
+      expect(host.seekCalls, [(a.animId, 12)]);
+      a.release();
+      a.seekToFrame(3);
+      await pumpEventQueue();
+      expect(host.seekCalls, hasLength(1));
+    });
+
+    test('seekToFrame errors are swallowed', () async {
+      final r = StickerRegistry(host: _ThrowingSeekHost(), gracePeriod: _grace);
+      final a = await r.acquire(key: 'k', source: _file, bucket: _b128);
+      a.seekToFrame(99);
+      await pumpEventQueue();
+      await r.dispose();
+    });
+  });
+
   group('dispose', () {
     test('disposes everything immediately and rejects new claims', () async {
       final a = await acquire('a');
@@ -308,4 +349,10 @@ class _ThrowingActiveHost extends FakeHost {
   @override
   Future<void> setActive(int animId, bool active) async =>
       throw PlatformException(code: 'BOOM');
+}
+
+class _ThrowingSeekHost extends FakeHost {
+  @override
+  Future<void> seekToFrame(int animId, int frame) async =>
+      throw PlatformException(code: 'WT_ERR_INVALID_ARGUMENT');
 }

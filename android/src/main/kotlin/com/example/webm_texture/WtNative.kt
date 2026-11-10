@@ -20,10 +20,12 @@ internal object WtNative {
     const val OUT_LENGTH = 4
 
     const val WT_OK = 0
+    const val WT_ERR_INVALID_ARGUMENT = -1
 
     /**
      * Creates the decoder for [bytes] or [path] at [width] x [height] (0 x 0
-     * for the source size) and its render thread. Fills [out] (see `OUT_*`)
+     * for the source size) and its render thread. With [loop] false,
+     * playback stops on the last frame. Fills [out] (see `OUT_*`)
      * and returns the handle, or 0 on failure. [listener] receives
      * `onNativeError(code, message)` on the render thread.
      *
@@ -36,6 +38,7 @@ internal object WtNative {
         path: String?,
         width: Int,
         height: Int,
+        loop: Boolean,
         out: IntArray,
     ): Long
 
@@ -48,6 +51,12 @@ internal object WtNative {
 
     /** Main thread. */
     @JvmStatic external fun nativeSetActive(handle: Long, active: Boolean)
+
+    /**
+     * Shows [frame] next, playing or paused. Returns a `wt_status`
+     * (`WT_ERR_INVALID_ARGUMENT` outside the animation's frames). Main thread.
+     */
+    @JvmStatic external fun nativeSeek(handle: Long, frame: Int): Int
 
     /** Stops the render thread and frees everything. Main thread. */
     @JvmStatic external fun nativeDestroy(handle: Long)

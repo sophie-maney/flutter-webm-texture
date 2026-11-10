@@ -53,7 +53,8 @@ class WebmTexturePlugin :
         sourceKey: String,
         source: AnimationSourceMessage,
         bucketW: Long,
-        bucketH: Long
+        bucketH: Long,
+        loop: Boolean
     ): AnimationHandleMessage {
         if ((source.bytes == null) == (source.path == null)) {
             throw FlutterError("WT_ERR_INVALID_ARGUMENT", "set exactly one of bytes and path", null)
@@ -66,7 +67,7 @@ class WebmTexturePlugin :
 
         // Probing and decoder setup read the file, so keep them off main.
         val out = withContext(Dispatchers.IO) {
-            texture.createNative(source, bucketW.toInt(), bucketH.toInt())
+            texture.createNative(source, bucketW.toInt(), bucketH.toInt(), loop)
         }
         val status = out[WtNative.OUT_STATUS]
         if (status != WtNative.WT_OK) {
@@ -93,6 +94,15 @@ class WebmTexturePlugin :
 
     override fun setActive(animId: Long, active: Boolean) {
         animations[animId]?.setActive(active)
+    }
+
+    override fun seekToFrame(animId: Long, frame: Long) {
+        val texture = animations[animId] ?: return
+        val status =
+            if (frame !in 0..Int.MAX_VALUE) WtNative.WT_ERR_INVALID_ARGUMENT else texture.seekToFrame(frame.toInt())
+        if (status != WtNative.WT_OK) {
+            throw FlutterError(WtNative.nativeStatusName(status), "can't seek to frame $frame", null)
+        }
     }
 
     override fun dispose(animId: Long) {

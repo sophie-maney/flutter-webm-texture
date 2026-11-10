@@ -253,7 +253,7 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 
 **Accept:** green in CI.
 
-### [ ] T2.9 Loop control and seek
+### [x] T2.9 Loop control and seek
 **Model** Opus 5.5 · `high` · **Depends** T2.5 · **Track** B
 - Deferred from T2.5 ([ADR 0012](docs/decisions/0012-sticker-widget-visibility-and-playback.md)). Add `loop` to `createAnimation` and a `seekToFrame(animId, frame)` host call. A non-looping animation holds its last frame. Implement both in the Android and iOS glue. Then add `WebmSticker.loop` and `WebmStickerController.seekToFrame`; both use the widget's private animation.
 

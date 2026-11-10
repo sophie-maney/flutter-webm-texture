@@ -131,12 +131,12 @@ wt_status CreateSource(JNIEnv* env, jbyteArray bytes, jstring path,
 extern "C" {
 
 // Creates the decoder for bytes or path at width x height (0 x 0 for the
-// source size) and its render thread. Writes {status, outWidth, outHeight,
-// frameCount} into out and returns the handle, or 0 on failure.
-// Thread: background thread.
+// source size) and its render thread, looping or stopping on the last frame.
+// Writes {status, outWidth, outHeight, frameCount} into out and returns the
+// handle, or 0 on failure. Thread: background thread.
 JNIEXPORT jlong JNICALL Java_com_example_webm_1texture_WtNative_nativeCreate(
     JNIEnv* env, jclass, jobject listener, jbyteArray bytes, jstring path,
-    jint width, jint height, jintArray out) {
+    jint width, jint height, jboolean loop, jintArray out) {
   if (out == nullptr || env->GetArrayLength(out) < kOutLength) return 0;
   if (listener == nullptr || width < 0 || height < 0) {
     SetOut(env, out, WT_ERR_INVALID_ARGUMENT);
@@ -170,7 +170,7 @@ JNIEXPORT jlong JNICALL Java_com_example_webm_1texture_WtNative_nativeCreate(
   handle->relay = std::make_unique<ErrorRelay>(env, listener);
   const ErrorRelay* relay = handle->relay.get();
   handle->player = SurfacePlayer::Create(
-      anim, out_w, out_h, info.frame_count,
+      anim, out_w, out_h, info.frame_count, loop == JNI_TRUE,
       [relay](const std::string& code, const std::string& message) {
         relay->Send(code, message);
       },
@@ -205,6 +205,16 @@ JNIEXPORT void JNICALL Java_com_example_webm_1texture_WtNative_nativeSetActive(
     JNIEnv*, jclass, jlong handle, jboolean active) {
   Handle* h = FromJ(handle);
   if (h != nullptr) h->player->SetActive(active == JNI_TRUE);
+}
+
+// Shows frame next (see SurfacePlayer::SeekTo). Returns a wt_status:
+// WT_ERR_INVALID_ARGUMENT for a frame outside the animation.
+// Thread: platform main thread.
+JNIEXPORT jint JNICALL Java_com_example_webm_1texture_WtNative_nativeSeek(
+    JNIEnv*, jclass, jlong handle, jint frame) {
+  Handle* h = FromJ(handle);
+  if (h == nullptr || frame < 0) return WT_ERR_INVALID_ARGUMENT;
+  return h->player->SeekTo(static_cast<uint32_t>(frame));
 }
 
 // Stops the render thread, releases the window and the decoder. Waits for at

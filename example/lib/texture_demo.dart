@@ -128,7 +128,7 @@ class _TextureDemoPageState extends State<TextureDemoPage> {
         // Alternate bytes and paths so both source kinds are exercised.
         final src = await _source(s.asset, asFile: i.isOdd);
         final (w, h) = _bucket(s);
-        final handle = await _api.createAnimation(s.asset, src, w, h);
+        final handle = await _api.createAnimation(s.asset, src, w, h, true);
         if (!mounted) {
           await _api.dispose(handle.animId);
           return;
@@ -146,6 +146,7 @@ class _TextureDemoPageState extends State<TextureDemoPage> {
           await _source(name),
           256,
           256,
+          true,
         );
         _say('$name: created (texture ${handle.textureId})');
         await _api.dispose(handle.animId);
@@ -172,7 +173,7 @@ class _TextureDemoPageState extends State<TextureDemoPage> {
     final src = await _source(s.asset);
     final (w, h) = _bucket(s);
     for (var i = 0; i < n && mounted; i++) {
-      final handle = await _api.createAnimation('cycle', src, w, h);
+      final handle = await _api.createAnimation('cycle', src, w, h, true);
       await _api.setActive(handle.animId, true);
       await Future<void>.delayed(const Duration(milliseconds: 20));
       await _api.dispose(handle.animId);

@@ -115,21 +115,32 @@ class AnimationErrorMessage {
 @HostApi()
 abstract class WebmTextureHostApi {
   /// Creates the decoder and a platform texture sized to the bucket
-  /// ([bucketW] x [bucketH] physical pixels).
+  /// ([bucketW] x [bucketH] physical pixels). The texture shows frame 0 and
+  /// stays inactive until [setActive].
   ///
   /// [sourceKey] is the content hash (or caller key) that names the cache
-  /// entry. Fails with a `PlatformException` carrying a `wt_status` name as
-  /// its code if the core rejects the source.
+  /// entry. With [loop] false, playback stops on the last frame and holds it
+  /// until [seekToFrame]. Fails with a `PlatformException` carrying a
+  /// `wt_status` name as its code if the core rejects the source.
   @async
   AnimationHandleMessage createAnimation(
     String sourceKey,
     AnimationSourceMessage source,
     int bucketW,
     int bucketH,
+    bool loop,
   );
 
-  /// Starts or stops playback. Inactive animations keep their first frame.
+  /// Starts or stops playback. Inactive animations keep their current frame.
   void setActive(int animId, bool active);
+
+  /// Shows [frame] (0-based) right away, whether or not the animation is
+  /// active; an active one carries on from there. Seeking a non-looping
+  /// animation that has ended lets it play again.
+  ///
+  /// Throws `WT_ERR_INVALID_ARGUMENT` when [frame] is outside the
+  /// animation's frames. An unknown or disposed [animId] is ignored.
+  void seekToFrame(int animId, int frame);
 
   /// Releases the animation, its texture and its decoder. Safe to call twice.
   void dispose(int animId);
