@@ -228,7 +228,7 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 
 **Accept:** unit tests cover dedupe, refcount, grace-period dispose and bucket math, using a fake platform.
 
-### [ ] T2.5 `WebmSticker` widget and visibility
+### [x] T2.5 `WebmSticker` widget and visibility
 **Model** Opus 5.5 · `high` · **Depends** T2.4, T2.2 or T2.3 · **Track** A
 - The widget wraps a custom `RenderProxyBox` that computes viewport intersection during paint/layout. It combines that with `TickerMode` and app lifecycle to drive `setActive`.
 - Props: `source`, `width`, `height`, `fit`, `autoplay`, `loop`, `controller`, `placeholder`, `errorBuilder`. The placeholder stays up until the first frame is ready.
@@ -252,6 +252,12 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 - `example/integration_test/`: screenshot goldens of the checkerboard page per platform (with tolerance), plus playback-advances and pause-when-offscreen tests. Add them to CI (Android emulator, iOS simulator).
 
 **Accept:** green in CI.
+
+### [ ] T2.9 Loop control and seek
+**Model** Opus 5.5 · `high` · **Depends** T2.5 · **Track** B
+- Deferred from T2.5 ([ADR 0012](docs/decisions/0012-sticker-widget-visibility-and-playback.md)). Add `loop` to `createAnimation` and a `seekToFrame(animId, frame)` host call. A non-looping animation holds its last frame. Implement both in the Android and iOS glue. Then add `WebmSticker.loop` and `WebmStickerController.seekToFrame`; both use the widget's private animation.
+
+**Accept:** widget tests with the fake platform · `texture_test.dart` covers a non-looping animation stopping on its last frame, and a seek while paused showing the requested frame, on the emulator and the simulator.
 
 ---
 

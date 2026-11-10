@@ -3,7 +3,7 @@ import 'dart:typed_data';
 /// Where a sticker's encoded bytes come from.
 ///
 /// Only [StickerSource.file] and [StickerSource.bytes] exist so far. Asset and
-/// network sources arrive with the widget.
+/// network sources arrive in T2.6.
 sealed class StickerSource {
   const StickerSource();
 
@@ -36,3 +36,18 @@ final class BytesStickerSource extends StickerSource {
   /// Cache identity, or null to derive one from [data].
   final String? key;
 }
+
+final Expando<String> _bytesKeys = Expando('webm_texture bytes key');
+int _nextBytesKey = 0;
+
+/// The content key that names [source]'s animation and cache entry.
+///
+/// A file is keyed by its path. Bytes use the caller's key; without one, each
+/// `Uint8List` instance gets its own key, so the same buffer is shared but
+/// equal copies aren't. T2.6 replaces both with a hash of the content.
+String stickerKeyOf(StickerSource source) => switch (source) {
+  FileStickerSource(:final path) => 'file:$path',
+  BytesStickerSource(:final key?) => 'key:$key',
+  BytesStickerSource(:final data) =>
+    _bytesKeys[data] ??= 'bytes:${_nextBytesKey++}',
+};

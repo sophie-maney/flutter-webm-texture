@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:webm_texture/webm_texture.dart';
 
 import 'texture_demo.dart';
+import 'visibility_demo.dart';
 
 void main() {
   runApp(const MyApp());
@@ -70,6 +71,16 @@ class _MyAppState extends State<MyApp> {
                     ),
                   ),
                   child: const Text('Textures'),
+                ),
+                const SizedBox(height: 8),
+                FilledButton(
+                  key: const Key('openVisibility'),
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const VisibilityDemoPage(),
+                    ),
+                  ),
+                  child: const Text('Visibility (200 stickers)'),
                 ),
               ],
             ),

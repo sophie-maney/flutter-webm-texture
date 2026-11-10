@@ -2,35 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:webm_texture/src/gen/messages.g.dart';
 import 'package:webm_texture/src/sticker_bucket.dart';
 import 'package:webm_texture/src/sticker_registry.dart';
 import 'package:webm_texture/src/sticker_source.dart';
 
-class FakeHost extends WebmTextureHostApi {
-  final List<(String, AnimationSourceMessage, int, int)> created = [];
-  final List<int> disposed = [];
-  int _next = 1;
-  Completer<void>? gate;
-  Object? failWith;
-
-  @override
-  Future<AnimationHandleMessage> createAnimation(
-    String sourceKey,
-    AnimationSourceMessage source,
-    int bucketW,
-    int bucketH,
-  ) async {
-    created.add((sourceKey, source, bucketW, bucketH));
-    await gate?.future;
-    if (failWith != null) throw failWith!;
-    final id = _next++;
-    return AnimationHandleMessage(animId: id, textureId: id + 100);
-  }
-
-  @override
-  Future<void> dispose(int animId) async => disposed.add(animId);
-}
+import 'fake_host.dart';
 
 const _grace = Duration(seconds: 2);
 const _b128 = StickerBucket(128, 128);
@@ -229,6 +205,80 @@ void main() {
     });
   });
 
+  group('active', () {
+    test('plays while any lease is active', () async {
+      final a = await acquire('k');
+      final b = await acquire('k');
+      final id = a.animId;
+      a.setActive(true);
+      b.setActive(true);
+      a.setActive(true); // no change
+      expect(host.activeCalls, [(id, true)]);
+      expect(registry.activeLeases.value, 0, reason: 'published later');
+      await pumpEventQueue();
+      expect(registry.activeLeases.value, 2);
+      expect(registry.activeAnimations.value, 1);
+      a.setActive(false);
+      expect(host.activeCalls, [(id, true)]);
+      b.setActive(false);
+      expect(host.activeCalls, [(id, true), (id, false)]);
+      await pumpEventQueue();
+      expect(registry.activeLeases.value, 0);
+      expect(registry.activeAnimations.value, 0);
+    });
+
+    test('releasing an active lease deactivates it', () async {
+      final a = await acquire('k');
+      a.setActive(true);
+      a.release();
+      expect(host.activeCalls, [(a.animId, true), (a.animId, false)]);
+      a.setActive(true); // released: ignored
+      expect(host.activeCalls, hasLength(2));
+      await pumpEventQueue();
+      expect(registry.activeLeases.value, 0);
+    });
+
+    test('setActive errors are swallowed', () async {
+      final throwing = _ThrowingActiveHost();
+      final r = StickerRegistry(host: throwing, gracePeriod: _grace);
+      final a = await r.acquire(key: 'k', source: _file, bucket: _b128);
+      a.setActive(true);
+      await pumpEventQueue();
+      expect(r.activeAnimations.value, 1);
+      await r.dispose();
+    });
+  });
+
+  group('owner', () {
+    test('owners get separate animations', () async {
+      final o1 = Object();
+      final shared = await acquire('k');
+      final a = await registry.acquire(
+        key: 'k',
+        source: _file,
+        bucket: _b128,
+        owner: o1,
+      );
+      final b = await registry.acquire(
+        key: 'k',
+        source: _file,
+        bucket: _b128,
+        owner: o1,
+      );
+      final c = await registry.acquire(
+        key: 'k',
+        source: _file,
+        bucket: _b128,
+        owner: Object(),
+      );
+      expect(host.created, hasLength(3));
+      expect(a.animId, b.animId);
+      expect({shared.animId, a.animId, c.animId}, hasLength(3));
+      // Every animation keeps the content key for the platform cache.
+      expect(host.created.map((c) => c.$1), everyElement('k'));
+    });
+  });
+
   group('dispose', () {
     test('disposes everything immediately and rejects new claims', () async {
       final a = await acquire('a');
@@ -252,4 +302,10 @@ class _ThrowingDisposeHost extends FakeHost {
     disposeCalls++;
     throw PlatformException(code: 'BOOM');
   }
+}
+
+class _ThrowingActiveHost extends FakeHost {
+  @override
+  Future<void> setActive(int animId, bool active) async =>
+      throw PlatformException(code: 'BOOM');
 }

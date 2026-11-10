@@ -13,6 +13,7 @@ class StickerLease {
   final StickerRegistry _registry;
   final _Entry _entry;
   bool _released = false;
+  bool _active = false;
 
   /// Identifies the animation in platform calls.
   int get animId => _entry.handle.animId;
@@ -26,10 +27,22 @@ class StickerLease {
   /// Whether [release] was called.
   bool get isReleased => _released;
 
+  /// Whether this claim wants the animation to play.
+  bool get isActive => _active;
+
+  /// Says whether this claim wants the animation to play. The animation plays
+  /// while at least one of its leases is active. Does nothing once released.
+  void setActive(bool active) {
+    if (_released || active == _active) return;
+    _active = active;
+    _registry._setLeaseActive(_entry, active);
+  }
+
   /// Gives the claim back. Calling it again does nothing. The animation is
   /// disposed once nobody holds it for [StickerRegistry.gracePeriod].
   void release() {
     if (_released) return;
+    setActive(false);
     _released = true;
     _registry._release(_entry);
   }
@@ -43,30 +56,38 @@ class _Entry {
   late final Future<AnimationHandleMessage> created;
   late AnimationHandleMessage handle;
   int refs = 0;
+  int activeLeases = 0;
   Timer? graceTimer;
 }
 
 @immutable
 class _EntryId {
-  const _EntryId(this.key, this.bucket);
+  const _EntryId(this.key, this.bucket, this.owner);
 
   final String key;
   final StickerBucket bucket;
 
-  @override
-  bool operator ==(Object other) =>
-      other is _EntryId && other.key == key && other.bucket == bucket;
+  /// Compared by identity; null for the shared animation.
+  final Object? owner;
 
   @override
-  int get hashCode => Object.hash(key, bucket);
+  bool operator ==(Object other) =>
+      other is _EntryId &&
+      other.key == key &&
+      other.bucket == bucket &&
+      identical(other.owner, owner);
+
+  @override
+  int get hashCode => Object.hash(key, bucket, identityHashCode(owner));
 }
 
 /// Shares animations between widgets.
 ///
-/// An animation is identified by (content key, [StickerBucket]). Asking for
-/// one that exists, even one waiting out its grace period, returns the same
-/// texture; the platform is only called for the first claim and the last
-/// release. All methods must be called from the UI isolate.
+/// An animation is identified by (content key, [StickerBucket], owner).
+/// Asking for one that exists, even one waiting out its grace period, returns
+/// the same texture; the platform is only called for the first claim and the
+/// last release. It plays while any of its leases is active
+/// ([StickerLease.setActive]). All methods must be called from the UI isolate.
 class StickerRegistry {
   /// Creates a registry over [host] (the real platform API when null).
   ///
@@ -84,6 +105,31 @@ class StickerRegistry {
 
   final Map<_EntryId, _Entry> _entries = {};
   bool _disposed = false;
+  int _activeLeaseCount = 0;
+  int _activeAnimationCount = 0;
+  bool _publishScheduled = false;
+  final ValueNotifier<int> _activeLeases = ValueNotifier(0);
+  final ValueNotifier<int> _activeAnimations = ValueNotifier(0);
+
+  /// How many leases are active: widgets that want to play right now.
+  ///
+  /// Leases change during build and unmount, so the value is published in a
+  /// microtask: listeners may call `setState`.
+  ValueListenable<int> get activeLeases => _activeLeases;
+
+  /// How many animations are playing on the platform. Published like
+  /// [activeLeases].
+  ValueListenable<int> get activeAnimations => _activeAnimations;
+
+  void _publishCounts() {
+    if (_publishScheduled) return;
+    _publishScheduled = true;
+    scheduleMicrotask(() {
+      _publishScheduled = false;
+      _activeLeases.value = _activeLeaseCount;
+      _activeAnimations.value = _activeAnimationCount;
+    });
+  }
 
   /// Number of animations the registry holds, including ones in their grace
   /// period.
@@ -94,15 +140,20 @@ class StickerRegistry {
   /// if needed. [key] is the content hash or the caller's key; [source] is
   /// only read when the animation has to be created.
   ///
+  /// Leases with the same non-null [owner] (compared by identity) share an
+  /// animation that no other owner sees, so one owner can pause it without
+  /// pausing anyone else's. A null [owner] means the shared animation.
+  ///
   /// Concurrent calls for the same animation share one platform call. If it
   /// fails, every waiting call gets the error and nothing stays registered.
   Future<StickerLease> acquire({
     required String key,
     required StickerSource source,
     required StickerBucket bucket,
+    Object? owner,
   }) async {
     if (_disposed) throw StateError('StickerRegistry is disposed');
-    final id = _EntryId(key, bucket);
+    final id = _EntryId(key, bucket, owner);
     var entry = _entries[id];
     if (entry == null) {
       entry = _Entry(id, bucket);
@@ -145,6 +196,21 @@ class StickerRegistry {
     return lease;
   }
 
+  void _setLeaseActive(_Entry entry, bool active) {
+    _activeLeaseCount += active ? 1 : -1;
+    _publishCounts();
+    final before = entry.activeLeases;
+    entry.activeLeases += active ? 1 : -1;
+    if ((before > 0) == (entry.activeLeases > 0)) return;
+    if (_disposed) return;
+    _activeAnimationCount += active ? 1 : -1;
+    // Calls on one channel arrive in order, so the last one wins. A failure
+    // (the engine is detaching, say) leaves nothing to fix up.
+    unawaited(
+      _host.setActive(entry.handle.animId, active).catchError((Object _) {}),
+    );
+  }
+
   void _release(_Entry entry) {
     if (--entry.refs > 0) return;
     if (_disposed) return;
@@ -169,6 +235,8 @@ class StickerRegistry {
     _disposed = true;
     final entries = _entries.values.toList();
     _entries.clear();
+    _activeAnimationCount = 0;
+    _publishCounts();
     for (final entry in entries) {
       entry.graceTimer?.cancel();
       entry.graceTimer = null;
