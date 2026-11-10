@@ -4,16 +4,10 @@
 #
 #   cmake -S . -B build/fuzz -DWT_FUZZ=ON -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
 #   cmake --build build/fuzz -j
-#   mkdir -p build/fuzz/corpus/probe build/fuzz/corpus/webm
-#   build/fuzz/fuzz_probe -max_total_time=60 build/fuzz/corpus/probe test_assets
-#   build/fuzz/fuzz_webm -max_total_time=60 -dict=fuzz/webm.dict \
-#     build/fuzz/corpus/webm fuzz/corpus/webm
+#   tool/fuzz.sh 60        # every target in parallel, with its seeds and dict
 #
-# libFuzzer writes new inputs into the first corpus directory, so committed
-# seeds (fuzz/corpus/, test_assets/) always go after a scratch directory.
-#
-# T1.1 added the wiring and fuzz_probe, T1.3 fuzz_webm's demuxing and T1.4
-# its decoding. T1.7 adds fuzz_sniff and owns the timed and nightly CI runs.
+# tool/fuzz.sh knows each target's seed directories (fuzz/corpus/README.md).
+# CI runs it for 60 s on PRs and 30 min nightly (fuzz-nightly.yml).
 function(wt_add_fuzzer name)
   add_executable(${name} ${ARGN})
   target_link_libraries(${name} PRIVATE wt_core)
@@ -26,3 +20,4 @@ endfunction()
 
 wt_add_fuzzer(fuzz_probe fuzz_probe.cc)
 wt_add_fuzzer(fuzz_webm fuzz_webm.cc)
+wt_add_fuzzer(fuzz_sniff fuzz_sniff.cc)

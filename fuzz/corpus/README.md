@@ -1,8 +1,18 @@
 # Fuzz seed corpora
 
-One directory per fuzz target. Pass it as the **second** corpus directory, after
-a scratch one under `build/`, because libFuzzer writes new inputs into the
-first (see `fuzz/CMakeLists.txt`).
+Seed directories for the fuzz targets. `tool/fuzz.sh` passes them after a
+scratch directory under `build/fuzz/corpus/`, because libFuzzer writes new
+inputs into the first corpus directory.
+
+| Target | Seeds |
+|---|---|
+| `fuzz_sniff` | `test_assets/` |
+| `fuzz_probe` | `test_assets/`, `fuzz/corpus/webm/` |
+| `fuzz_webm` | `fuzz/corpus/webm/` (+ `fuzz/webm.dict`) |
+
+When a run finds a bug, fix it and add the reproducer from
+`build/fuzz/artifacts/<target>/` to the target's seed directory as a
+regression input, named after what it triggers.
 
 ## `webm/` (`fuzz_webm`)
 

@@ -49,7 +49,7 @@ Each command works once the task that introduces it has landed (that task's ID i
 | Fetch native libs [T0.6] | `fvm dart run tool/fetch_prebuilts.dart` |
 | Host deps [T1.1] | `tool/build_host_deps.sh` (`cmake`, `nasm` on x86_64) → `build/deps/host-core/prefix`; rerun after `versions.lock` or `test-deps.lock` changes |
 | Native host tests [T1.1] | `cmake -S . -B build/host -DWT_HOST_TESTS=ON -DWT_SANITIZE=ON && cmake --build build/host -j && ctest --test-dir build/host --output-on-failure` |
-| Fuzz (60 s smoke) [T1.3] | `cmake -S . -B build/fuzz -DWT_FUZZ=ON -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ && cmake --build build/fuzz -j && mkdir -p build/fuzz/corpus/webm && build/fuzz/fuzz_webm -max_total_time=60 -dict=fuzz/webm.dict build/fuzz/corpus/webm fuzz/corpus/webm` (LLVM clang; Apple clang has no libFuzzer, so on macOS use `brew install llvm` and `/opt/homebrew/opt/llvm/bin/clang++`. New inputs go to the first, scratch directory) |
+| Fuzz (60 s smoke) [T1.7] | `cmake -S . -B build/fuzz -DWT_FUZZ=ON -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ && cmake --build build/fuzz -j && tool/fuzz.sh 60` (runs `fuzz_sniff`, `fuzz_probe` and `fuzz_webm` in parallel; findings go to `build/fuzz/artifacts/<target>/`. LLVM clang; Apple clang has no libFuzzer, so on macOS use `brew install llvm` and `/opt/homebrew/opt/llvm/bin/clang++`) |
 | Regenerate bindings | `fvm dart run pigeon --input pigeons/messages.dart` · `fvm dart run ffigen --config ffigen.yaml` |
 | Regenerate corpus [T0.3] | `tool/gen_corpus.sh` (needs `ffmpeg` with libvpx + libopus, `img2webp`, `gif2webp`, `gifsicle`, `jq`) · validate: `tool/gen_corpus.sh --check` |
 | Android build | `cd example && fvm flutter build apk --debug` |

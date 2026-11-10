@@ -4,7 +4,6 @@
 //
 // Besides the sanitizers, it checks the index invariants that the decoder
 // relies on and traps when one breaks, so libFuzzer reports it as a crash.
-// T1.7 tunes this target and owns its CI runs.
 #include <cstddef>
 #include <cstdint>
 #include <vector>

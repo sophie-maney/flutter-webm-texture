@@ -176,7 +176,7 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 
 **Accept:** green under sanitizers on macOS + Linux CI.
 
-### [ ] T1.7 Fuzzing
+### [x] T1.7 Fuzzing
 **Model** Opus 5.5 · `high` · **Depends** T1.4 · **Track** C
 - Add libFuzzer targets `fuzz_sniff`, `fuzz_webm` (demux + decode of the first N frames with tight limits) and `fuzz_probe`. Seed them from `test_assets/`.
 - CI: a 60 s smoke run per target on PRs, and a nightly 30 min run that uploads crashes as artifacts.
