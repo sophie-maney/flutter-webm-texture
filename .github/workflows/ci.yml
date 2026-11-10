@@ -215,6 +215,7 @@ jobs:
   # the command at the top of example/integration_test/app_test.dart.
   integration-android:
     name: Integration tests (Android emulator)
+    timeout-minutes: 30
     needs: check
     runs-on: ubuntu-latest
     steps:
@@ -276,6 +277,7 @@ jobs:
 
   integration-ios:
     name: Integration tests (iOS simulator)
+    timeout-minutes: 25
     needs: check
     runs-on: macos-latest
     defaults:
@@ -319,4 +321,5 @@ jobs:
 
       - name: Run integration tests
         working-directory: webm_texture/example
-        run: fvm flutter test integration_test -d "$SIM_UDID"
+        timeout-minutes: 15
+        run: fvm flutter test integration_test -d "$SIM_UDID" --reporter expanded
