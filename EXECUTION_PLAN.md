@@ -247,7 +247,7 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 
 **Accept:** runs on the emulator and the simulator · screenshots in the PR.
 
-### [ ] T2.8 Integration tests
+### [x] T2.8 Integration tests
 **Model** Sonnet 5.5 · `medium` · **Depends** T2.7 · **Track** C
 - `example/integration_test/`: screenshot goldens of the checkerboard page per platform (with tolerance), plus playback-advances and pause-when-offscreen tests. Add them to CI (Android emulator, iOS simulator).
 
