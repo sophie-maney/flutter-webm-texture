@@ -1,8 +1,8 @@
 # The webm_texture core: a static library behind the C ABI in api/wt_api.h.
 #
-# Included by the root CMakeLists.txt for host builds (tests, fuzzing). The
-# Android plugin build adds this directory too (T1.8). iOS compiles the same
-# sources through SwiftPM/CocoaPods against the xcframework instead.
+# Included by the root CMakeLists.txt for host builds (tests, fuzzing) and by
+# android/CMakeLists.txt for the plugin's libwebm_texture.so (T1.8). iOS
+# compiles the same sources through SwiftPM against the xcframework instead.
 #
 # Inputs (set before add_subdirectory):
 #   WT_DEPS_DIR   host only: prefix from tool/build_host_deps.sh
@@ -24,7 +24,7 @@ if(ANDROID)
   target_include_directories(wt_deps SYSTEM INTERFACE "${_wt_prebuilt}/include")
   target_link_libraries(wt_deps INTERFACE "${_wt_archive}" m)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "iOS")
-  message(FATAL_ERROR "iOS builds the core through ios/webm_texture (SwiftPM/CocoaPods), not CMake")
+  message(FATAL_ERROR "iOS builds the core through ios/webm_texture (SwiftPM), not CMake")
 else()
   # Linking order matters for static archives: users before what they use.
   set(_wt_host_libs webpdemux webpdecoder vpx yuv gif lz4)
@@ -45,7 +45,7 @@ else()
 endif()
 
 # --- Core -------------------------------------------------------------------
-add_library(wt_core STATIC
+set(WT_CORE_SOURCES
   api/anim.cc
   api/wt_api.cc
   convert/yuva.cc
@@ -54,21 +54,45 @@ add_library(wt_core STATIC
   demux/source.cc
   demux/webm.cc
 )
-# Consumers include "wt_api.h"; core sources include "api/wt_api.h" etc.
-target_include_directories(wt_core
-  PUBLIC "${CMAKE_CURRENT_LIST_DIR}/api"
-  PRIVATE "${CMAKE_CURRENT_LIST_DIR}")
-target_compile_features(wt_core PUBLIC cxx_std_17)
-set_target_properties(wt_core PROPERTIES
-  CXX_EXTENSIONS OFF
-  POSITION_INDEPENDENT_CODE ON
-  CXX_VISIBILITY_PRESET hidden
-  VISIBILITY_INLINES_HIDDEN ON)
-# AGENTS.md: no exceptions or RTTI in the core. UBSan's vptr check needs RTTI,
-# so it is off here (it stays on in the tests).
-target_compile_options(wt_core PRIVATE
-  -fno-exceptions -fno-rtti
-  -Wall -Wextra -Wshadow -Wconversion -Wsign-conversion
-  $<$<BOOL:${WT_SANITIZE}>:-fno-sanitize=vptr>
-  $<$<BOOL:${WT_WERROR}>:-Werror>)
-target_link_libraries(wt_core PUBLIC wt_deps)
+
+# Settings shared by the static core and the shared library built from it.
+function(wt_configure_core tgt)
+  # Consumers include "wt_api.h"; core sources include "api/wt_api.h" etc.
+  target_include_directories(${tgt}
+    PUBLIC "${CMAKE_CURRENT_LIST_DIR}/api"
+    PRIVATE "${CMAKE_CURRENT_LIST_DIR}")
+  target_compile_features(${tgt} PUBLIC cxx_std_17)
+  set_target_properties(${tgt} PROPERTIES
+    CXX_EXTENSIONS OFF
+    POSITION_INDEPENDENT_CODE ON
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN ON)
+  # AGENTS.md: no exceptions or RTTI in the core. UBSan's vptr check needs RTTI,
+  # so it is off here (it stays on in the tests).
+  target_compile_options(${tgt} PRIVATE
+    -fno-exceptions -fno-rtti
+    -Wall -Wextra -Wshadow -Wconversion -Wsign-conversion
+    $<$<BOOL:${WT_SANITIZE}>:-fno-sanitize=vptr>
+    $<$<BOOL:${WT_WERROR}>:-Werror>)
+  target_link_libraries(${tgt} PUBLIC wt_deps)
+endfunction()
+
+add_library(wt_core STATIC ${WT_CORE_SOURCES})
+wt_configure_core(wt_core)
+
+# libwebm_texture: the core as a shared library for dart:ffi. Android always
+# builds it (the plugin's CMake loads it as libwebm_texture.so); the host
+# builds it on request so `fvm flutter test` can probe the corpus
+# (-DWT_BUILD_SHARED=ON, see tool/build_host_ffi_lib.sh). iOS has no such
+# target: the sources are compiled into the app and found with
+# DynamicLibrary.process().
+if(ANDROID OR WT_BUILD_SHARED)
+  add_library(webm_texture SHARED ${WT_CORE_SOURCES})
+  wt_configure_core(webm_texture)
+  if(ANDROID)
+    # Export only wt_api.h; keep the prebuilt archives' symbols private, and
+    # align segments to 16 KB pages (Play requirement; AGENTS.md).
+    target_link_options(webm_texture PRIVATE
+      -Wl,--exclude-libs,ALL -Wl,-z,max-page-size=16384 -Wl,--gc-sections)
+  endif()
+endif()

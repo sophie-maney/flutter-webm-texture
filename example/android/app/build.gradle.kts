@@ -7,7 +7,7 @@ plugins {
 android {
     namespace = "com.example.webm_texture_example"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    ndkVersion = "30.0.16248370" // matches the plugin (ADR 0009)
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

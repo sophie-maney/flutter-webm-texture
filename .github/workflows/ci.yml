@@ -163,6 +163,8 @@ jobs:
 
       - run: fvm install
       - run: fvm flutter pub get
+      - name: Fetch native prebuilts
+        run: fvm dart run tool/fetch_prebuilts.dart --platform android
       - name: Build debug APK
         working-directory: example
         run: fvm flutter build apk --debug
@@ -199,15 +201,10 @@ jobs:
           key: pub-${{ runner.os }}-${{ hashFiles('webm_texture/**/pubspec.yaml') }}
           restore-keys: pub-${{ runner.os }}-
 
-      - name: Cache CocoaPods
-        uses: actions/cache@v4
-        with:
-          path: webm_texture/example/ios/Pods
-          key: pods-${{ runner.os }}-${{ hashFiles('webm_texture/example/ios/Podfile.lock', 'webm_texture/ios/*.podspec') }}
-          restore-keys: pods-${{ runner.os }}-
-
       - run: fvm install
       - run: fvm flutter pub get
+      - name: Fetch native prebuilts
+        run: fvm dart run tool/fetch_prebuilts.dart --platform ios
       - name: Build debug simulator app
         working-directory: webm_texture/example
         run: fvm flutter build ios --simulator --debug --no-codesign

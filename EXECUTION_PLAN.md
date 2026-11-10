@@ -183,11 +183,11 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 
 **Accept:** 10 min locally per target with no findings, or the findings are fixed in the same PR with regression inputs added to the corpus.
 
-### [ ] T1.8 Dart FFI bindings and `probe()`
+### [x] T1.8 Dart FFI bindings and `probe()`
 **Model** Sonnet 5.5 · `medium` · **Depends** T1.5 · **Track** B
 - `ffigen.yaml` over `wt_api.h` → `lib/src/gen/wt_bindings.g.dart`.
 - `WebmStickers.probe(StickerSource)` runs on a background isolate (`Isolate.run`) and returns a `StickerInfo`.
-- Wire the core into the Android CMake build and the iOS SwiftPM/podspec build, linked against the prebuilts.
+- Wire the core into the Android CMake build and the iOS SwiftPM build, linked against the prebuilts.
 
 **Accept:** an integration test in the example probes every corpus file on the Android emulator and the iOS simulator.
 
@@ -218,9 +218,9 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 ### [ ] T2.3 iOS texture glue
 **Model** Opus 5.5 · `high` · **Depends** T2.1, T0.8 · **Track** C (parallel with T2.2)
 - An ObjC++ shim over `wt_api.h`. A Swift `FlutterTexture` uses a `CVPixelBufferPool` (BGRA, IOSurface, Metal-compatible) and native code writes into the locked buffer. Call `textureFrameAvailable` from the worker that produced the frame; spike B found no need to hop to main. Write each frame into a fresh pool buffer, keep the latest one referenced, and return it from every `copyPixelBuffer` call (Flutter asks again after foregrounding).
-- Both `Package.swift` (binaryTarget/vendored xcframework plus a C++ target) and `.podspec` must build.
+- `Package.swift` (binaryTarget plus a C++ target) must build. There is no podspec ([ADR 0009](docs/decisions/0009-ffi-loading-and-native-wiring.md)).
 
-**Accept:** same as T2.2 on the latest iOS simulator (no iOS 15 runtime is available; see ADR 0005) · Instruments shows no leaks over 100 create/dispose cycles · SwiftPM and CocoaPods example builds are both green in CI.
+**Accept:** same as T2.2 on the latest iOS simulator (no iOS 15 runtime is available; see ADR 0005) · Instruments shows no leaks over 100 create/dispose cycles · the SwiftPM example build is green in CI.
 
 ### [ ] T2.4 Dart registry, dedupe and buckets
 **Model** Sonnet 5.5 · `high` · **Depends** T2.1 · **Track** A

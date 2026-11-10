@@ -30,6 +30,10 @@ android {
 
     compileSdk = 36
 
+    // The prebuilt libyuv references NDK r30's compiler-rt (SME helpers), so
+    // the native build needs r30 or newer (ADR 0009).
+    ndkVersion = "30.0.16248370"
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -46,6 +50,19 @@ android {
 
     defaultConfig {
         minSdk = 24
+
+        // The prebuilts cover these ABIs (x86 is opt-in; see build-android.sh).
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+        }
+    }
+
+    // The C++ core as libwebm_texture.so, loaded by dart:ffi.
+    externalNativeBuild {
+        cmake {
+            path = file("CMakeLists.txt")
+            version = "3.22.1"
+        }
     }
 
     testOptions {

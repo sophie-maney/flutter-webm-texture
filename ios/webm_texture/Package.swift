@@ -15,10 +15,30 @@ let package = Package(
         .package(name: "FlutterFramework", path: "../FlutterFramework")
     ],
     targets: [
+        // Prebuilt libvpx, libwebm, libyuv, libwebp, giflib and lz4, merged into
+        // one static library. Filled by `fvm dart run tool/fetch_prebuilts.dart`
+        // (Frameworks/ is a symlink into third_party/prebuilt, which is gitignored).
+        .binaryTarget(
+            name: "WebmTextureDeps",
+            path: "Frameworks/WebmTextureDeps.xcframework"
+        ),
+        // The C++ core. Sources/wt_core holds symlinks to ../../../src (SwiftPM
+        // can't reach outside the package); include/ exposes only the C ABI.
+        .target(
+            name: "wt_core",
+            dependencies: ["WebmTextureDeps"],
+            path: "Sources/wt_core",
+            publicHeadersPath: "include",
+            cxxSettings: [
+                .headerSearchPath("."),
+                .unsafeFlags(["-fno-exceptions", "-fno-rtti"]),
+            ]
+        ),
         .target(
             name: "webm_texture",
             dependencies: [
-                .product(name: "FlutterFramework", package: "FlutterFramework")
+                .product(name: "FlutterFramework", package: "FlutterFramework"),
+                "wt_core",
             ],
             resources: [
                 // If your plugin requires a privacy manifest, for example if it uses any required
@@ -32,5 +52,6 @@ let package = Package(
                 // https://developer.apple.com/documentation/xcode/bundling-resources-with-a-swift-package
             ]
         )
-    ]
+    ],
+    cxxLanguageStandard: .cxx17
 )
