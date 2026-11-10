@@ -3,7 +3,7 @@
 # corpora and dictionary. Used by CI (60 s on PRs, 30 min nightly) and
 # locally (T1.7 acceptance: 600 s).
 #
-#   tool/fuzz.sh <seconds> [fuzz_sniff fuzz_probe fuzz_webm]
+#   tool/fuzz.sh <seconds> [fuzz_sniff fuzz_probe fuzz_webm fuzz_wsc]
 #
 # Needs a fuzz build first:
 #   cmake -S . -B build/fuzz -DWT_FUZZ=ON -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
@@ -22,7 +22,7 @@ cd "$(dirname "$0")/.."
 seconds=${1:?usage: tool/fuzz.sh <seconds> [target...]}
 shift
 targets=("$@")
-[[ ${#targets[@]} -gt 0 ]] || targets=(fuzz_sniff fuzz_probe fuzz_webm)
+[[ ${#targets[@]} -gt 0 ]] || targets=(fuzz_sniff fuzz_probe fuzz_webm fuzz_wsc)
 dir=${WT_FUZZ_DIR:-build/fuzz}
 
 # Seed directories (read-only; libFuzzer writes into the first corpus dir,
@@ -32,12 +32,14 @@ seeds() {
     fuzz_sniff) echo "test_assets" ;;
     fuzz_probe) echo "test_assets fuzz/corpus/webm" ;;
     fuzz_webm) echo "fuzz/corpus/webm" ;;
+    fuzz_wsc) echo "fuzz/corpus/wsc" ;;
     *) echo "unknown target: $1" >&2; return 1 ;;
   esac
 }
 flags() {
   case $1 in
     fuzz_webm) echo "-dict=fuzz/webm.dict" ;;
+    fuzz_wsc) echo "-dict=fuzz/wsc.dict" ;;
   esac
 }
 

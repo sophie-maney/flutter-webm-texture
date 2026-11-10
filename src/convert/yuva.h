@@ -74,6 +74,12 @@ class YuvaImage {
   // The planes; a is null without an alpha plane.
   YuvaView view() const;
 
+  // The single buffer behind the planes: Y (width x height), U and V
+  // (ChromaSize(width) x ChromaSize(height) each) and, with alpha, A, packed
+  // in that order with no padding. This is the frame cache's frame layout.
+  uint8_t* data() { return buffer_.get(); }
+  size_t data_size() const { return data_size_; }
+
  private:
   friend wt_status ScaleColor(const YuvaView& src, YuvaImage* dst);
   friend wt_status ScaleAlpha(const YuvaView& src, YuvaImage* dst);
@@ -83,6 +89,7 @@ class YuvaImage {
   uint8_t* u_ = nullptr;
   uint8_t* v_ = nullptr;
   uint8_t* a_ = nullptr;  // Null without an alpha plane.
+  size_t data_size_ = 0;
   uint32_t width_ = 0;
   uint32_t height_ = 0;
   YuvColor color_;

@@ -21,3 +21,9 @@ endfunction()
 wt_add_fuzzer(fuzz_probe fuzz_probe.cc)
 wt_add_fuzzer(fuzz_webm fuzz_webm.cc)
 wt_add_fuzzer(fuzz_sniff fuzz_sniff.cc)
+wt_add_fuzzer(fuzz_wsc fuzz_wsc.cc)
+
+# Regenerates fuzz/corpus/wsc/ (see fuzz/corpus/README.md). Not a fuzzer.
+add_executable(wsc_seeds wsc_seeds.cc)
+target_link_libraries(wsc_seeds PRIVATE wt_core)
+set_target_properties(wsc_seeds PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")

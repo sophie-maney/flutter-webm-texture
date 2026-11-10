@@ -176,6 +176,12 @@ wt_status wt_probe(wt_source* source, wt_info* out_info) {
 
 wt_status wt_anim_create(wt_source* source, uint32_t width, uint32_t height,
                          wt_anim** out_anim) {
+  return wt_anim_create_cached(source, width, height, nullptr, out_anim);
+}
+
+wt_status wt_anim_create_cached(wt_source* source, uint32_t width,
+                                uint32_t height, const char* cache_path,
+                                wt_anim** out_anim) {
   if (out_anim == nullptr) return WT_ERR_INVALID_ARGUMENT;
   *out_anim = nullptr;
   if (source == nullptr || ((width == 0) != (height == 0))) {
@@ -185,7 +191,7 @@ wt_status wt_anim_create(wt_source* source, uint32_t width, uint32_t height,
   if (handle == nullptr) return WT_ERR_NO_MEMORY;
   const wt_status status =
       wt::Anim::Create(source->bytes->whole(), source->format, source->limits,
-                       width, height, &handle->anim);
+                       width, height, cache_path, &handle->anim);
   if (status != WT_OK) {
     delete handle;
     return status;
