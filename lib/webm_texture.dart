@@ -1,5 +1,8 @@
+import 'package:flutter/foundation.dart';
+
 import 'src/probe.dart';
 import 'src/sticker_info.dart';
+import 'src/sticker_runtime.dart';
 import 'src/sticker_source.dart';
 import 'webm_texture_platform_interface.dart';
 
@@ -12,6 +15,8 @@ export 'src/sticker_info.dart'
         StickerLimits;
 export 'src/sticker_source.dart'
     show BytesStickerSource, FileStickerSource, StickerSource;
+export 'src/webm_sticker.dart'
+    show StickerErrorWidgetBuilder, WebmSticker, WebmStickerController;
 
 class WebmTexture {
   Future<String?> getPlatformVersion() {
@@ -32,4 +37,11 @@ abstract final class WebmStickers {
     StickerSource source, {
     StickerLimits? limits,
   }) => probeSticker(source, limits: limits);
+
+  /// How many [WebmSticker]s want to animate right now: playing, on screen,
+  /// under an enabled `TickerMode`, with the app in the foreground.
+  ///
+  /// Meant for debug overlays and tests.
+  static ValueListenable<int> get debugActiveCount =>
+      StickerRuntime.instance.registry.activeLeases;
 }

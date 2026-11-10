@@ -60,7 +60,7 @@ Platform glue                                 FrameCache (disk: LZ4 YUVA420 fram
   2. **Atlas** (`StickerAtlasScope`, **the mode for grids**, per [ADR 0006](docs/decisions/0006-atlas-for-grids.md)): one texture per atlas page. Pages are up to 2048 px wide and only as tall as the rows they need, rounded up to 16 px; a full 2048² page costs 32 MB (iOS) to 80–112 MB (Android) once the buffer queue is counted. Slots are 16-px aligned, with a ≥ 2-px transparent gutter against bilinear bleed. Native code blits each visible Animation into its slot. Each widget draws the atlas `Texture` clipped and translated to its slot. This avoids 60 platform textures and 60 buffer queues, and matches Telegram iOS's multi-animation renderer.
 - **Scheduler:** a single clock running at min(display Hz, tier cap). Each tick, it queues due frames to a small worker pool. Each Animation has at most one frame in flight, and late frames are dropped rather than queued.
 - **Frame cache:** the first playback decodes and writes `<hash>_<bucket>_v1.wsc` in the background. That file holds a header, per-frame durations, an offset table, and **LZ4-compressed YUVA420** frames (2.5 B/px before compression, versus 4 B/px for RGBA). Later loops and later sessions read only from the cache: LZ4 decompress plus a NEON YUV→RGBA pass per frame. The disk budget defaults to 200 MB with LRU eviction. RAM holds only 2 frame buffers per active Animation, plus atlas memory.
-- **Pausing:** a widget animates only when `TickerMode` is enabled **and** it intersects the viewport. Off-screen widgets inside `cacheExtent` keep their first frame ready. Everything pauses on `AppLifecycleState.paused`.
+- **Pausing:** a widget animates only when `TickerMode` is enabled **and** it intersects the viewport. Off-screen widgets inside `cacheExtent` keep their first frame ready. Everything pauses when the app is `hidden`, `paused` or `detached`; `inactive` keeps playing because the app is still on screen.
 - **Tiers:** auto-detected from RAM, CPU cores, Android `isLowRamDevice`/media performance class, iOS `physicalMemory`, Low Power Mode, and thermal state (which can change at runtime).
   - high: source fps, unlimited animations
   - mid: ≤30 fps, ≤30 concurrent
@@ -84,13 +84,14 @@ await WebmStickers.configure(StickerConfig(
 WebmSticker(
   source: StickerSource.file(path) | .bytes(data, key:) | .asset(name) | .network(url),
   width: 120, height: 120, fit: BoxFit.contain,
-  autoplay: true, loop: true, controller: ctrl,          // play/pause/seekToFrame
+  autoplay: true, controller: ctrl,                      // play/pause (loop, seekToFrame: T2.9)
   placeholder: ..., errorBuilder: (ctx, err) => ...,
 );
 
 StickerAtlasScope(child: GridView.builder(...));         // grid mode
 final info = await WebmStickers.probe(source);           // codec, w, h, fps, frames, duration, hasAlpha, hasAudio
 await WebmStickers.clearCache();
+WebmStickers.debugActiveCount;                           // ValueListenable<int>: widgets animating now
 ```
 
 ## Repository layout
@@ -141,7 +142,7 @@ tool/                      # fetch_prebuilts, build_host_deps.sh (host tests), g
 - Pigeon API ([ADR 0010](docs/decisions/0010-pigeon-api-shape.md)): `createAnimation(sourceKey, source, bucketW, bucketH) → {animId, textureId}`, `setActive`, `dispose`, `deviceSignals`, plus a `streamErrors` event channel.
 - Android: a `SurfaceProducer` per Animation (`resetInBackground`), passed to native code as `ANativeWindow` (`RGBA_8888`). Handle `onSurfaceAvailable`/`onSurfaceCleanup`, because the surface is destroyed in the background and has to be recreated. The JNI glue and its render threads are compiled into `libwebm_texture.so` with the core ([ADR 0011](docs/decisions/0011-android-texture-glue.md)).
 - iOS: a `FlutterTexture` with a `CVPixelBufferPool` (BGRA, IOSurface, Metal-compatible), where native code writes into the locked buffer. Confirm from which thread `textureFrameAvailable` may be called.
-- Dart: `WebmSticker`, `StickerRegistry` (refcounted dedupe by hash+bucket), visibility via a custom render object (viewport intersection + `TickerMode`), app lifecycle handling, and placeholder/error states.
+- Dart: `WebmSticker`, `StickerRegistry` (refcounted dedupe by hash+bucket), visibility via a custom render object (viewport intersection + `TickerMode`), app lifecycle handling, and placeholder/error states. Visibility is checked after each frame. Controlled and `autoplay: false` stickers get a private animation. `loop` and `seekToFrame` follow in T2.9 ([ADR 0012](docs/decisions/0012-sticker-widget-visibility-and-playback.md)).
 
 ### Phase 3: Cache, scheduler, tiers
 - `.wsc` cache writer/reader, LRU eviction under budget, versioned format, and atomic writes (temp file + rename).
