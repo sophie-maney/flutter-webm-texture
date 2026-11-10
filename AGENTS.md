@@ -55,7 +55,7 @@ Each command works once the task that introduces it has landed (that task's ID i
 | Regenerate corpus [T0.3] | `tool/gen_corpus.sh` (needs `ffmpeg` with libvpx + libopus, `img2webp`, `gif2webp`, `gifsicle`, `jq`) · validate: `tool/gen_corpus.sh --check` |
 | Android build | `cd example && fvm flutter build apk --debug` |
 | iOS build | `cd example && fvm flutter build ios --simulator --debug` |
-| Integration tests | `cd example && fvm flutter test integration_test -d <device>` (`probe_test.dart` [T1.8] probes the corpus over FFI) |
+| Integration tests | `cd example && fvm flutter test integration_test -d <device>` (`probe_test.dart` [T1.8] probes the corpus over FFI; `texture_test.dart` [T2.3] drives the texture glue, iOS until T2.2) |
 
 ## Conventions
 - **Dart**: `flutter_lints` plus the rules in `analysis_options.yaml`. Public API is documented with dartdoc. Don't export anything from `lib/src/` unless the API in `PLAN.md` lists it.
