@@ -222,7 +222,7 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 
 **Accept:** same as T2.2 on the latest iOS simulator (no iOS 15 runtime is available; see ADR 0005) · Instruments shows no leaks over 100 create/dispose cycles · the SwiftPM example build is green in CI.
 
-### [ ] T2.4 Dart registry, dedupe and buckets
+### [x] T2.4 Dart registry, dedupe and buckets
 **Model** Sonnet 5.5 · `high` · **Depends** T2.1 · **Track** A
 - `StickerRegistry` keys animations by (content hash, bucket). It refcounts acquire/release, disposes on zero after a short grace period (to avoid scroll thrash), and computes buckets from logical size × devicePixelRatio.
 
