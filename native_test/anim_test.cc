@@ -1,9 +1,8 @@
 // Tests for wt_anim through the C ABI (T1.4): every corpus WebM decoded at
-// source size against manifest.json and the reference frames, the alpha-less
-// file's alpha, seeking and looping, size buckets, the caller's buffer
-// contract, and the errors wt_anim_create returns.
-//
-// T1.6 extends the golden comparisons (every sampled frame, every bucket).
+// source size against manifest.json, the alpha-less file's alpha, seeking and
+// looping, size buckets, the caller's buffer contract, and the errors
+// wt_anim_create returns. Pixel comparisons against the reference frames live
+// in golden_test.cc.
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -15,6 +14,7 @@
 #include <utility>
 #include <vector>
 
+#include "anim_util.h"
 #include "gtest/gtest.h"
 #include "manifest.h"
 #include "ref_frames.h"
@@ -29,11 +29,6 @@ using wt_test::Json;
 
 const fs::path kAssets = WT_TEST_ASSETS_DIR;
 
-constexpr unsigned kRgb = 0x7;
-constexpr unsigned kAlpha = 0x8;
-// Spike A measured >= 48.5 dB; T1.6 requires 45.
-constexpr double kMinPsnr = 45.0;
-
 // The WebM files that play (expect ok or truncated).
 std::vector<const Json*> PlayableWebms() {
   std::vector<const Json*> out;
@@ -45,49 +40,13 @@ std::vector<const Json*> PlayableWebms() {
   return out;
 }
 
-// RAII owners for the C handles.
-struct Source {
-  wt_source* p = nullptr;
-  ~Source() { wt_source_destroy(p); }
-};
-struct Anim {
-  wt_anim* p = nullptr;
-  ~Anim() { wt_anim_destroy(p); }
-};
-
-wt_status OpenSource(const std::string& name, Source* source,
-                     const wt_limits* limits = nullptr) {
-  return wt_source_create_file((kAssets / name).string().c_str(), limits,
-                               &source->p);
-}
-
-wt_status OpenAnim(const std::string& name, uint32_t w, uint32_t h,
-                   Anim* anim) {
-  Source source;
-  const wt_status s = OpenSource(name, &source);
-  if (s != WT_OK) return s;
-  return wt_anim_create(source.p, w, h, &anim->p);  // Source dies here.
-}
-
-struct Size {
-  uint32_t w = 0, h = 0;
-};
-
-Size OutputSize(const Anim& anim) {
-  Size size;
-  EXPECT_EQ(wt_anim_get_info(anim.p, nullptr, &size.w, &size.h), WT_OK);
-  return size;
-}
-
-// Decodes the next frame into a tight buffer.
-wt_status Next(const Anim& anim, Bytes* pixels,
-               wt_pixel_format format = WT_PIXEL_FORMAT_RGBA8888,
-               wt_frame_info* info = nullptr) {
-  const Size size = OutputSize(anim);
-  pixels->assign(size_t{size.w} * size.h * 4, 0xCD);
-  return wt_anim_next_frame(anim.p, pixels->data(), pixels->size(), size.w * 4,
-                            format, info);
-}
+using wt_test::Anim;
+using wt_test::Next;
+using wt_test::OpenAnim;
+using wt_test::OpenSource;
+using wt_test::OutputSize;
+using wt_test::Size;
+using wt_test::Source;
 
 // Every colour byte is <= its alpha: a valid premultiplied image.
 bool Premultiplied(const Bytes& rgba) {
@@ -114,7 +73,7 @@ std::vector<Bytes> DecodeAll(const Anim& anim) {
 
 // --- Corpus at source size -------------------------------------------------
 
-TEST(AnimCorpusTest, EveryWebmMatchesManifestAndReferences) {
+TEST(AnimCorpusTest, EveryWebmMatchesManifest) {
   const std::vector<const Json*> files = PlayableWebms();
   ASSERT_GE(files.size(), 8u);
   for (const Json* file : files) {
@@ -142,7 +101,6 @@ TEST(AnimCorpusTest, EveryWebmMatchesManifestAndReferences) {
 
     const std::vector<int64_t> pts = (*file)["pts_ms"].Ints();
     const std::vector<int64_t> durations = (*file)["durations_ms"].Ints();
-    const std::vector<int64_t> refs = (*file)["ref_frames"].Ints();
     ASSERT_EQ(pts.size(), frame_count);
     ASSERT_EQ(durations.size(), frame_count);
 
@@ -162,12 +120,6 @@ TEST(AnimCorpusTest, EveryWebmMatchesManifestAndReferences) {
       if (!info.has_alpha) {
         EXPECT_TRUE(AllOpaque(pixels));
       }
-
-      if (std::find(refs.begin(), refs.end(), i) == refs.end()) continue;
-      Bytes ref;
-      ASSERT_TRUE(wt_test::LoadRefFrame(name, static_cast<int>(i), w, h, &ref));
-      EXPECT_EQ(wt_test::MaxError(pixels, ref, kAlpha), 0) << "alpha differs";
-      EXPECT_GE(wt_test::Psnr(pixels, ref, kRgb), kMinPsnr);
     }
     wt_frame_info frame;
     EXPECT_EQ(Next(anim, &pixels, WT_PIXEL_FORMAT_RGBA8888, &frame), WT_END);
@@ -319,37 +271,6 @@ TEST(AnimScaleTest, NonSquareAndOddBuckets) {
     ASSERT_EQ(Next(anim, &pixels), WT_OK);
     EXPECT_EQ(pixels.size(), size_t{size.w} * size.h * 4);
     EXPECT_TRUE(Premultiplied(pixels));
-  }
-}
-
-// Integer-ratio downscales against a box-filtered reference. Scaling runs on
-// straight alpha before premultiplying, so the tolerance is looser than at
-// source size; T1.6 owns the full bucket spot-checks.
-TEST(AnimScaleTest, DownscaleMatchesBoxFilteredReference) {
-  struct Case {
-    const char* name;
-    uint32_t source;
-    int frame;
-  };
-  for (const Case& c : {Case{"vp9_alpha_512.webm", 512, 45},
-                        Case{"vp8_alpha_256.webm", 256, 30},
-                        Case{"vp9_opaque_256.webm", 256, 0}}) {
-    Bytes ref;
-    ASSERT_TRUE(
-        wt_test::LoadRefFrame(c.name, c.frame, c.source, c.source, &ref));
-    for (uint32_t factor : {2u, 4u}) {
-      const uint32_t bucket = c.source / factor;
-      SCOPED_TRACE(std::string(c.name) + " @ " + std::to_string(bucket));
-      Anim anim;
-      ASSERT_EQ(OpenAnim(c.name, bucket, bucket, &anim), WT_OK);
-      ASSERT_EQ(wt_anim_seek(anim.p, static_cast<uint32_t>(c.frame)), WT_OK);
-      Bytes pixels;
-      ASSERT_EQ(Next(anim, &pixels), WT_OK);
-      const Bytes expected =
-          wt_test::BoxDownscale(ref, c.source, c.source, factor);
-      EXPECT_GE(wt_test::Psnr(pixels, expected, kAlpha), 40.0);
-      EXPECT_GE(wt_test::Psnr(pixels, expected, kRgb), 35.0);
-    }
   }
 }
 

@@ -84,4 +84,36 @@ std::vector<uint8_t> BoxDownscale(const std::vector<uint8_t>& rgba,
   return out;
 }
 
+std::vector<uint8_t> AreaDownscale(const std::vector<uint8_t>& rgba,
+                                   uint32_t width, uint32_t height,
+                                   uint32_t dst_w, uint32_t dst_h) {
+  std::vector<uint8_t> out(size_t{dst_w} * dst_h * 4);
+  const double sx = static_cast<double>(width) / dst_w;
+  const double sy = static_cast<double>(height) / dst_h;
+  for (uint32_t y = 0; y < dst_h; ++y) {
+    const double y0 = y * sy, y1 = y0 + sy;
+    for (uint32_t x = 0; x < dst_w; ++x) {
+      const double x0 = x * sx, x1 = x0 + sx;
+      double sum[4] = {0, 0, 0, 0};
+      for (uint32_t j = static_cast<uint32_t>(y0);
+           j < height && static_cast<double>(j) < y1; ++j) {
+        const double wy = std::fmin(j + 1.0, y1) - std::fmax(j * 1.0, y0);
+        for (uint32_t i = static_cast<uint32_t>(x0);
+             i < width && static_cast<double>(i) < x1; ++i) {
+          const double w =
+              wy * (std::fmin(i + 1.0, x1) - std::fmax(i * 1.0, x0));
+          for (int c = 0; c < 4; ++c) {
+            sum[c] += w * rgba[(size_t{j} * width + i) * 4 + c];
+          }
+        }
+      }
+      for (int c = 0; c < 4; ++c) {
+        out[(size_t{y} * dst_w + x) * 4 + c] =
+            static_cast<uint8_t>(std::lround(sum[c] / (sx * sy)));
+      }
+    }
+  }
+  return out;
+}
+
 }  // namespace wt_test

@@ -170,7 +170,7 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 
 **Accept:** `vp9_2048.webm` → `WT_ERR_LIMIT` · probe values match the manifest.
 
-### [ ] T1.6 Golden frame tests
+### [x] T1.6 Golden frame tests
 **Model** Sonnet 5.5 · `medium` · **Depends** T1.4 · **Track** B
 - Compare decoded frames at source size against `test_assets/ref` (PSNR ≥ 45 dB per frame), and spot-check scaled buckets with a looser tolerance.
 
