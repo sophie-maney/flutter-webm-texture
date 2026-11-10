@@ -3,7 +3,7 @@ import UIKit
 
 import wt_core
 
-public class WebmTexturePlugin: NSObject, FlutterPlugin {
+public class WebmTexturePlugin: NSObject, FlutterPlugin, WebmTextureHostApi {
   /// Dart finds the core with DynamicLibrary.process(). The app is statically
   /// linked, so reference every entry point from Swift, or the linker would
   /// strip the ones nothing else uses.
@@ -19,6 +19,31 @@ public class WebmTexturePlugin: NSObject, FlutterPlugin {
     let channel = FlutterMethodChannel(name: "webm_texture", binaryMessenger: registrar.messenger())
     let instance = WebmTexturePlugin()
     registrar.addMethodCallDelegate(instance, channel: channel)
+    WebmTextureHostApiSetup.setUp(binaryMessenger: registrar.messenger(), api: instance)
+  }
+
+  // T2.3 replaces these stubs with the FlutterTexture glue.
+  func createAnimation(
+    sourceKey: String, source: AnimationSourceMessage, bucketW: Int64, bucketH: Int64
+  ) async throws -> AnimationHandleMessage {
+    throw Self.notImplemented("createAnimation")
+  }
+
+  func setActive(animId: Int64, active: Bool) throws {
+    throw Self.notImplemented("setActive")
+  }
+
+  func dispose(animId: Int64) throws {
+    throw Self.notImplemented("dispose")
+  }
+
+  // T3.4 reports the real device signals.
+  func deviceSignals() throws -> DeviceSignalsMessage {
+    throw Self.notImplemented("deviceSignals")
+  }
+
+  private static func notImplemented(_ method: String) -> PigeonError {
+    PigeonError(code: "UNIMPLEMENTED", message: "\(method) is not implemented on iOS yet", details: nil)
   }
 
   public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {

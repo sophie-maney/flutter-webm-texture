@@ -138,7 +138,7 @@ tool/                      # fetch_prebuilts, build_host_deps.sh (host tests), g
 - GoogleTest on macOS/Linux CI: golden checksums per frame against reference decodes, limit enforcement, and corrupt-file handling. libFuzzer targets for each demuxer and for the full pipeline, run for a short time on every PR and longer nightly.
 
 ### Phase 2: Platform textures + standalone widget
-- Pigeon API: `createTexture(animId, w, h) → textureId`, `dispose`, `setActive`.
+- Pigeon API ([ADR 0010](docs/decisions/0010-pigeon-api-shape.md)): `createAnimation(sourceKey, source, bucketW, bucketH) → {animId, textureId}`, `setActive`, `dispose`, `deviceSignals`, plus a `streamErrors` event channel.
 - Android: a `SurfaceProducer` per Animation, passed to native code as `ANativeWindow` (`RGBA_8888`). Handle `onSurfaceAvailable`/`onSurfaceCleanup`, because the surface is destroyed in the background and has to be recreated.
 - iOS: a `FlutterTexture` with a `CVPixelBufferPool` (BGRA, IOSurface, Metal-compatible), where native code writes into the locked buffer. Confirm from which thread `textureFrameAvailable` may be called.
 - Dart: `WebmSticker`, `StickerRegistry` (refcounted dedupe by hash+bucket), visibility via a custom render object (viewport intersection + `TickerMode`), app lifecycle handling, and placeholder/error states.
