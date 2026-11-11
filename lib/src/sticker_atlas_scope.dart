@@ -9,6 +9,7 @@ import 'gen/messages.g.dart';
 import 'sticker_bucket.dart';
 import 'sticker_registry.dart';
 import 'sticker_runtime.dart';
+import 'sticker_visibility.dart';
 
 /// Draws the [WebmSticker]s below it through a few shared atlas textures
 /// instead of a texture each: the way to show many stickers at once, such as
@@ -99,10 +100,16 @@ class _StickerAtlasScopeState extends State<StickerAtlasScope> {
 ///
 /// The engine skips painting under a transparent opacity, so the latch is
 /// drawn opaque but invisible: clipped to 1-px boxes that sample only a
-/// live slot's gutter, which every present clears. There are five boxes
-/// (the scope's corners and centre), so that one is painted while any part
-/// of the scope shows; the first latches the image and the others find
-/// nothing new.
+/// live slot's gutter, which every present clears. The engine also skips
+/// layers outside the screen or an ancestor's clip, so the boxes go at the
+/// corners and centre of the part of the scope that is on screen, not of
+/// the whole scope: a scope taller than its viewport may show only its
+/// middle. After each frame the pump checks that its centre box is still on
+/// screen and repaints when it isn't (a scroll moves the pump without
+/// repainting it). Until then the corner boxes on the side the content moved
+/// to stay on screen, unless the scroll moved it by the whole visible
+/// height. The first box painted latches the image; the others find nothing
+/// new.
 class _PagePump extends SingleChildRenderObjectWidget {
   const _PagePump({required this.pages, super.child});
 
@@ -133,6 +140,11 @@ class _RenderPagePump extends RenderProxyBox {
 
   bool _pumping = false;
 
+  /// The centre latch box of the last paint, in local coordinates; null when
+  /// none was painted.
+  Rect? _centre;
+  bool _checkScheduled = false;
+
   void _changed() {
     final pumping = _pages.value.isNotEmpty;
     if (pumping != _pumping) {
@@ -140,6 +152,7 @@ class _RenderPagePump extends RenderProxyBox {
       markNeedsCompositingBitsUpdate();
     }
     markNeedsPaint();
+    _scheduleCheck();
   }
 
   @override
@@ -147,6 +160,7 @@ class _RenderPagePump extends RenderProxyBox {
     super.attach(owner);
     _pages.addListener(_changed);
     _pumping = _pages.value.isNotEmpty;
+    _scheduleCheck();
   }
 
   @override
@@ -158,30 +172,62 @@ class _RenderPagePump extends RenderProxyBox {
   @override
   bool get alwaysNeedsCompositing => _pumping;
 
-  /// Where the latch boxes go in a scope occupying [rect].
+  /// Checks after every frame while pumping, without asking for frames.
+  void _scheduleCheck() {
+    if (_checkScheduled || !attached || !_pumping) return;
+    _checkScheduled = true;
+    SchedulerBinding.instance.addPostFrameCallback(
+      _check,
+      debugLabel: 'StickerAtlasScope.latch',
+    );
+  }
+
+  void _check(Duration _) {
+    _checkScheduled = false;
+    if (!attached || !_pumping) return;
+    final visible = RenderStickerVisibility.visibleRect(this);
+    final centre = _centre;
+    if (visible != null && (centre == null || !visible.overlaps(centre))) {
+      markNeedsPaint();
+    }
+    _scheduleCheck();
+  }
+
+  /// Where the latch boxes go when [rect] of the scope is on screen: its
+  /// centre first, then its corners.
   @visibleForTesting
   static List<Rect> boxes(Rect rect) {
-    if (rect.width < 1 || rect.height < 1) return const [];
+    if (!(rect.width > 0) || !(rect.height > 0)) return const [];
     Rect at(double x, double y) => Rect.fromLTWH(x, y, 1, 1);
+    final centre = Rect.fromCenter(center: rect.center, width: 1, height: 1);
+    if (rect.width < 1 || rect.height < 1) return [centre];
     return [
+      centre,
       at(rect.left, rect.top),
       at(rect.right - 1, rect.top),
       at(rect.left, rect.bottom - 1),
       at(rect.right - 1, rect.bottom - 1),
-      at((rect.left + rect.right - 1) / 2, (rect.top + rect.bottom - 1) / 2),
     ];
   }
 
   @override
   void paint(PaintingContext context, Offset offset) {
     final pages = _pages.value;
+    _centre = null;
     if (pages.isNotEmpty) {
-      for (final box in boxes(offset & size)) {
-        context.pushClipRect(needsCompositing, Offset.zero, box, (context, _) {
+      // Layout is done, so this is this frame's on-screen part. Off screen
+      // (or hidden), boxes anywhere are skipped; the whole scope's serve.
+      final local =
+          RenderStickerVisibility.visibleRect(this) ?? Offset.zero & size;
+      final boxes = _RenderPagePump.boxes(local);
+      if (boxes.isNotEmpty) _centre = boxes.first;
+      for (final box in boxes) {
+        final at = box.shift(offset);
+        context.pushClipRect(needsCompositing, Offset.zero, at, (context, _) {
           for (final d in pages) {
             context.addLayer(
               TextureLayer(
-                rect: latchRect(d, box),
+                rect: latchRect(d, at),
                 textureId: d.textureId,
                 filterQuality: FilterQuality.low,
               ),

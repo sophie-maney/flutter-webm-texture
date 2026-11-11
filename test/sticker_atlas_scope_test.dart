@@ -136,6 +136,100 @@ void main() {
     await finish(tester);
   });
 
+  /// [local] of [layer] in the root layer's child coordinates (logical
+  /// pixels: the root layer applies the device pixel ratio).
+  Rect onScreen(Layer layer, Rect local) {
+    final chain = <(ContainerLayer, Layer)>[];
+    Layer child = layer;
+    for (var p = layer.parent; p != null && p.parent != null; p = p.parent) {
+      chain.add((p, child));
+      child = p;
+    }
+    final m = Matrix4.identity();
+    for (final (p, c) in chain.reversed) {
+      p.applyTransform(c, m);
+    }
+    return MatrixUtils.transformRect(m, local);
+  }
+
+  /// The latch boxes painted last frame, on screen.
+  List<Rect> latchBoxes(WidgetTester tester) => [
+    for (final l in tester.layers.whereType<TextureLayer>())
+      if (!l.freeze)
+        onScreen(l.parent!, (l.parent! as ClipRectLayer).clipRect!),
+  ];
+
+  /// A scope 7000 px tall in a scrolled list: stickers 700 px apart, each
+  /// 300 px below the top of its row.
+  Widget tallScope(ScrollController controller) => app(
+    ListView(
+      controller: controller,
+      children: [
+        StickerAtlasScope(
+          child: Column(
+            children: [
+              for (var i = 0; i < 10; i++)
+                SizedBox(
+                  height: 700,
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 300),
+                    child: Align(
+                      alignment: Alignment.topLeft,
+                      child: sticker('/s$i', key: ValueKey(i)),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+
+  testWidgets('latches on screen when only the middle of a tall scope shows', (
+    tester,
+  ) async {
+    final controller = ScrollController();
+    addTearDown(controller.dispose);
+    const screen = Rect.fromLTWH(0, 0, 800, 600);
+    await tester.pumpWidget(tallScope(controller));
+    await settle(tester);
+
+    // Only '/s3' (2400 .. 2464 in the scope) shows: the scope's corners
+    // (0, 6999) and centre (3500) are off screen.
+    controller.jumpTo(2100);
+    await settle(tester);
+    await tester.pump(_grace);
+    await settle(tester);
+    final page = host.page!.textureId;
+    final drawn = [
+      for (final l in tester.layers.whereType<TextureLayer>())
+        if (l.freeze && l.textureId == page)
+          onScreen(l.parent!, (l.parent! as ClipRectLayer).clipRect!),
+    ];
+    expect(drawn, [const Rect.fromLTWH(0, 300, 64, 64)]);
+    expect(
+      latchBoxes(tester).where(screen.overlaps),
+      isNotEmpty,
+      reason: 'a latch box of the page is on screen',
+    );
+
+    // Scrolled by more than half the screen, the same sticker shows: the
+    // pump repaints, centring its boxes on what shows now.
+    controller.jumpTo(2410);
+    await tester.pump();
+    expect(latchBoxes(tester).where(screen.overlaps), isNotEmpty);
+    expect(tester.binding.hasScheduledFrame, isTrue, reason: 'repaint');
+    await tester.pump();
+    expect(
+      latchBoxes(tester),
+      contains(Rect.fromCenter(center: screen.center, width: 1, height: 1)),
+    );
+    await settle(tester);
+    expect(tester.binding.hasScheduledFrame, isFalse);
+    await finish(tester);
+  });
+
   testWidgets('shows the placeholder until the slot reached its page', (
     tester,
   ) async {

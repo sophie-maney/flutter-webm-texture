@@ -6,6 +6,8 @@
 // - T4.3: the Stress page in atlas mode (StickerAtlasScope) against the same
 //   page standalone, and against its own golden: no slot bleeds into its
 //   neighbour's cell.
+// - The middle of a scope taller than the screen animates (the latch boxes
+//   follow the part of the scope that shows).
 // - Playback advances on screen, holds when paused, and holds while the
 //   sticker is scrolled off screen or the app is backgrounded.
 //
@@ -343,6 +345,85 @@ void main() {
       lessThanOrEqualTo(_maxDiffFraction),
       reason: 'fraction of differing pixels vs the $_platform golden',
     );
+  });
+
+  testWidgets('a scope taller than the screen animates where it shows', (
+    tester,
+  ) async {
+    // A sticker pack in a list: a non-scrolling grid in a scope, scrolled so
+    // that only the scope's middle shows. Its corners and centre are off
+    // screen, where the engine paints nothing (ADR 0021, point 9).
+    final controller = ScrollController();
+    addTearDown(controller.dispose);
+    final view = tester.view.physicalSize / tester.view.devicePixelRatio;
+    const columns = 4;
+    final cell = view.width / columns;
+    // At least 4 screens tall, so that the window one screen down ends
+    // above the centre.
+    final rows = (view.height * 4 / cell).ceil() + 2;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ListView(
+            key: const Key('tallList'),
+            controller: controller,
+            children: [
+              StickerAtlasScope(
+                key: const Key('tallScope'),
+                child: GridView.count(
+                  crossAxisCount: columns,
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  children: [
+                    for (var i = 0; i < rows * columns; i++)
+                      WebmSticker(
+                        source: corpusSource(
+                          playableCorpus[i % playableCorpus.length],
+                        ),
+                        placeholder: const ColoredBox(color: Color(0x14000000)),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 300));
+    controller.jumpTo(view.height);
+    final slots = find.byType(StickerAtlasSlot);
+    var last = -1;
+    for (var i = 0; i < 300; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+      final n = slots.evaluate().length;
+      if (n >= columns * 2 && n == last && i > 20) break;
+      last = n;
+    }
+    expect(slots, findsAtLeastNWidgets(columns * 2));
+    final scope = tester.getRect(find.byKey(const Key('tallScope')));
+    expect(scope.top, lessThan(0));
+    expect(scope.center.dy, greaterThan(view.height));
+
+    final dpr = tester.view.devicePixelRatio;
+    final list = tester.getRect(find.byKey(const Key('tallList')));
+    // The middle half of the list: clear of the status bar.
+    final crop = Rect.fromLTRB(
+      list.left * dpr,
+      (list.top + list.height / 4) * dpr,
+      list.right * dpr,
+      (list.bottom - list.height / 4) * dpr,
+    );
+    await _elapse(tester, const Duration(milliseconds: 300));
+    final (a, _) = await _screenshot();
+    await _elapse(tester, const Duration(milliseconds: 400));
+    final (b, _) = await _screenshot();
+    expect(
+      _diff(a, b, crop),
+      greaterThan(0.001),
+      reason: 'playing atlas stickers should change',
+    );
+    await tester.pumpWidget(const SizedBox());
   });
 
   testWidgets('playback advances, pauses and resumes', (tester) async {
