@@ -37,6 +37,12 @@ _Static_assert(offsetof(wt_frame_info, duration_ms) == 4,
 _Static_assert(offsetof(wt_frame_info, pts_ms) == 8, "wt_frame_info layout");
 _Static_assert(sizeof(wt_frame_info) == 16, "wt_frame_info layout");
 
+_Static_assert(offsetof(wt_cache_stats, file_count) == 0,
+               "wt_cache_stats layout");
+_Static_assert(offsetof(wt_cache_stats, total_bytes) == 8,
+               "wt_cache_stats layout");
+_Static_assert(sizeof(wt_cache_stats) == 16, "wt_cache_stats layout");
+
 /* Called from api_test.cc: proves the functions link and work from C. Only
    checks behaviour that stays true once the stubs are implemented. */
 int wt_c_abi_check(void) {
@@ -55,5 +61,13 @@ int wt_c_abi_check(void) {
   if (wt_probe(NULL, &info) != WT_ERR_INVALID_ARGUMENT) return 5;
   wt_source_destroy(NULL);
   wt_anim_destroy(NULL);
+  if (wt_cache_get_stats(NULL, NULL) != WT_ERR_INVALID_ARGUMENT) return 6;
+  if (wt_cache_evict(NULL, NULL) != WT_ERR_INVALID_ARGUMENT) return 7;
+  if (wt_cache_clear(NULL, NULL) != WT_ERR_INVALID_ARGUMENT) return 8;
+  if (wt_cache_file_path(NULL, NULL, 0, 0, NULL, 0) !=
+      WT_ERR_INVALID_ARGUMENT) {
+    return 9;
+  }
+  if (wt_cache_get_budget() == 0) return 10;
   return 0;
 }

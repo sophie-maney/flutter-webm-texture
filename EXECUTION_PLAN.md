@@ -271,7 +271,7 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 
 **Accept:** round-trip tests · corrupt/partial cache files are detected, deleted and re-decoded · fuzz target `fuzz_wsc`.
 
-### [ ] T3.2 Disk budget and eviction
+### [x] T3.2 Disk budget and eviction
 **Model** Sonnet 5.5 · `medium` · **Depends** T3.1 · **Track** A
 - LRU by access time under `diskBudgetBytes`, plus `clearCache()` and `cacheStats()` exposed through FFI. Evict on startup and after each write.
 - Wire `wt_anim_create_cached` into the Android and iOS glue: name each file `<hash>_<w>x<h>_v1.wsc` from `sourceKey` under the cache directory, and remove stray `*.tmp` files when evicting ([ADR 0015](docs/decisions/0015-frame-cache-file-and-abi.md)).

@@ -29,11 +29,18 @@ NS_SWIFT_NAME(WTAnimation)
 /// Decodes `data` (copied into the core) scaled to width x height, or the
 /// source size for 0 x 0. With `loop` NO, -renderNextFrameInto: stops after
 /// the last frame instead of wrapping. Fails with a WTStatusErrorDomain error
-/// when the core rejects the input. Background thread.
+/// when the core rejects the input.
+///
+/// With a `cacheDirectory` and a `sourceKey` (and a non-zero size) the frames
+/// are cached in a file there, named after the key and size
+/// (wt_cache_file_path); the directory must exist. Pass nil for either to
+/// cache nothing. Background thread.
 - (nullable instancetype)initWithData:(NSData *)data
                                 width:(uint32_t)width
                                height:(uint32_t)height
                                  loop:(BOOL)loop
+                       cacheDirectory:(nullable NSString *)cacheDirectory
+                            sourceKey:(nullable NSString *)sourceKey
                                 error:(NSError **)error;
 
 /// As above, from a file the core maps read-only. Background thread.
@@ -41,7 +48,14 @@ NS_SWIFT_NAME(WTAnimation)
                                 width:(uint32_t)width
                                height:(uint32_t)height
                                  loop:(BOOL)loop
+                       cacheDirectory:(nullable NSString *)cacheDirectory
+                            sourceKey:(nullable NSString *)sourceKey
                                 error:(NSError **)error;
+
+/// Deletes least recently used cache files in `directory` until it fits the
+/// disk budget, and stray temporaries. Returns a wt_status. Background thread.
++ (int32_t)evictCacheInDirectory:(NSString *)directory
+    NS_SWIFT_NAME(evictCache(inDirectory:));
 
 - (instancetype)init NS_UNAVAILABLE;
 + (instancetype)new NS_UNAVAILABLE;

@@ -35,6 +35,7 @@ add_executable(wt_native_tests
   ref_frames.cc
   sanitizer_test.cc
   source_test.cc
+  store_test.cc
   webm_test.cc
 )
 target_link_libraries(wt_native_tests PRIVATE wt_core GTest::gtest_main ZLIB::ZLIB)

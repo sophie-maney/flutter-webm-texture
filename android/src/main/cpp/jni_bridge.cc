@@ -126,17 +126,58 @@ wt_status CreateSource(JNIEnv* env, jbyteArray bytes, jstring path,
   return WT_ERR_INVALID_ARGUMENT;
 }
 
+// The cache file for source_key at width x height inside cache_dir, or "" when
+// there is nothing to cache: no directory or key, or a size that isn't known
+// until the source is probed (0 x 0).
+std::string CachePath(JNIEnv* env, jstring cache_dir, jstring source_key,
+                      jint width, jint height) {
+  if (cache_dir == nullptr || source_key == nullptr || width <= 0 ||
+      height <= 0) {
+    return "";
+  }
+  const char* dir = env->GetStringUTFChars(cache_dir, nullptr);
+  if (dir == nullptr) return "";
+  const char* key = env->GetStringUTFChars(source_key, nullptr);
+  if (key == nullptr) {
+    env->ReleaseStringUTFChars(cache_dir, dir);
+    return "";
+  }
+  char path[4096];
+  const wt_status st =
+      wt_cache_file_path(dir, key, static_cast<uint32_t>(width),
+                         static_cast<uint32_t>(height), path, sizeof(path));
+  env->ReleaseStringUTFChars(source_key, key);
+  env->ReleaseStringUTFChars(cache_dir, dir);
+  return st == WT_OK ? std::string(path) : std::string();
+}
+
 }  // namespace
 
 extern "C" {
 
+// Deletes least-recently-used cache files in cache_dir down to the disk
+// budget, and stray temporaries. Returns a wt_status.
+// Thread: background thread (reads the directory).
+JNIEXPORT jint JNICALL Java_com_example_webm_1texture_WtNative_nativeEvictCache(
+    JNIEnv* env, jclass, jstring cache_dir) {
+  if (cache_dir == nullptr) return WT_ERR_INVALID_ARGUMENT;
+  const char* dir = env->GetStringUTFChars(cache_dir, nullptr);
+  if (dir == nullptr) return WT_ERR_NO_MEMORY;
+  const wt_status st = wt_cache_evict(dir, nullptr);
+  env->ReleaseStringUTFChars(cache_dir, dir);
+  return st;
+}
+
 // Creates the decoder for bytes or path at width x height (0 x 0 for the
 // source size) and its render thread, looping or stopping on the last frame.
+// With a cache_dir and a source_key (and a non-zero size) frames are cached in
+// a file there, named by wt_cache_file_path; otherwise nothing is cached.
 // Writes {status, outWidth, outHeight, frameCount} into out and returns the
 // handle, or 0 on failure. Thread: background thread.
 JNIEXPORT jlong JNICALL Java_com_example_webm_1texture_WtNative_nativeCreate(
     JNIEnv* env, jclass, jobject listener, jbyteArray bytes, jstring path,
-    jint width, jint height, jboolean loop, jintArray out) {
+    jint width, jint height, jboolean loop, jstring cache_dir,
+    jstring source_key, jintArray out) {
   if (out == nullptr || env->GetArrayLength(out) < kOutLength) return 0;
   if (listener == nullptr || width < 0 || height < 0) {
     SetOut(env, out, WT_ERR_INVALID_ARGUMENT);
@@ -149,8 +190,11 @@ JNIEXPORT jlong JNICALL Java_com_example_webm_1texture_WtNative_nativeCreate(
     return 0;
   }
   wt_anim* anim = nullptr;
-  st = wt_anim_create(source, static_cast<uint32_t>(width),
-                      static_cast<uint32_t>(height), &anim);
+  const std::string cache_path =
+      CachePath(env, cache_dir, source_key, width, height);
+  st = wt_anim_create_cached(
+      source, static_cast<uint32_t>(width), static_cast<uint32_t>(height),
+      cache_path.empty() ? nullptr : cache_path.c_str(), &anim);
   wt_source_destroy(source);  // The anim holds its own reference.
   if (st != WT_OK) {
     SetOut(env, out, st);

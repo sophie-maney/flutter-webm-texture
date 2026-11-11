@@ -30,9 +30,18 @@ internal class StickerTexture(
      * Creates the native player. Returns `{status, width, height, frames}`
      * (see `WtNative.OUT_*`). Background thread; call once, before [attach].
      */
-    fun createNative(source: AnimationSourceMessage, width: Int, height: Int, loop: Boolean): IntArray {
+    fun createNative(
+        source: AnimationSourceMessage,
+        width: Int,
+        height: Int,
+        loop: Boolean,
+        cacheDir: String,
+        sourceKey: String,
+    ): IntArray {
         val out = IntArray(WtNative.OUT_LENGTH)
-        handle = WtNative.nativeCreate(this, source.bytes, source.path, width, height, loop, out)
+        handle = WtNative.nativeCreate(
+            this, source.bytes, source.path, width, height, loop, cacheDir, sourceKey, out,
+        )
         return out
     }
 

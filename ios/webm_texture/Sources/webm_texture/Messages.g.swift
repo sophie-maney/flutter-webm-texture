@@ -495,7 +495,9 @@ protocol WebmTextureHostApi {
   /// stays inactive until [setActive].
   ///
   /// [sourceKey] is the content hash (or caller key) that names the cache
-  /// entry. With [loop] false, playback stops on the last frame and holds it
+  /// file (`wt_cache_file_path`, under [configureCache]'s directory), unless
+  /// the bucket is 0 x 0, whose output size isn't known yet: such an
+  /// animation isn't cached. With [loop] false, playback stops on the last frame and holds it
   /// until [seekToFrame]. Fails with a `PlatformException` carrying a
   /// `wt_status` name as its code if the core rejects the source.
   func createAnimation(sourceKey: String, source: AnimationSourceMessage, bucketW: Int64, bucketH: Int64, loop: Bool) async throws -> AnimationHandleMessage
@@ -512,6 +514,17 @@ protocol WebmTextureHostApi {
   func dispose(animId: Int64) throws
   /// Reads the current device signals.
   func deviceSignals() throws -> DeviceSignalsMessage
+  /// Sets the directory for the frame cache and returns the one in use, an
+  /// absolute path. With a null [directory] nothing changes: the result is
+  /// the current one, which starts as `webm_texture` under the app's cache
+  /// directory (`Context.cacheDir` on Android, `Library/Caches` on iOS).
+  ///
+  /// The directory is created when the first animation needs it, and only
+  /// ever holds files the core wrote (`*.wsc`). Animations created
+  /// afterwards cache there; existing ones keep their files. Cache
+  /// administration (`wt_cache_*`) runs over FFI, so Dart passes this path to
+  /// it.
+  func configureCache(directory: String?) throws -> String
 }
 
 /// Generated setup class from Pigeon to handle messages through the `binaryMessenger`.
@@ -525,7 +538,9 @@ class WebmTextureHostApiSetup {
     /// stays inactive until [setActive].
     ///
     /// [sourceKey] is the content hash (or caller key) that names the cache
-    /// entry. With [loop] false, playback stops on the last frame and holds it
+    /// file (`wt_cache_file_path`, under [configureCache]'s directory), unless
+    /// the bucket is 0 x 0, whose output size isn't known yet: such an
+    /// animation isn't cached. With [loop] false, playback stops on the last frame and holds it
     /// until [seekToFrame]. Fails with a `PlatformException` carrying a
     /// `wt_status` name as its code if the core rejects the source.
     let createAnimationChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.webm_texture.WebmTextureHostApi.createAnimation\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
@@ -617,6 +632,31 @@ class WebmTextureHostApiSetup {
       }
     } else {
       deviceSignalsChannel.setMessageHandler(nil)
+    }
+    /// Sets the directory for the frame cache and returns the one in use, an
+    /// absolute path. With a null [directory] nothing changes: the result is
+    /// the current one, which starts as `webm_texture` under the app's cache
+    /// directory (`Context.cacheDir` on Android, `Library/Caches` on iOS).
+    ///
+    /// The directory is created when the first animation needs it, and only
+    /// ever holds files the core wrote (`*.wsc`). Animations created
+    /// afterwards cache there; existing ones keep their files. Cache
+    /// administration (`wt_cache_*`) runs over FFI, so Dart passes this path to
+    /// it.
+    let configureCacheChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.webm_texture.WebmTextureHostApi.configureCache\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      configureCacheChannel.setMessageHandler { message, reply in
+        let args = message as! [Any?]
+        let directoryArg: String? = nilOrValue(args[0])
+        do {
+          let result = try api.configureCache(directory: directoryArg)
+          reply(wrapResult(result))
+        } catch {
+          reply(wrapError(error))
+        }
+      }
+    } else {
+      configureCacheChannel.setMessageHandler(nil)
     }
   }
 }

@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
 import 'probe.dart';
+import 'sticker_cache.dart';
 import 'sticker_info.dart';
 import 'sticker_registry.dart';
 import 'sticker_resolver.dart';
@@ -22,9 +23,11 @@ class StickerRuntime {
     StickerRegistry? registry,
     StickerProber? prober,
     StickerResolver? resolver,
+    StickerCache? cache,
     this.infoCacheSize = 256,
   }) : registry = registry ?? StickerRegistry(),
        resolver = resolver ?? StickerResolver(),
+       cache = cache ?? StickerCache(),
        _prober = prober ?? probeSticker;
 
   static StickerRuntime? _default;
@@ -43,6 +46,9 @@ class StickerRuntime {
 
   /// Loads asset and network sources and names every source's content.
   final StickerResolver resolver;
+
+  /// The frame cache's directory, budget and contents.
+  final StickerCache cache;
 
   final StickerProber _prober;
 

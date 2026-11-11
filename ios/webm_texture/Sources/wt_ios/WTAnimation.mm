@@ -1,5 +1,7 @@
 #import "WTAnimation.h"
 
+#include <limits.h>
+
 #include <memory>
 
 #include "wt_api.h"
@@ -42,6 +44,8 @@ NSError *StatusError(wt_status status) {
                                 width:(uint32_t)width
                                height:(uint32_t)height
                                  loop:(BOOL)loop
+                       cacheDirectory:(NSString *)cacheDirectory
+                            sourceKey:(NSString *)sourceKey
                                 error:(NSError **)error {
   wt_source *raw = nullptr;
   // An empty NSData may have a NULL bytes pointer; the core rejects size 0.
@@ -52,6 +56,8 @@ NSError *StatusError(wt_status status) {
                         width:width
                        height:height
                          loop:loop
+               cacheDirectory:cacheDirectory
+                    sourceKey:sourceKey
                         error:error];
 }
 
@@ -59,6 +65,8 @@ NSError *StatusError(wt_status status) {
                                 width:(uint32_t)width
                                height:(uint32_t)height
                                  loop:(BOOL)loop
+                       cacheDirectory:(NSString *)cacheDirectory
+                            sourceKey:(NSString *)sourceKey
                                 error:(NSError **)error {
   wt_source *raw = nullptr;
   wt_status st = wt_source_create_file(path.fileSystemRepresentation, nullptr,
@@ -68,6 +76,8 @@ NSError *StatusError(wt_status status) {
                         width:width
                        height:height
                          loop:loop
+               cacheDirectory:cacheDirectory
+                    sourceKey:sourceKey
                         error:error];
 }
 
@@ -77,6 +87,8 @@ NSError *StatusError(wt_status status) {
                                   width:(uint32_t)width
                                  height:(uint32_t)height
                                    loop:(BOOL)loop
+                         cacheDirectory:(NSString *)cacheDirectory
+                              sourceKey:(NSString *)sourceKey
                                   error:(NSError **)error {
   SourcePtr source(rawSource);
   self = [super init];
@@ -84,7 +96,16 @@ NSError *StatusError(wt_status status) {
   wt_anim *raw = nullptr;
   if (status == WT_OK) {
     // The animation takes its own reference; `source` drops ours on return.
-    status = wt_anim_create(source.get(), width, height, &raw);
+    // The output size is only known up front for a real bucket, so a 0 x 0
+    // animation isn't cached.
+    char path[PATH_MAX] = "";
+    const bool cache = cacheDirectory != nil && sourceKey != nil && width > 0 &&
+                       height > 0 &&
+                       wt_cache_file_path(cacheDirectory.fileSystemRepresentation,
+                                          sourceKey.UTF8String, width, height,
+                                          path, sizeof(path)) == WT_OK;
+    status = wt_anim_create_cached(source.get(), width, height,
+                                   cache ? path : nullptr, &raw);
   }
   AnimPtr anim(raw);
   wt_info info = {};
@@ -105,6 +126,10 @@ NSError *StatusError(wt_status status) {
   _frameCount = info.frame_count;
   _loops = loop;
   return self;
+}
+
++ (int32_t)evictCacheInDirectory:(NSString *)directory {
+  return wt_cache_evict(directory.fileSystemRepresentation, nullptr);
 }
 
 - (int32_t)renderNextFrameInto:(CVPixelBufferRef)buffer

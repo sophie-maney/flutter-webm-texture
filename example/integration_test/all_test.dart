@@ -7,6 +7,7 @@
 import 'package:integration_test/integration_test.dart';
 
 import 'app_test.dart' as app;
+import 'cache_test.dart' as cache;
 import 'plugin_integration_test.dart' as plugin;
 import 'probe_test.dart' as probe;
 import 'texture_test.dart' as texture;
@@ -15,6 +16,7 @@ import 'visibility_test.dart' as visibility;
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   app.main();
+  cache.main();
   plugin.main();
   probe.main();
   texture.main();

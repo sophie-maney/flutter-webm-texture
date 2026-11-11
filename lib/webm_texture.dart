@@ -1,11 +1,13 @@
 import 'package:flutter/foundation.dart';
 
 import 'src/probe.dart';
+import 'src/sticker_cache.dart';
 import 'src/sticker_info.dart';
 import 'src/sticker_runtime.dart';
 import 'src/sticker_source.dart';
 import 'webm_texture_platform_interface.dart';
 
+export 'src/sticker_cache.dart' show CacheStats, StickerConfig;
 export 'src/sticker_info.dart'
     show
         StickerCodec,
@@ -44,6 +46,26 @@ abstract final class WebmStickers {
     resolver.fetcher = value;
     resolver.clear();
   }
+
+  /// Applies [config]: where the frame cache lives and how big it may grow.
+  ///
+  /// Call it once at startup, before the first sticker is shown; stickers
+  /// created earlier keep caching where they began. The cache is evicted down
+  /// to [StickerConfig.diskBudgetBytes] right away. Without it the cache
+  /// lives in `webm_texture` under the app's cache directory with a 200 MiB
+  /// budget.
+  static Future<void> configure(StickerConfig config) =>
+      StickerRuntime.instance.cache.configure(config);
+
+  /// How many animations the frame cache holds and how much disk they use.
+  ///
+  /// Runs on a background isolate, so it is safe to call from the UI isolate.
+  static Future<CacheStats> cacheStats() =>
+      StickerRuntime.instance.cache.stats();
+
+  /// Deletes every cached frame file. Stickers that are playing carry on, and
+  /// write their cache again the next time they play through.
+  static Future<void> clearCache() => StickerRuntime.instance.cache.clear();
 
   /// Reads [source]'s metadata (codec, size, frames, duration, alpha, audio)
   /// without decoding pixels. Assets and network sources are loaded first.
