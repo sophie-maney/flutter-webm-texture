@@ -1,6 +1,6 @@
 # 0017: One scheduler per process, ranked by visible area
 
-- **Status:** Accepted (T3.3)
+- **Status:** Accepted (T3.3). T4.2 added present groups, `Retarget`, and a fix for a redraw lost to a pause ([ADR 0020](0020-atlas-compositor.md)).
 - **Date:** 2026-11-11
 
 ## Context

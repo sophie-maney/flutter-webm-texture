@@ -154,6 +154,7 @@ tool/                      # fetch_prebuilts, build_host_deps.sh (host tests), g
 - `StickerAtlasScope`: slot allocator (shelf packing per bucket), native compositor that writes into one platform buffer, and clipped `Texture` children. This is the documented way to show grids ([ADR 0006](docs/decisions/0006-atlas-for-grids.md)).
 - Pages are sized to content (≤ 2048 wide, height rounded to 16 px) and every slot has a ≥ 2-px transparent gutter. The allocator's shelf, reuse and handle rules are in [ADR 0019](docs/decisions/0019-slot-allocator.md): slots never move, and the page shrinks only from the bottom.
 - Slots are reclaimed when items scroll out, and the atlas grows (taller page) or splits (new page) when full.
+- The compositor is in the core (`wt_atlas_*`, [ADR 0020](docs/decisions/0020-atlas-compositor.md)): workers decode into a RAM frame per slot, and once per scheduler tick each page with new frames locks one buffer, rewrites every live slot and its gutter, and presents. A page that changes size gets a new texture, and the old one is retired until Dart releases it, because a `Texture` stretches its buffer to its box. Pigeon: `createAtlas`, `attachToAtlas`/`detachFromAtlas` (batched), `releaseTextures`, `atlasStats`, `disposeAtlas`.
 
 ### Phase 5: Animated WebP + GIF
 - `WebPAnimDecoder` (RGBA canvas), converted to the same YUVA cache path.

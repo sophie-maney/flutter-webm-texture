@@ -123,8 +123,8 @@ jobs:
           if-no-files-found: ignore
 
   # T3.3: the scheduler's race check. TSan can't share a build with ASan, so
-  # this is its own build of the core and the scheduler suites (the 500-player
-  # stress test among them).
+  # this is its own build of the core and the scheduler and atlas suites (the
+  # 500-player and atlas churn stress tests among them).
   tsan:
     name: Scheduler under TSan (${{ matrix.os }})
     strategy:
@@ -165,7 +165,7 @@ jobs:
       - name: Test
         env:
           TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1
-        run: ctest --test-dir build/tsan -R 'Sched|Timeline|SkipFrame|SanitizerTest' --output-on-failure
+        run: ctest --test-dir build/tsan -R 'Sched|Timeline|SkipFrame|SanitizerTest|Atlas' --output-on-failure
 
   android:
     name: Example APK (debug)
