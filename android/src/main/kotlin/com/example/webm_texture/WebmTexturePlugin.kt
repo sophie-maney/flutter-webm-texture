@@ -258,6 +258,14 @@ class WebmTexturePlugin :
         for (id in textureIds) retired.remove(id)?.release()
     }
 
+    override fun atlasShownTextures(atlasId: Long, animIds: List<Long>): List<Long> {
+        val atlas = atlases[atlasId] ?: return animIds.map { -1L }
+        return animIds.map { animId ->
+            val anim = animations[animId]
+            if (anim == null || anim.atlas !== atlas) -1L else atlas.shownTexture(anim)
+        }
+    }
+
     override fun atlasStats(atlasId: Long): AtlasStatsMessage {
         val atlas = atlases[atlasId]
             ?: throw FlutterError("WT_ERR_INVALID_ARGUMENT", "unknown atlas $atlasId", null)

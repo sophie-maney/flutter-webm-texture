@@ -83,6 +83,8 @@ class Timeline {
   uint32_t frame_count() const {
     return static_cast<uint32_t>(durations_.size());
   }
+  // The shortest frame (after raising to kMinFrameTime).
+  Nanos min_duration() const { return min_duration_; }
   bool loop() const { return loop_; }
   // The frame on screen, or the one a pending request will draw.
   uint32_t shown() const { return shown_; }
@@ -131,6 +133,7 @@ class Timeline {
 
   const std::vector<Nanos> durations_;
   const bool loop_;
+  const Nanos min_duration_;
 
   uint32_t shown_ = 0;
   bool dirty_ = true;

@@ -348,6 +348,15 @@ abstract class WebmTextureHostApi {
   /// Unknown ids are ignored.
   void releaseTextures(List<int> textureIds);
 
+  /// For each of [animIds], the page texture that shows its slot's frame,
+  /// or -1: before a present has written the slot's first frame into the
+  /// page's current texture (so right after [attachToAtlas], and for every
+  /// slot of a page that just got a new texture), and for an animation that
+  /// isn't in atlas [atlasId]. Until then the slot's area of the texture
+  /// holds stale pixels: keep showing the placeholder, or the texture shown
+  /// before (`wt_atlas_shown_page`).
+  List<int> atlasShownTextures(int atlasId, List<int> animIds);
+
   /// The atlas's pages and memory.
   AtlasStatsMessage atlasStats(int atlasId);
 

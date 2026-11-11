@@ -1179,6 +1179,33 @@ class WebmTextureHostApi {
     );
   }
 
+  /// For each of [animIds], the page texture that shows its slot's frame,
+  /// or -1: before a present has written the slot's first frame into the
+  /// page's current texture (so right after [attachToAtlas], and for every
+  /// slot of a page that just got a new texture), and for an animation that
+  /// isn't in atlas [atlasId]. Until then the slot's area of the texture
+  /// holds stale pixels: keep showing the placeholder, or the texture shown
+  /// before (`wt_atlas_shown_page`).
+  Future<List<int>> atlasShownTextures(int atlasId, List<int> animIds) async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.webm_texture.WebmTextureHostApi.atlasShownTextures$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
+      <Object?>[atlasId, animIds],
+    );
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+    final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: false,
+    );
+    return (pigeonVar_replyValue! as List<Object?>).cast<int>();
+  }
+
   /// The atlas's pages and memory.
   Future<AtlasStatsMessage> atlasStats(int atlasId) async {
     final pigeonVar_channelName =

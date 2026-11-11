@@ -21,6 +21,15 @@
 // group and never twice at once. Retarget moves a player to another sink
 // (and group) without losing its place in the animation.
 //
+// Beats (T4.3, ADR 0021): a group's players show their playback frames on a
+// shared grid of times, the group's beat: its members' shortest frame, at
+// least a clock period, counted from the steady clock's epoch so that groups
+// with the same beat share it. A frame is drawn at the beat nearest to when
+// it is due. Players that started at different times thus fill the same
+// rounds, and the group presents once per content frame instead of at every
+// tick. No two frames of a player land on one beat, since none is shorter
+// than the beat.
+//
 // Everything mutable is guarded by mu_; FrameSource, sink and PresentTarget
 // calls run without it.
 #ifndef WT_SCHED_SCHEDULER_H_
@@ -131,6 +140,8 @@ class Group {
   bool parked_ = false;      // WT_NO_TARGET: wait for RequestPresent.
   bool removing_ = false;
   TimePoint not_before_{};  // Rate limit and retries.
+  // The shortest frame of the members that animate (Nanos::max(): none).
+  Nanos min_frame_ = Nanos::max();
 };
 
 class Scheduler {
@@ -229,6 +240,15 @@ class Scheduler {
   // Wakes the clock if `when` is earlier than it planned to look. Requires
   // mu_.
   void WakeClockBy(TimePoint when);
+  // Requires mu_. The group's beat: its members' shortest frame, at least a
+  // period.
+  Nanos BeatOf(const Group* group) const;
+  // Requires mu_. When the round that plays the running player's next frame
+  // should start: half a period before it is due, or for a group member, the
+  // beat nearest to it.
+  TimePoint PlaybackWake(const Player* player) const;
+  // Requires mu_. Recomputes the group's shortest member frame.
+  void UpdateBeat(Group* group);
   void Report(Player* player, wt_status status);
   // Requires mu_. One job of `round` for the group is done (or dropped).
   void CompleteBatch(Group* group, uint64_t round, TimePoint now);

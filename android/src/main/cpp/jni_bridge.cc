@@ -462,6 +462,19 @@ Java_com_example_webm_1texture_WtNative_nativeAtlasDetach(JNIEnv*, jclass,
   return wt_atlas_detach(a->atlas, p->player->player());
 }
 
+// The page whose current surface shows the animation's slot, or -1
+// (wt_atlas_shown_page). Thread: platform main thread; never waits for a
+// frame.
+JNIEXPORT jint JNICALL
+Java_com_example_webm_1texture_WtNative_nativeAtlasShownPage(JNIEnv*, jclass,
+                                                             jlong atlas,
+                                                             jlong anim) {
+  AtlasHandle* a = AtlasFromJ(atlas);
+  Handle* p = FromJ(anim);
+  if (a == nullptr || p == nullptr) return -1;
+  return wt_atlas_shown_page(a->atlas, p->player->player());
+}
+
 // Pages created so far. Thread: platform main thread.
 JNIEXPORT jint JNICALL
 Java_com_example_webm_1texture_WtNative_nativeAtlasPageCount(JNIEnv*, jclass,

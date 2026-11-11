@@ -210,6 +210,14 @@ static void PagePresent(void *context, wt_status status) {
   }];
 }
 
+- (int32_t)shownPageForPlayer:(WTPlayer *)player {
+  if (_atlas == nullptr) return -1;
+  wt_atlas *atlas = _atlas;
+  return [player withPlayerHandle:^int32_t(wt_player *p) {
+    return p == nullptr ? -1 : wt_atlas_shown_page(atlas, p);
+  }];
+}
+
 - (uint32_t)pageCount {
   return wt_atlas_page_count(_atlas);
 }

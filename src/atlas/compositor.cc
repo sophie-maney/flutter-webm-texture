@@ -48,6 +48,9 @@ struct Atlas::SlotEntry {
   Frame back;   // The frame being drawn; empty unless writing.
   uint32_t frame = 0;
   bool writing = false;
+  // The page's present (Page::posted_) that first showed a frame of this
+  // slot on the current target; 0 until one is under way.
+  uint64_t shown_in = 0;
 };
 
 class Atlas::Page final : public PresentTarget {
@@ -105,6 +108,7 @@ class Atlas::Page final : public PresentTarget {
   std::vector<std::unique_ptr<SlotEntry>> slots_;
   std::vector<Frame> spares_;
   uint32_t height_ = 0;               // As last passed to SetTarget.
+  uint64_t posted_ = 0;               // Presents shown, numbered from 1.
   bool target_set_ = false;           // Mirrors has_target_ for GetPage.
   std::vector<AtlasSlotView> views_;  // Observer scratch.
 
@@ -174,13 +178,18 @@ wt_status Atlas::Page::Present(TimePoint start) {
   }
   AtlasPresentObserver* observer =
       atlas_->observer_.load(std::memory_order_acquire);
+  uint64_t seq = 0;
   {
     std::lock_guard<std::mutex> sl(slots_mu_);
+    seq = posted_ + 1;
     if (observer != nullptr) views_.clear();
     for (const std::unique_ptr<SlotEntry>& e : slots_) {
       const AtlasRect& o = e->slot.outer;
       const bool fits = o.x + o.width <= width_ && o.y + o.height <= height;
-      if (fits) WriteSlot(buf, *e);
+      if (fits) {
+        WriteSlot(buf, *e);
+        if (e->shown_in == 0 && e->front.data != nullptr) e->shown_in = seq;
+      }
       if (observer != nullptr) {
         AtlasSlotView v;
         v.player = e->player;
@@ -197,6 +206,12 @@ wt_status Atlas::Page::Present(TimePoint start) {
     }
   }
   target_.present(target_.context, WT_OK);
+  {
+    // Slots this present wrote count as shown from here on (ShownPage):
+    // the buffer is on its way to the screen.
+    std::lock_guard<std::mutex> sl(slots_mu_);
+    posted_ = seq;
+  }
   const uint64_t key = id != 0 ? id : reinterpret_cast<uintptr_t>(buf.pixels);
   std::lock_guard<std::mutex> lk(stats_mu_);
   ++presents_;
@@ -468,12 +483,25 @@ wt_status Atlas::SetTarget(uint32_t index, const wt_atlas_target* target,
     std::lock_guard<std::mutex> sl(page->slots_mu_);
     page->height_ = height;
     page->target_set_ = target != nullptr;
+    // The new target (or none) shows no slot yet.
+    for (const std::unique_ptr<SlotEntry>& e : page->slots_) e->shown_in = 0;
     std::lock_guard<std::mutex> st(page->stats_mu_);
     page->buffer_ids_.clear();
     page->stride_ = 0;
   }
   if (target != nullptr) sched_->RequestPresent(page->group_);
   return WT_OK;
+}
+
+int32_t Atlas::ShownPage(const Player* player) {
+  std::lock_guard<std::mutex> lk(mu_);
+  const auto it = players_.find(player);
+  if (it == players_.end()) return -1;
+  const SlotEntry* e = it->second;
+  const Page* page = e->page;
+  std::lock_guard<std::mutex> sl(page->slots_mu_);
+  const bool shown = e->shown_in != 0 && e->shown_in <= page->posted_;
+  return shown ? static_cast<int32_t>(page->index_) : -1;
 }
 
 // --- Slot sink (scheduler workers, one call at a time per slot) -----------
