@@ -43,4 +43,17 @@ class FakeHost extends WebmTextureHostApi {
   @override
   Future<void> seekToFrame(int animId, int frame) async =>
       seekCalls.add((animId, frame));
+
+  /// What [configureCache] answers with.
+  String cacheDirectory = '/fake/cache';
+
+  /// The `directory` argument of each [configureCache] call.
+  final List<String?> cacheConfigs = [];
+
+  @override
+  Future<String> configureCache(String? directory) async {
+    cacheConfigs.add(directory);
+    if (directory != null) cacheDirectory = directory;
+    return cacheDirectory;
+  }
 }

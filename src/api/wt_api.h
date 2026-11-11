@@ -58,7 +58,8 @@
  * sniff correctly but wt_probe and wt_anim_create return WT_ERR_UNSUPPORTED
  * for them until Phase 5. WT_ERR_UNIMPLEMENTED is reserved for functions a
  * later phase adds before it fills them in.
- * T3.1 added wt_anim_create_cached (WT_API_VERSION 2). The scheduler and
+ * T3.1 added wt_anim_create_cached (WT_API_VERSION 2), T3.2 the cache
+ * directory functions (WT_API_VERSION 3). The scheduler and
  * atlas (Phases 3-4) will add more functions; they won't change the existing
  * ones without bumping WT_API_VERSION.
  */
@@ -79,7 +80,7 @@ extern "C" {
  * Bumped whenever a type or a signature in this header changes, so the Dart
  * bindings can refuse a mismatched native library at load time.
  */
-#define WT_API_VERSION 2
+#define WT_API_VERSION 3
 
 /*
  * Result codes. 0 is success, positive values are non-error outcomes and
@@ -201,6 +202,14 @@ typedef struct wt_frame_info {
   uint32_t duration_ms; /* How long to show this frame. */
   int64_t pts_ms;       /* Presentation time relative to frame 0. */
 } wt_frame_info;
+
+/* What wt_cache_get_stats, wt_cache_evict and wt_cache_clear report. */
+typedef struct wt_cache_stats {
+  /* Cache (.wsc) files. */
+  uint64_t file_count;
+  /* Their combined size, in bytes. */
+  uint64_t total_bytes;
+} wt_cache_stats;
 
 /* Encoded sticker bytes, from memory or a file. Opaque. */
 typedef struct wt_source wt_source;
@@ -387,6 +396,77 @@ WT_API wt_status wt_anim_next_frame(wt_anim* anim, uint8_t* dst,
                                     size_t dst_size, uint32_t stride,
                                     wt_pixel_format pixel_format,
                                     wt_frame_info* out_frame);
+
+/* ------------------------------------------------------------------------- */
+/* Cache directory                                                            */
+/* ------------------------------------------------------------------------- */
+
+/*
+ * The frame cache (docs/cache-format.md) lives in one directory per app. These
+ * functions name its files and keep it under a disk budget
+ * (docs/cache-format.md, "Budget and eviction"). They only ever touch what the
+ * cache wrote: files named "*.wsc" and the writer's "*.wsc.*.tmp" temporaries,
+ * directly inside the directory, never symlinks or anything else.
+ *
+ * A dir that doesn't exist holds nothing: stats and removal report zeros and
+ * return WT_OK. Other failures to read it return WT_ERR_IO.
+ */
+
+/*
+ * Sets the process-wide disk budget, in bytes: after each cache file is
+ * written, the least recently used files in its directory are deleted until at
+ * most this many bytes remain. Default 200 MiB; UINT64_MAX disables eviction;
+ * 0 keeps nothing (every finished file is deleted at once, though the
+ * animation that wrote it keeps playing from it).
+ * Thread: any thread.
+ */
+WT_API void wt_cache_set_budget(uint64_t budget_bytes);
+
+/*
+ * Returns the budget set by wt_cache_set_budget.
+ * Thread: any thread.
+ */
+WT_API uint64_t wt_cache_get_budget(void);
+
+/*
+ * Writes into out (out_size bytes, NUL-terminated) the path of the cache file
+ * for the sticker identified by source_key at width x height inside dir:
+ * "<dir>/<hash>_<width>x<height>_v1.wsc", where <hash> is 32 hex digits of the
+ * SHA-256 of source_key. Pass the result to wt_anim_create_cached with the
+ * animation's output size.
+ * Returns WT_ERR_INVALID_ARGUMENT for a NULL or empty dir, a NULL key, a zero
+ * size or a NULL or zero-sized out, and WT_ERR_LIMIT when out is too small (a
+ * buffer of PATH_MAX bytes is enough for any path the OS accepts; out is
+ * emptied).
+ * Thread: any thread.
+ */
+WT_API wt_status wt_cache_file_path(const char* dir, const char* source_key,
+                                    uint32_t width, uint32_t height, char* out,
+                                    size_t out_size);
+
+/*
+ * Counts the cache files in dir.
+ * Thread: background thread (reads the directory).
+ */
+WT_API wt_status wt_cache_get_stats(const char* dir, wt_cache_stats* out_stats);
+
+/*
+ * Deletes least recently used cache files from dir until it holds at most the
+ * budget (wt_cache_set_budget), and writer temporaries left untouched for an
+ * hour (a crash's leftovers). A cache hit counts as a use. *out_after (may be
+ * NULL) receives what remains. The core also does this after each write; call
+ * it once at startup, and again after lowering the budget.
+ * Thread: background thread.
+ */
+WT_API wt_status wt_cache_evict(const char* dir, wt_cache_stats* out_after);
+
+/*
+ * Deletes every cache file and temporary in dir. *out_removed (may be NULL)
+ * receives the cache files deleted. Animations that have a file open keep
+ * playing from it; a writer whose temporary was deleted gives up quietly.
+ * Thread: background thread.
+ */
+WT_API wt_status wt_cache_clear(const char* dir, wt_cache_stats* out_removed);
 
 #ifdef __cplusplus
 } /* extern "C" */

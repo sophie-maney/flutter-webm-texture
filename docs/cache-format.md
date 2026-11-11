@@ -16,8 +16,10 @@ should identify the content and the size:
 <cache dir>/<hash>_<width>x<height>_v1.wsc
 ```
 
-`<hash>` is a filename-safe digest of the sticker's cache key (`sha1:…` or
-`key:…`, see `StickerSource`). `v1` is this format version, so a future
+`<hash>` is 32 hex digits taken from the SHA-256 of the sticker's cache key
+(`sha1:…` or `key:…`, see `StickerSource`), so any key becomes a safe name.
+The platform glue builds the path with `wt_cache_file_path`, using the
+animation's output size. `v1` is this format version, so a future
 version gets new names and never touches old files. The core doesn't trust
 the name: the header records the size and a fingerprint of the source, and a
 file that doesn't match them is deleted.
@@ -155,4 +157,33 @@ keeps it after a rename; the kernel frees it with the last mapping.
 
 Because a file only ever appears complete under its final name, a crash at
 any point leaves either the old file, the new file, or a stray `*.tmp` that
-eviction (T3.2) can delete.
+eviction deletes (below).
+
+## Budget and eviction
+
+The cache directory is capped by a process-wide disk budget (default 200 MiB,
+`wt_cache_set_budget`). The policy is in `src/cache/store.{h,cc}`
+([ADR 0016](decisions/0016-cache-budget-and-eviction.md)):
+
+- **What is touched.** Only regular files directly inside the directory named
+  `*.wsc` (cache files) or `*.wsc.*.tmp` (writer temporaries). Symlinks,
+  subdirectories and any other file are left alone, so a shared directory is
+  safe.
+- **LRU runs on mtime.** Access times aren't reliable (`noatime`, `relatime`),
+  so opening a valid cache file touches its mtime, and a new file has the time
+  of its rename. Eviction deletes the oldest first until the total is within
+  the budget.
+- **When.** After every finished write (the core does this itself), and when
+  the app starts (`wt_cache_evict`). Evictions are serialised by a mutex, so
+  concurrent writers can't overshoot together; across processes, deleting a
+  file that is already gone counts as success.
+- **Stray temporaries.** Eviction also deletes writer temporaries not modified
+  for an hour: a live writer keeps modifying its file, so these are left by a
+  crash. A writer that loses its file anyway fails its `Finish`, which stops
+  caching for that animation; it keeps decoding.
+- **Open files.** Deleting a file doesn't disturb animations that mapped it.
+  An animation whose own new file is evicted at once (it alone exceeds the
+  budget) keeps playing from its mapping.
+- **Scan bound.** At most 65 536 cache files are listed per scan; files beyond
+  that are deleted outright.
+- **`clearCache`.** `wt_cache_clear` deletes every cache file and temporary.

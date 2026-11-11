@@ -253,6 +253,146 @@ class WtBindings {
       _lookup<ffi.NativeFunction<ffi.Int32 Function()>>('wt_api_version');
   late final _wt_api_version = _wt_api_versionPtr.asFunction<int Function()>();
 
+  /// Deletes every cache file and temporary in dir. *out_removed (may be NULL)
+  /// receives the cache files deleted. Animations that have a file open keep
+  /// playing from it; a writer whose temporary was deleted gives up quietly.
+  /// Thread: background thread.
+  int wt_cache_clear(
+    ffi.Pointer<ffi.Char> dir,
+    ffi.Pointer<wt_cache_stats> out_removed,
+  ) {
+    return _wt_cache_clear(dir, out_removed);
+  }
+
+  late final _wt_cache_clearPtr =
+      _lookup<
+        ffi.NativeFunction<
+          wt_status Function(ffi.Pointer<ffi.Char>, ffi.Pointer<wt_cache_stats>)
+        >
+      >('wt_cache_clear');
+  late final _wt_cache_clear = _wt_cache_clearPtr
+      .asFunction<
+        int Function(ffi.Pointer<ffi.Char>, ffi.Pointer<wt_cache_stats>)
+      >();
+
+  /// Deletes least recently used cache files from dir until it holds at most the
+  /// budget (wt_cache_set_budget), and writer temporaries left untouched for an
+  /// hour (a crash's leftovers). A cache hit counts as a use. *out_after (may be
+  /// NULL) receives what remains. The core also does this after each write; call
+  /// it once at startup, and again after lowering the budget.
+  /// Thread: background thread.
+  int wt_cache_evict(
+    ffi.Pointer<ffi.Char> dir,
+    ffi.Pointer<wt_cache_stats> out_after,
+  ) {
+    return _wt_cache_evict(dir, out_after);
+  }
+
+  late final _wt_cache_evictPtr =
+      _lookup<
+        ffi.NativeFunction<
+          wt_status Function(ffi.Pointer<ffi.Char>, ffi.Pointer<wt_cache_stats>)
+        >
+      >('wt_cache_evict');
+  late final _wt_cache_evict = _wt_cache_evictPtr
+      .asFunction<
+        int Function(ffi.Pointer<ffi.Char>, ffi.Pointer<wt_cache_stats>)
+      >();
+
+  /// Writes into out (out_size bytes, NUL-terminated) the path of the cache file
+  /// for the sticker identified by source_key at width x height inside dir:
+  /// "<dir>/<hash>_<width>x<height>_v1.wsc", where <hash> is 32 hex digits of the
+  /// SHA-256 of source_key. Pass the result to wt_anim_create_cached with the
+  /// animation's output size.
+  /// Returns WT_ERR_INVALID_ARGUMENT for a NULL or empty dir, a NULL key, a zero
+  /// size or a NULL or zero-sized out, and WT_ERR_LIMIT when out is too small (a
+  /// buffer of PATH_MAX bytes is enough for any path the OS accepts; out is
+  /// emptied).
+  /// Thread: any thread.
+  int wt_cache_file_path(
+    ffi.Pointer<ffi.Char> dir,
+    ffi.Pointer<ffi.Char> source_key,
+    int width,
+    int height,
+    ffi.Pointer<ffi.Char> out,
+    int out_size,
+  ) {
+    return _wt_cache_file_path(dir, source_key, width, height, out, out_size);
+  }
+
+  late final _wt_cache_file_pathPtr =
+      _lookup<
+        ffi.NativeFunction<
+          wt_status Function(
+            ffi.Pointer<ffi.Char>,
+            ffi.Pointer<ffi.Char>,
+            ffi.Uint32,
+            ffi.Uint32,
+            ffi.Pointer<ffi.Char>,
+            ffi.Size,
+          )
+        >
+      >('wt_cache_file_path');
+  late final _wt_cache_file_path = _wt_cache_file_pathPtr
+      .asFunction<
+        int Function(
+          ffi.Pointer<ffi.Char>,
+          ffi.Pointer<ffi.Char>,
+          int,
+          int,
+          ffi.Pointer<ffi.Char>,
+          int,
+        )
+      >();
+
+  /// Returns the budget set by wt_cache_set_budget.
+  /// Thread: any thread.
+  int wt_cache_get_budget() {
+    return _wt_cache_get_budget();
+  }
+
+  late final _wt_cache_get_budgetPtr =
+      _lookup<ffi.NativeFunction<ffi.Uint64 Function()>>('wt_cache_get_budget');
+  late final _wt_cache_get_budget = _wt_cache_get_budgetPtr
+      .asFunction<int Function()>();
+
+  /// Counts the cache files in dir.
+  /// Thread: background thread (reads the directory).
+  int wt_cache_get_stats(
+    ffi.Pointer<ffi.Char> dir,
+    ffi.Pointer<wt_cache_stats> out_stats,
+  ) {
+    return _wt_cache_get_stats(dir, out_stats);
+  }
+
+  late final _wt_cache_get_statsPtr =
+      _lookup<
+        ffi.NativeFunction<
+          wt_status Function(ffi.Pointer<ffi.Char>, ffi.Pointer<wt_cache_stats>)
+        >
+      >('wt_cache_get_stats');
+  late final _wt_cache_get_stats = _wt_cache_get_statsPtr
+      .asFunction<
+        int Function(ffi.Pointer<ffi.Char>, ffi.Pointer<wt_cache_stats>)
+      >();
+
+  /// Sets the process-wide disk budget, in bytes: after each cache file is
+  /// written, the least recently used files in its directory are deleted until at
+  /// most this many bytes remain. Default 200 MiB; UINT64_MAX disables eviction;
+  /// 0 keeps nothing (every finished file is deleted at once, though the
+  /// animation that wrote it keeps playing from it).
+  /// Thread: any thread.
+  void wt_cache_set_budget(int budget_bytes) {
+    return _wt_cache_set_budget(budget_bytes);
+  }
+
+  late final _wt_cache_set_budgetPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Uint64)>>(
+        'wt_cache_set_budget',
+      );
+  late final _wt_cache_set_budget = _wt_cache_set_budgetPtr
+      .asFunction<void Function(int)>();
+
   /// Fills *out with the default limits listed in wt_limits. Does nothing when
   /// out is NULL.
   /// Thread: any thread.
@@ -397,7 +537,7 @@ class WtBindings {
       .asFunction<ffi.Pointer<ffi.Char> Function(int)>();
 }
 
-const int WT_API_VERSION = 2;
+const int WT_API_VERSION = 3;
 
 const int WT_CODEC_GIF = 4;
 
@@ -447,6 +587,25 @@ const int WT_PIXEL_FORMAT_RGBA8888 = 1;
 
 /// A playback cursor that decodes one source at one output size. Opaque.
 final class wt_anim extends ffi.Opaque {}
+
+/// What wt_cache_get_stats, wt_cache_evict and wt_cache_clear report.
+final class wt_cache_stats extends ffi.Struct {
+  /// Cache (.wsc) files.
+  @ffi.Uint64()
+  external int file_count;
+
+  /// Their combined size, in bytes.
+  @ffi.Uint64()
+  external int total_bytes;
+
+  static ffi.Pointer<wt_cache_stats> $allocate(
+    ffi.Allocator $allocator, {
+    required int file_count,
+    required int total_bytes,
+  }) => $allocator<wt_cache_stats>()
+    ..ref.file_count = file_count
+    ..ref.total_bytes = total_bytes;
+}
 
 /// Codec of the frames inside the container.
 typedef wt_codec = ffi.Int32;

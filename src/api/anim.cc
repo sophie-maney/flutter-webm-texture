@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "cache/crc32.h"
+#include "cache/store.h"
 
 namespace wt {
 
@@ -209,6 +210,7 @@ void Anim::OpenCache() {
     return;
   }
   reader_ = std::move(reader);
+  TouchCacheFile(cache_path_.c_str());  // For LRU eviction (cache/store.h).
 }
 
 void Anim::DropCache() {
@@ -244,6 +246,9 @@ void Anim::WriteCache(uint32_t index) {
   // Later loops read the file instead of decoding.
   OpenCache();
   if (reader_ != nullptr) decoder_.reset();
+  // Mapped first, so even if the budget evicts our own file (one larger than
+  // the budget) the mapping keeps serving this animation's loops.
+  EvictAfterWrite(cache_path_);
 }
 
 // --- Playback

@@ -2,6 +2,7 @@ import Flutter
 import UIKit
 
 import wt_core
+import wt_ios
 
 public class WebmTexturePlugin: NSObject, FlutterPlugin, WebmTextureHostApi {
   /// Dart finds the core with DynamicLibrary.process(). The app is statically
@@ -16,9 +17,13 @@ public class WebmTexturePlugin: NSObject, FlutterPlugin, WebmTextureHostApi {
   private var animations: [Int64: (texture: StickerTexture, textureId: Int64)] = [:]
   private var lastAnimId: Int64 = 0
   private var detached = false
+  /// Where the frame cache lives; created when the first animation needs it.
+  private var cacheDirectory: String
 
   init(registry: FlutterTextureRegistry) {
     self.registry = registry
+    cacheDirectory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+      .appendingPathComponent("webm_texture", isDirectory: true).path
     super.init()
   }
 
@@ -27,10 +32,17 @@ public class WebmTexturePlugin: NSObject, FlutterPlugin, WebmTextureHostApi {
       wt_api_version, wt_status_string, wt_limits_init_default,
       wt_source_create_memory, wt_source_create_file, wt_source_destroy,
       wt_probe, wt_anim_create, wt_anim_destroy, wt_anim_get_info, wt_anim_seek,
-      wt_anim_next_frame,
+      wt_anim_next_frame, wt_anim_create_cached, wt_cache_set_budget, wt_cache_get_budget,
+      wt_cache_file_path, wt_cache_get_stats, wt_cache_evict, wt_cache_clear,
     ]
     let channel = FlutterMethodChannel(name: "webm_texture", binaryMessenger: registrar.messenger())
     let instance = WebmTexturePlugin(registry: registrar.textures())
+    // Keep the cache within its budget from the start; frame writes keep it
+    // there afterwards.
+    let startupDirectory = instance.cacheDirectory
+    DispatchQueue.global(qos: .utility).async {
+      _ = WTAnimation.evictCache(inDirectory: startupDirectory)
+    }
     registrar.addMethodCallDelegate(instance, channel: channel)
     // Publishing makes the engine call detachFromEngine(for:) on teardown.
     registrar.publish(instance)
@@ -50,14 +62,14 @@ public class WebmTexturePlugin: NSObject, FlutterPlugin, WebmTextureHostApi {
     sourceKey: String, source: AnimationSourceMessage, bucketW: Int64, bucketH: Int64,
     loop: Bool
   ) async throws -> AnimationHandleMessage {
-    let animId = await MainActor.run { () -> Int64 in
+    let (animId, cacheDirectory) = await MainActor.run { () -> (Int64, String) in
       lastAnimId += 1
-      return lastAnimId
+      return (lastAnimId, self.cacheDirectory)
     }
     // Decodes frame 0 on the animation's own queue, off the main thread.
     let texture = try await StickerTexture.create(
-      animId: animId, source: source, bucketW: bucketW, bucketH: bucketH, loop: loop,
-      registry: registry,
+      animId: animId, source: source, sourceKey: sourceKey, bucketW: bucketW, bucketH: bucketH,
+      loop: loop, cacheDirectory: cacheDirectory, registry: registry,
       onError: { [plugin = WeakPlugin(self)] animId, code, message in
         DispatchQueue.main.async {
           plugin.value?.emitError(animId: animId, code: code, message: message)
@@ -95,6 +107,17 @@ public class WebmTexturePlugin: NSObject, FlutterPlugin, WebmTextureHostApi {
 
   func dispose(animId: Int64) throws {
     disposeNow(animId)
+  }
+
+  func configureCache(directory: String?) throws -> String {
+    guard let directory else { return cacheDirectory }
+    guard directory.hasPrefix("/") else {
+      throw PigeonError(
+        code: "WT_ERR_INVALID_ARGUMENT",
+        message: "the cache directory must be absolute: \(directory)", details: nil)
+    }
+    cacheDirectory = directory
+    return directory
   }
 
   // T3.4 reports the real device signals.

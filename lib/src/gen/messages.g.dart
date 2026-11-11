@@ -432,7 +432,9 @@ class WebmTextureHostApi {
   /// stays inactive until [setActive].
   ///
   /// [sourceKey] is the content hash (or caller key) that names the cache
-  /// entry. With [loop] false, playback stops on the last frame and holds it
+  /// file (`wt_cache_file_path`, under [configureCache]'s directory), unless
+  /// the bucket is 0 x 0, whose output size isn't known yet: such an
+  /// animation isn't cached. With [loop] false, playback stops on the last frame and holds it
   /// until [seekToFrame]. Fails with a `PlatformException` carrying a
   /// `wt_status` name as its code if the core rejects the source.
   Future<AnimationHandleMessage> createAnimation(
@@ -543,6 +545,36 @@ class WebmTextureHostApi {
       isNullValid: false,
     );
     return pigeonVar_replyValue! as DeviceSignalsMessage;
+  }
+
+  /// Sets the directory for the frame cache and returns the one in use, an
+  /// absolute path. With a null [directory] nothing changes: the result is
+  /// the current one, which starts as `webm_texture` under the app's cache
+  /// directory (`Context.cacheDir` on Android, `Library/Caches` on iOS).
+  ///
+  /// The directory is created when the first animation needs it, and only
+  /// ever holds files the core wrote (`*.wsc`). Animations created
+  /// afterwards cache there; existing ones keep their files. Cache
+  /// administration (`wt_cache_*`) runs over FFI, so Dart passes this path to
+  /// it.
+  Future<String> configureCache(String? directory) async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.webm_texture.WebmTextureHostApi.configureCache$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
+      <Object?>[directory],
+    );
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+    final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: false,
+    );
+    return pigeonVar_replyValue! as String;
   }
 }
 

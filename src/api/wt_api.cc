@@ -11,9 +11,11 @@
 #include <cstring>
 #include <memory>
 #include <new>
+#include <string>
 #include <utility>
 
 #include "api/anim.h"
+#include "cache/store.h"
 #include "demux/sniff.h"
 #include "demux/source.h"
 
@@ -235,6 +237,64 @@ wt_status wt_anim_next_frame(wt_anim* anim, uint8_t* dst, size_t dst_size,
     return WT_ERR_INVALID_ARGUMENT;
   }
   return anim->anim->NextFrame(dst, dst_size, stride, pixel_format, out_frame);
+}
+
+void wt_cache_set_budget(uint64_t budget_bytes) {
+  wt::SetCacheBudget(budget_bytes);
+}
+
+uint64_t wt_cache_get_budget(void) { return wt::CacheBudget(); }
+
+wt_status wt_cache_file_path(const char* dir, const char* source_key,
+                             uint32_t width, uint32_t height, char* out,
+                             size_t out_size) {
+  if (out == nullptr || out_size == 0) return WT_ERR_INVALID_ARGUMENT;
+  out[0] = '\0';
+  if (dir == nullptr || source_key == nullptr) return WT_ERR_INVALID_ARGUMENT;
+  std::string path;
+  const wt_status s = wt::CacheFilePath(dir, source_key, width, height, &path);
+  if (s != WT_OK) return s;
+  if (path.size() >= out_size) return WT_ERR_LIMIT;
+  std::memcpy(out, path.c_str(), path.size() + 1);
+  return WT_OK;
+}
+
+namespace {
+
+void ToC(const wt::CacheStats& stats, wt_cache_stats* out) {
+  if (out == nullptr) return;
+  out->file_count = stats.file_count;
+  out->total_bytes = stats.total_bytes;
+}
+
+}  // namespace
+
+wt_status wt_cache_get_stats(const char* dir, wt_cache_stats* out_stats) {
+  if (out_stats == nullptr) return WT_ERR_INVALID_ARGUMENT;
+  std::memset(out_stats, 0, sizeof(*out_stats));
+  if (dir == nullptr || dir[0] == '\0') return WT_ERR_INVALID_ARGUMENT;
+  wt::CacheStats stats;
+  const wt_status s = wt::CacheDirStats(dir, &stats);
+  ToC(stats, out_stats);
+  return s;
+}
+
+wt_status wt_cache_evict(const char* dir, wt_cache_stats* out_after) {
+  if (out_after != nullptr) std::memset(out_after, 0, sizeof(*out_after));
+  if (dir == nullptr || dir[0] == '\0') return WT_ERR_INVALID_ARGUMENT;
+  wt::CacheStats stats;
+  const wt_status s = wt::CacheDirEvictLocked(dir, &stats);
+  ToC(stats, out_after);
+  return s;
+}
+
+wt_status wt_cache_clear(const char* dir, wt_cache_stats* out_removed) {
+  if (out_removed != nullptr) std::memset(out_removed, 0, sizeof(*out_removed));
+  if (dir == nullptr || dir[0] == '\0') return WT_ERR_INVALID_ARGUMENT;
+  wt::CacheStats stats;
+  const wt_status s = wt::CacheDirClear(dir, &stats);
+  ToC(stats, out_removed);
+  return s;
 }
 
 }  // extern "C"

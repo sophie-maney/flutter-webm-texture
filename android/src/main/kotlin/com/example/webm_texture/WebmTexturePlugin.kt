@@ -8,8 +8,14 @@ import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
 import io.flutter.view.TextureRegistry
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
+
+private const val CACHE_DIR_NAME = "webm_texture"
 
 /**
  * The Android side of the Pigeon API ([ADR 0010](docs/decisions/0010-pigeon-api-shape.md)).
@@ -30,8 +36,18 @@ class WebmTexturePlugin :
     private var nextAnimId = 1L
     private var errorSink: PigeonEventSink<AnimationErrorMessage>? = null
 
+    // The frame cache directory, set on attach and by configureCache; read
+    // from IO threads, so volatile. Created on first use (createAnimation).
+    @Volatile private var cacheDir: File? = null
+    private val background = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         textures = flutterPluginBinding.textureRegistry
+        val dir = File(flutterPluginBinding.applicationContext.cacheDir, CACHE_DIR_NAME)
+        cacheDir = dir
+        // Keep the cache within its budget from the start; frame writes
+        // keep it there afterwards.
+        background.launch { WtNative.nativeEvictCache(dir.path) }
         channel = MethodChannel(flutterPluginBinding.binaryMessenger, "webm_texture")
         channel.setMethodCallHandler(this)
         WebmTextureHostApi.setUp(flutterPluginBinding.binaryMessenger, this)
@@ -62,12 +78,18 @@ class WebmTexturePlugin :
         if (bucketW !in 0..Int.MAX_VALUE || bucketH !in 0..Int.MAX_VALUE) {
             throw FlutterError("WT_ERR_INVALID_ARGUMENT", "bucket ${bucketW}x$bucketH out of range", null)
         }
+        val dir = cacheDir
+        if (dir == null) {
+            throw FlutterError("ENGINE_DETACHED", "the Flutter engine was detached", null)
+        }
         val animId = nextAnimId++
         val texture = StickerTexture(animId, ::postError)
 
         // Probing and decoder setup read the file, so keep them off main.
         val out = withContext(Dispatchers.IO) {
-            texture.createNative(source, bucketW.toInt(), bucketH.toInt(), loop)
+            // The core writes cache files here but never creates the directory.
+            dir.mkdirs()
+            texture.createNative(source, bucketW.toInt(), bucketH.toInt(), loop, dir.path, sourceKey)
         }
         val status = out[WtNative.OUT_STATUS]
         if (status != WtNative.WT_OK) {
@@ -109,6 +131,17 @@ class WebmTexturePlugin :
         animations.remove(animId)?.dispose()
     }
 
+    override fun configureCache(directory: String?): String {
+        val current = cacheDir ?: throw FlutterError("ENGINE_DETACHED", "the Flutter engine was detached", null)
+        if (directory == null) return current.path
+        val dir = File(directory)
+        if (!dir.isAbsolute) {
+            throw FlutterError("WT_ERR_INVALID_ARGUMENT", "the cache directory must be absolute: $directory", null)
+        }
+        cacheDir = dir
+        return dir.path
+    }
+
     // T3.4 reports the real device signals.
     override fun deviceSignals(): DeviceSignalsMessage =
         throw FlutterError("UNIMPLEMENTED", "deviceSignals is not implemented on Android yet", null)
@@ -142,5 +175,6 @@ class WebmTexturePlugin :
         animations.values.forEach { it.dispose() }
         animations.clear()
         textures = null
+        cacheDir = null
     }
 }

@@ -25,7 +25,9 @@ internal object WtNative {
     /**
      * Creates the decoder for [bytes] or [path] at [width] x [height] (0 x 0
      * for the source size) and its render thread. With [loop] false,
-     * playback stops on the last frame. Fills [out] (see `OUT_*`)
+     * playback stops on the last frame. With a [cacheDir] and a [sourceKey]
+     * (and a non-zero size) the frames are cached in a file named after the
+     * key and size there; the directory must exist. Fills [out] (see `OUT_*`)
      * and returns the handle, or 0 on failure. [listener] receives
      * `onNativeError(code, message)` on the render thread.
      *
@@ -39,8 +41,17 @@ internal object WtNative {
         width: Int,
         height: Int,
         loop: Boolean,
+        cacheDir: String?,
+        sourceKey: String?,
         out: IntArray,
     ): Long
+
+    /**
+     * Deletes least recently used cache files in [cacheDir] until it fits the
+     * disk budget, and stray temporaries. Returns a `wt_status`. Background
+     * thread only: it reads the directory.
+     */
+    @JvmStatic external fun nativeEvictCache(cacheDir: String): Int
 
     /**
      * Draws into [surface] from now on and redraws the current frame; null

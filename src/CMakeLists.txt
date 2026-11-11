@@ -49,6 +49,8 @@ set(WT_CORE_SOURCES
   api/anim.cc
   api/wt_api.cc
   cache/crc32.cc
+  cache/sha256.cc
+  cache/store.cc
   cache/wsc.cc
   convert/yuva.cc
   decode/vpx_decoder.cc

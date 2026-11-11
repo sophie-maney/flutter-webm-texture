@@ -84,11 +84,12 @@ final class StickerTexture: NSObject, FlutterTexture {
   }
 
   /// Builds an animation off the main thread and renders its first frame.
-  /// With `loop` false, playback stops on the last frame. Throws a
+  /// With `loop` false, playback stops on the last frame. Frames are cached
+  /// in `cacheDirectory` under a name made from `sourceKey` and the bucket. Throws a
   /// `PigeonError` whose code is a `wt_status` name.
   static func create(
-    animId: Int64, source: AnimationSourceMessage, bucketW: Int64, bucketH: Int64, loop: Bool,
-    registry: FlutterTextureRegistry, onError: @escaping (Int64, String, String) -> Void
+    animId: Int64, source: AnimationSourceMessage, sourceKey: String, bucketW: Int64,
+    bucketH: Int64, loop: Bool, cacheDirectory: String, registry: FlutterTextureRegistry, onError: @escaping (Int64, String, String) -> Void
   ) async throws -> StickerTexture {
     guard (source.bytes == nil) != (source.path == nil) else {
       throw PigeonError(
@@ -105,11 +106,18 @@ final class StickerTexture: NSObject, FlutterTexture {
         do {
           let w = UInt32(bucketW)
           let h = UInt32(bucketH)
+          // The core writes cache files here but never creates the directory.
+          try? FileManager.default.createDirectory(
+            atPath: cacheDirectory, withIntermediateDirectories: true)
           let anim: WTAnimation
           if let bytes = source.bytes {
-            anim = try WTAnimation(data: bytes.data, width: w, height: h, loop: loop)
+            anim = try WTAnimation(
+              data: bytes.data, width: w, height: h, loop: loop,
+              cacheDirectory: cacheDirectory, sourceKey: sourceKey)
           } else {
-            anim = try WTAnimation(path: source.path!, width: w, height: h, loop: loop)
+            anim = try WTAnimation(
+              path: source.path!, width: w, height: h, loop: loop,
+              cacheDirectory: cacheDirectory, sourceKey: sourceKey)
           }
           guard let pool = makePool(width: Int(anim.width), height: Int(anim.height)) else {
             anim.close()

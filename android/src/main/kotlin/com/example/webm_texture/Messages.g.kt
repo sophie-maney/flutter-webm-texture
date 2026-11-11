@@ -536,7 +536,9 @@ interface WebmTextureHostApi {
    * stays inactive until [setActive].
    *
    * [sourceKey] is the content hash (or caller key) that names the cache
-   * entry. With [loop] false, playback stops on the last frame and holds it
+   * file (`wt_cache_file_path`, under [configureCache]'s directory), unless
+   * the bucket is 0 x 0, whose output size isn't known yet: such an
+   * animation isn't cached. With [loop] false, playback stops on the last frame and holds it
    * until [seekToFrame]. Fails with a `PlatformException` carrying a
    * `wt_status` name as its code if the core rejects the source.
    */
@@ -556,6 +558,19 @@ interface WebmTextureHostApi {
   fun dispose(animId: Long)
   /** Reads the current device signals. */
   fun deviceSignals(): DeviceSignalsMessage
+  /**
+   * Sets the directory for the frame cache and returns the one in use, an
+   * absolute path. With a null [directory] nothing changes: the result is
+   * the current one, which starts as `webm_texture` under the app's cache
+   * directory (`Context.cacheDir` on Android, `Library/Caches` on iOS).
+   *
+   * The directory is created when the first animation needs it, and only
+   * ever holds files the core wrote (`*.wsc`). Animations created
+   * afterwards cache there; existing ones keep their files. Cache
+   * administration (`wt_cache_*`) runs over FFI, so Dart passes this path to
+   * it.
+   */
+  fun configureCache(directory: String?): String
 
   companion object {
     /** The codec used by WebmTextureHostApi. */
@@ -651,6 +666,23 @@ interface WebmTextureHostApi {
           channel.setMessageHandler { _, reply ->
             val wrapped: List<Any?> = try {
               listOf(api.deviceSignals())
+            } catch (exception: Throwable) {
+              MessagesPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.webm_texture.WebmTextureHostApi.configureCache$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val directoryArg = args[0] as String?
+            val wrapped: List<Any?> = try {
+              listOf(api.configureCache(directoryArg))
             } catch (exception: Throwable) {
               MessagesPigeonUtils.wrapError(exception)
             }
