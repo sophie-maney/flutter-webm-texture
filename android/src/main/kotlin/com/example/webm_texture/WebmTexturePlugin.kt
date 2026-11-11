@@ -29,6 +29,8 @@ class WebmTexturePlugin :
     WebmTextureHostApi {
     private lateinit var channel: MethodChannel
     private var errorChannel: StreamErrorsEventChannel? = null
+    private var signalsChannel: StreamDeviceSignalsEventChannel? = null
+    private var deviceSignals: DeviceSignals? = null
     private var textures: TextureRegistry? = null
     private val main = Handler(Looper.getMainLooper())
 
@@ -44,6 +46,8 @@ class WebmTexturePlugin :
 
     override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         textures = flutterPluginBinding.textureRegistry
+        val signals = DeviceSignals(flutterPluginBinding.applicationContext)
+        deviceSignals = signals
         val dir = File(flutterPluginBinding.applicationContext.cacheDir, CACHE_DIR_NAME)
         cacheDir = dir
         // Keep the cache within its budget from the start; frame writes
@@ -52,6 +56,18 @@ class WebmTexturePlugin :
         channel = MethodChannel(flutterPluginBinding.binaryMessenger, "webm_texture")
         channel.setMethodCallHandler(this)
         WebmTextureHostApi.setUp(flutterPluginBinding.binaryMessenger, this)
+        signalsChannel = StreamDeviceSignalsStreamHandler.register(
+            flutterPluginBinding.binaryMessenger,
+            object : StreamDeviceSignalsStreamHandler() {
+                override fun onListen(p0: Any?, sink: PigeonEventSink<DeviceSignalsMessage>) {
+                    signals.listen { sink.success(signals.read()) }
+                }
+
+                override fun onCancel(p0: Any?) {
+                    signals.stop()
+                }
+            },
+        )
         errorChannel = StreamErrorsStreamHandler.register(
             flutterPluginBinding.binaryMessenger,
             object : StreamErrorsStreamHandler() {
@@ -147,9 +163,20 @@ class WebmTexturePlugin :
         return dir.path
     }
 
-    // T3.4 reports the real device signals.
     override fun deviceSignals(): DeviceSignalsMessage =
-        throw FlutterError("UNIMPLEMENTED", "deviceSignals is not implemented on Android yet", null)
+        deviceSignals?.read()
+            ?: throw FlutterError("ENGINE_DETACHED", "the Flutter engine was detached", null)
+
+    override fun setSchedulerOptions(workerCount: Long, maxFps: Long, maxConcurrent: Long) {
+        val status = if (workerCount !in 1..Int.MAX_VALUE || maxFps !in 1..Int.MAX_VALUE || maxConcurrent !in 0..Int.MAX_VALUE) {
+            WtNative.WT_ERR_INVALID_ARGUMENT
+        } else {
+            WtNative.nativeSetSchedulerOptions(workerCount.toInt(), maxFps.toInt(), maxConcurrent.toInt())
+        }
+        if (status != WtNative.WT_OK) {
+            throw FlutterError(WtNative.nativeStatusName(status), "can't apply the scheduler options", null)
+        }
+    }
 
     /** Any thread: forwards a native failure to Dart on [streamErrors]. */
     private fun postError(animId: Long, code: String, message: String) {
@@ -176,6 +203,10 @@ class WebmTexturePlugin :
         WebmTextureHostApi.setUp(binding.binaryMessenger, null)
         errorChannel?.setStreamHandler(null)
         errorChannel = null
+        signalsChannel?.setStreamHandler(null)
+        signalsChannel = null
+        deviceSignals?.stop()
+        deviceSignals = null
         errorSink = null
         animations.values.forEach { it.dispose() }
         animations.clear()

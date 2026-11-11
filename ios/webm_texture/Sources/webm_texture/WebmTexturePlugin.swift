@@ -12,6 +12,7 @@ public class WebmTexturePlugin: NSObject, FlutterPlugin, WebmTextureHostApi {
 
   private let registry: FlutterTextureRegistry
   private let errors = ErrorStream()
+  private let signals = SignalStream()
 
   // Main thread only.
   private var animations: [Int64: (texture: StickerTexture, textureId: Int64)] = [:]
@@ -51,6 +52,8 @@ public class WebmTexturePlugin: NSObject, FlutterPlugin, WebmTextureHostApi {
     registrar.publish(instance)
     WebmTextureHostApiSetup.setUp(binaryMessenger: registrar.messenger(), api: instance)
     StreamErrorsStreamHandler.register(with: registrar.messenger(), streamHandler: instance.errors)
+    StreamDeviceSignalsStreamHandler.register(
+      with: registrar.messenger(), streamHandler: instance.signals)
   }
 
   public func detachFromEngine(for registrar: FlutterPluginRegistrar) {
@@ -127,10 +130,22 @@ public class WebmTexturePlugin: NSObject, FlutterPlugin, WebmTextureHostApi {
     return directory
   }
 
-  // T3.4 reports the real device signals.
   func deviceSignals() throws -> DeviceSignalsMessage {
-    throw PigeonError(
-      code: "UNIMPLEMENTED", message: "deviceSignals is not implemented on iOS yet", details: nil)
+    SignalStream.read()
+  }
+
+  func setSchedulerOptions(workerCount: Int64, maxFps: Int64, maxConcurrent: Int64) throws {
+    let range = 0...Int64(Int32.max)
+    let status =
+      range.contains(workerCount) && range.contains(maxFps) && range.contains(maxConcurrent)
+      ? WTPlayer.setSchedulerOptions(
+        workerCount: Int32(workerCount), maxFps: Int32(maxFps), maxConcurrent: Int32(maxConcurrent))
+      : Int32(WT_ERR_INVALID_ARGUMENT)
+    if status != Int32(WT_OK) {
+      throw PigeonError(
+        code: String(cString: wt_status_string(status)),
+        message: "can't apply the scheduler options", details: nil)
+    }
   }
 
   // MARK: Internals (main thread)
@@ -181,5 +196,54 @@ private final class ErrorStream: StreamErrorsStreamHandler {
 
   func send(_ error: AnimationErrorMessage) {
     sink?.success(error)
+  }
+}
+
+/// Reports Low Power Mode and thermal changes to Dart while it listens. Main
+/// thread only, like every Flutter event sink.
+private final class SignalStream: StreamDeviceSignalsStreamHandler {
+  private var observers: [NSObjectProtocol] = []
+
+  static func read() -> DeviceSignalsMessage {
+    let info = ProcessInfo.processInfo
+    let thermal: ThermalStateMessage
+    switch info.thermalState {
+    case .nominal: thermal = .nominal
+    case .fair: thermal = .fair
+    case .serious: thermal = .serious
+    case .critical: thermal = .critical
+    @unknown default: thermal = .unknown
+    }
+    return DeviceSignalsMessage(
+      ramMb: Int64(info.physicalMemory / (1024 * 1024)),
+      // processorCount, not activeProcessorCount: the latter can drop in Low
+      // Power Mode, which the tier already counts separately.
+      cores: Int64(info.processorCount),
+      lowRam: false,
+      perfClass: .unknown,
+      lowPower: info.isLowPowerModeEnabled,
+      thermal: thermal)
+  }
+
+  override func onListen(withArguments arguments: Any?, sink: PigeonEventSink<DeviceSignalsMessage>) {
+    stop()
+    let notify: (Notification) -> Void = { _ in sink.success(SignalStream.read()) }
+    let center = NotificationCenter.default
+    observers = [
+      center.addObserver(
+        forName: .NSProcessInfoPowerStateDidChange, object: nil, queue: .main, using: notify),
+      center.addObserver(
+        forName: ProcessInfo.thermalStateDidChangeNotification, object: nil, queue: .main,
+        using: notify),
+    ]
+  }
+
+  override func onCancel(withArguments arguments: Any?) {
+    stop()
+  }
+
+  private func stop() {
+    observers.forEach(NotificationCenter.default.removeObserver)
+    observers = []
   }
 }

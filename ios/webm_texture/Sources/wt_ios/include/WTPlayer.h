@@ -75,6 +75,16 @@ NS_SWIFT_NAME(WTPlayer)
 + (int32_t)evictCacheInDirectory:(NSString *)directory
     NS_SWIFT_NAME(evictCache(inDirectory:));
 
+/// Applies the device tier's tunables to the process-wide scheduler, creating
+/// it if needed: 1..8 workers, 1..240 fps, and a limit on concurrently playing
+/// animations (0 for none). Running animations follow on the next round.
+/// Returns a wt_status (WT_ERR_INVALID_ARGUMENT for a value out of range).
+/// Main thread.
++ (int32_t)setSchedulerWorkerCount:(int32_t)workerCount
+                            maxFps:(int32_t)maxFps
+                     maxConcurrent:(int32_t)maxConcurrent
+    NS_SWIFT_NAME(setSchedulerOptions(workerCount:maxFps:maxConcurrent:));
+
 - (instancetype)init NS_UNAVAILABLE;
 + (instancetype)new NS_UNAVAILABLE;
 

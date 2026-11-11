@@ -285,7 +285,7 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 
 **Accept:** a TSan host stress test (500 animations churning) passes · 60 visible standalone stickers on the latest iOS simulator keep raster p90 ≤ 8 ms (spike C measured 5.9 ms; the Android emulator's gralloc is too slow for a standalone budget, see the report) · CPU drops to about 0 when everything is paused. Real-device budgets come from T3.5.
 
-### [ ] T3.4 Device tiers
+### [x] T3.4 Device tiers
 **Model** Sonnet 5.5 · `medium` · **Depends** T2.1, T3.3 · **Track** C
 - Tier detection from `deviceSignals()` (thresholds in `PLAN.md`), with runtime downgrade on thermal state or Low Power Mode changes. Overrides come from `StickerConfig`.
 

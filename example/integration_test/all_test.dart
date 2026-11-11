@@ -11,6 +11,7 @@ import 'cache_test.dart' as cache;
 import 'plugin_integration_test.dart' as plugin;
 import 'probe_test.dart' as probe;
 import 'texture_test.dart' as texture;
+import 'tier_test.dart' as tier;
 import 'visibility_test.dart' as visibility;
 
 void main() {
@@ -20,5 +21,6 @@ void main() {
   plugin.main();
   probe.main();
   texture.main();
+  tier.main();
   visibility.main();
 }

@@ -158,6 +158,13 @@ abstract class WebmTextureHostApi {
   /// Reads the current device signals.
   DeviceSignalsMessage deviceSignals();
 
+  /// Applies the tier's scheduler tunables (`wt_sched_set_options`, ADR 0018)
+  /// to the process-wide scheduler, creating it if needed. [workerCount] is
+  /// 1..8, [maxFps] is 1..240, and a [maxConcurrent] of 0 means no limit.
+  /// Changes reach running animations on the next scheduler round. Throws
+  /// `WT_ERR_INVALID_ARGUMENT` for a value out of range.
+  void setSchedulerOptions(int workerCount, int maxFps, int maxConcurrent);
+
   /// Sets the directory for the frame cache and returns the one in use, an
   /// absolute path. With a null [directory] nothing changes: the result is
   /// the current one, which starts as `webm_texture` under the app's cache
@@ -176,4 +183,9 @@ abstract class WebmTextureHostApi {
 @EventChannelApi()
 abstract class WebmTextureEvents {
   AnimationErrorMessage streamErrors();
+
+  /// A fresh reading of every device signal, sent when Low Power Mode, battery
+  /// saver or the thermal state changes while the app runs. Same content as
+  /// [WebmTextureHostApi.deviceSignals].
+  DeviceSignalsMessage streamDeviceSignals();
 }

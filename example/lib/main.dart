@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:webm_texture/webm_texture.dart';
 
 import 'checkerboard_page.dart';
 import 'chat_page.dart';
@@ -70,12 +71,36 @@ final _entries = [
   ),
 ];
 
-class _HomePage extends StatelessWidget {
+class _HomePage extends StatefulWidget {
   const _HomePage();
 
   @override
+  State<_HomePage> createState() => _HomePageState();
+}
+
+class _HomePageState extends State<_HomePage> {
+  @override
+  void initState() {
+    super.initState();
+    // Reads the device and applies its tier; the label below follows Low
+    // Power Mode and thermal changes.
+    WebmStickers.configure(const StickerConfig());
+  }
+
+  @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('webm_texture')),
+    appBar: AppBar(
+      title: const Text('webm_texture'),
+      actions: [
+        ValueListenableBuilder<StickerTier>(
+          valueListenable: WebmStickers.debugTier,
+          builder: (_, tier, _) => Padding(
+            padding: const EdgeInsets.only(right: 16),
+            child: Text('tier ${tier.name}', key: const Key('tierLabel')),
+          ),
+        ),
+      ],
+    ),
     body: ListView(
       children: [
         for (final e in _entries)

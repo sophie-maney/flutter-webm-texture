@@ -50,6 +50,31 @@ class FakeHost extends WebmTextureHostApi {
   Future<void> seekToFrame(int animId, int frame) async =>
       seekCalls.add((animId, frame));
 
+  /// What [deviceSignals] answers with; null makes it fail like a platform
+  /// that doesn't report them.
+  DeviceSignalsMessage? signals = DeviceSignalsMessage(
+    ramMb: 8192,
+    cores: 8,
+    lowRam: false,
+    perfClass: PerfClassMessage.unknown,
+    lowPower: false,
+    thermal: ThermalStateMessage.nominal,
+  );
+
+  @override
+  Future<DeviceSignalsMessage> deviceSignals() async =>
+      signals ?? (throw StateError('no signals'));
+
+  /// The arguments of each [setSchedulerOptions] call.
+  final List<(int, int, int)> schedulerCalls = [];
+
+  @override
+  Future<void> setSchedulerOptions(
+    int workerCount,
+    int maxFps,
+    int maxConcurrent,
+  ) async => schedulerCalls.add((workerCount, maxFps, maxConcurrent));
+
   /// What [configureCache] answers with.
   String cacheDirectory = '/fake/cache';
 

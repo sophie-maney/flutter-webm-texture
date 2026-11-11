@@ -87,7 +87,7 @@ void AttachThread(void* vm, const char* name) {
 void DetachThread(void* vm) { static_cast<JavaVM*>(vm)->DetachCurrentThread(); }
 
 // The process-wide scheduler, or nullptr if it couldn't start. It lives as
-// long as the process. T3.4 sets its options from the device tier.
+// long as the process. setSchedulerOptions applies the device tier to it.
 wt_sched* SharedScheduler(JNIEnv* env) {
   static wt_sched* const sched = [env] {
     JavaVM* vm = nullptr;
@@ -315,6 +315,26 @@ JNIEXPORT void JNICALL Java_com_example_webm_1texture_WtNative_nativeDestroy(
   h->player.reset();
   h->relay->Release(env);
   delete h;
+}
+
+// Applies the device tier's tunables to the shared scheduler (creating it if
+// needed); running animations follow on the next round. Returns a wt_status:
+// WT_ERR_INVALID_ARGUMENT for a value out of range.
+// Thread: platform main thread.
+JNIEXPORT jint JNICALL
+Java_com_example_webm_1texture_WtNative_nativeSetSchedulerOptions(
+    JNIEnv* env, jclass, jint worker_count, jint max_fps, jint max_concurrent) {
+  if (worker_count < 1 || max_fps < 1 || max_concurrent < 0) {
+    return WT_ERR_INVALID_ARGUMENT;
+  }
+  wt_sched* sched = SharedScheduler(env);
+  if (sched == nullptr) return WT_ERR_NO_MEMORY;
+  wt_sched_options options;
+  wt_sched_options_init_default(&options);
+  options.worker_count = static_cast<uint32_t>(worker_count);
+  options.max_fps = static_cast<uint32_t>(max_fps);
+  options.max_concurrent = static_cast<uint32_t>(max_concurrent);
+  return wt_sched_set_options(sched, &options);
 }
 
 // The core's name for a status code, e.g. "WT_ERR_LIMIT".

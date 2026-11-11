@@ -521,6 +521,12 @@ protocol WebmTextureHostApi {
   func dispose(animId: Int64) throws
   /// Reads the current device signals.
   func deviceSignals() throws -> DeviceSignalsMessage
+  /// Applies the tier's scheduler tunables (`wt_sched_set_options`, ADR 0018)
+  /// to the process-wide scheduler, creating it if needed. [workerCount] is
+  /// 1..8, [maxFps] is 1..240, and a [maxConcurrent] of 0 means no limit.
+  /// Changes reach running animations on the next scheduler round. Throws
+  /// `WT_ERR_INVALID_ARGUMENT` for a value out of range.
+  func setSchedulerOptions(workerCount: Int64, maxFps: Int64, maxConcurrent: Int64) throws
   /// Sets the directory for the frame cache and returns the one in use, an
   /// absolute path. With a null [directory] nothing changes: the result is
   /// the current one, which starts as `webm_texture` under the app's cache
@@ -662,6 +668,28 @@ class WebmTextureHostApiSetup {
     } else {
       deviceSignalsChannel.setMessageHandler(nil)
     }
+    /// Applies the tier's scheduler tunables (`wt_sched_set_options`, ADR 0018)
+    /// to the process-wide scheduler, creating it if needed. [workerCount] is
+    /// 1..8, [maxFps] is 1..240, and a [maxConcurrent] of 0 means no limit.
+    /// Changes reach running animations on the next scheduler round. Throws
+    /// `WT_ERR_INVALID_ARGUMENT` for a value out of range.
+    let setSchedulerOptionsChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.webm_texture.WebmTextureHostApi.setSchedulerOptions\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      setSchedulerOptionsChannel.setMessageHandler { message, reply in
+        let args = message as! [Any?]
+        let workerCountArg = args[0] as! Int64
+        let maxFpsArg = args[1] as! Int64
+        let maxConcurrentArg = args[2] as! Int64
+        do {
+          try api.setSchedulerOptions(workerCount: workerCountArg, maxFps: maxFpsArg, maxConcurrent: maxConcurrentArg)
+          reply(wrapResult(nil))
+        } catch {
+          reply(wrapError(error))
+        }
+      }
+    } else {
+      setSchedulerOptionsChannel.setMessageHandler(nil)
+    }
     /// Sets the directory for the frame cache and returns the one in use, an
     /// absolute path. With a null [directory] nothing changes: the result is
     /// the current one, which starts as `webm_texture` under the app's cache
@@ -774,6 +802,44 @@ class StreamErrorsStreamHandler: PigeonEventChannelWrapper<AnimationErrorMessage
     streamHandler: StreamErrorsStreamHandler
   ) -> StreamErrorsEventChannel {
     let channel = StreamErrorsEventChannel(messenger: messenger, instanceName: instanceName)
+    channel.setStreamHandler(streamHandler)
+    return channel
+  }
+}
+      
+/// A typed channel for communicating with the Flutter application using asynchronous event streams.
+class StreamDeviceSignalsEventChannel {
+  private let channel: FlutterEventChannel
+
+  init(messenger: FlutterBinaryMessenger, instanceName: String = "") {
+    var channelName = "dev.flutter.pigeon.webm_texture.WebmTextureEvents.streamDeviceSignals"
+    if !instanceName.isEmpty {
+      channelName += ".\(instanceName)"
+    }
+    channel = FlutterEventChannel(name: channelName, binaryMessenger: messenger, codec: messagesPigeonMethodCodec)
+  }
+
+  /// Sets the stream handler for this channel, replacing any previous handler.
+  /// 
+  /// Pass `nil` to remove the event channel registration.
+  func setStreamHandler(_ streamHandler: StreamDeviceSignalsStreamHandler?) {
+    let internalHandler = streamHandler.map({ PigeonStreamHandler<DeviceSignalsMessage>(wrapper: $0) })
+    channel.setStreamHandler(internalHandler)
+  }
+}
+
+class StreamDeviceSignalsStreamHandler: PigeonEventChannelWrapper<DeviceSignalsMessage> {
+  /// Creates and returns a new event channel that calls the provided stream handler.
+  /// 
+  /// The returned channel can be stored to allow changing or removing the stream handler.
+  /// If the handler will not be changed for the lifetime of the engine associated with the messenger,
+  /// the return value can be ignored.
+  @discardableResult static func register(
+    with messenger: FlutterBinaryMessenger,
+    instanceName: String = "",
+    streamHandler: StreamDeviceSignalsStreamHandler
+  ) -> StreamDeviceSignalsEventChannel {
+    let channel = StreamDeviceSignalsEventChannel(messenger: messenger, instanceName: instanceName)
     channel.setStreamHandler(streamHandler)
     return channel
   }
