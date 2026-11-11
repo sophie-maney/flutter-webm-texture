@@ -10,11 +10,19 @@
 namespace wt {
 
 // A playback cursor over frames, like wt_anim. The scheduler calls at most
-// one method at a time, from any of its workers. frame_count and
-// frame_duration_ms must not change.
+// one method at a time, from any of its workers. frame_count,
+// frame_duration_ms and GetOutputSize must not change, and may be called from
+// any thread at any time (the atlas reads the size while a frame decodes).
 class FrameSource {
  public:
   virtual ~FrameSource() = default;
+
+  // The size, in pixels, every frame is drawn at; 0 x 0 when unknown. An
+  // atlas (src/atlas/compositor.h) sizes the player's slot from it.
+  virtual void GetOutputSize(uint32_t* width, uint32_t* height) const {
+    *width = 0;
+    *height = 0;
+  }
 
   // At least 1.
   virtual uint32_t frame_count() const = 0;

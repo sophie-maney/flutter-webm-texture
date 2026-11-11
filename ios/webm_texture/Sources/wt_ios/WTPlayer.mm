@@ -3,8 +3,11 @@
 #include <limits.h>
 #include <pthread.h>
 
+#include <atomic>
 #include <memory>
 #include <mutex>
+
+#import "WTPlayer+Internal.h"
 
 #include "wt_api.h"
 
@@ -48,18 +51,6 @@ void SetThreadQos(void *, const char *) {
   pthread_set_qos_class_self_np(QOS_CLASS_USER_INITIATED, 0);
 }
 
-// The process-wide scheduler, or NULL if it couldn't start. It lives as long
-// as the process. T3.4 sets its options from the device tier.
-wt_sched *SharedScheduler() {
-  static wt_sched *sched = nullptr;
-  static dispatch_once_t once;
-  dispatch_once(&once, ^{
-    wt_sched_hooks hooks = {};
-    hooks.thread_start = &SetThreadQos;
-    if (wt_sched_create(nullptr, &hooks, &sched) != WT_OK) sched = nullptr;
-  });
-  return sched;
-}
 
 CVPixelBufferPoolRef MakePool(uint32_t width, uint32_t height) {
   NSDictionary *attrs = @{
@@ -78,6 +69,20 @@ CVPixelBufferPoolRef MakePool(uint32_t width, uint32_t height) {
 }
 
 }  // namespace
+
+// The process-wide scheduler, or NULL if it couldn't start. It lives as long
+// as the process. T3.4 sets its options from the device tier; atlases
+// (WTAtlas.mm) use it too.
+wt_sched *WTSharedScheduler(void) {
+  static wt_sched *sched = nullptr;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    wt_sched_hooks hooks = {};
+    hooks.thread_start = &SetThreadQos;
+    if (wt_sched_create(nullptr, &hooks, &sched) != WT_OK) sched = nullptr;
+  });
+  return sched;
+}
 
 // The wt_sink callbacks, defined inside the @implementation for ivar access.
 static wt_status AcquireBuffer(void *context, wt_buffer *out);
@@ -102,6 +107,9 @@ static void ReportError(void *context, wt_status status);
 
   // Worker only (one frame in flight): the locked buffer being written.
   CVPixelBufferRef _pending;
+
+  // Whether frames for the player's own buffers are shown (setHasTarget:).
+  std::atomic<bool> _hasTarget;
 }
 
 - (nullable instancetype)initWithData:(NSData *)data
@@ -195,7 +203,7 @@ static void ReportError(void *context, wt_status status);
     _pool = MakePool(outW, outH);
     if (_pool == NULL) status = WT_ERR_NO_MEMORY;
   }
-  wt_sched *sched = SharedScheduler();
+  wt_sched *sched = WTSharedScheduler();
   if (status == WT_OK && sched == nullptr) status = WT_ERR_NO_MEMORY;
   if (status != WT_OK) {
     if (error) *error = StatusError(status);
@@ -207,6 +215,7 @@ static void ReportError(void *context, wt_status status);
   _onFrame = [onFrame copy];
   _onError = [onError copy];
   _poolAux = @{(id)kCVPixelBufferPoolAllocationThresholdKey : @(kMaxBuffers)};
+  _hasTarget.store(true);
 
   wt_sink sink = {};
   sink.context = (__bridge void *)self;
@@ -241,7 +250,7 @@ static void ReportError(void *context, wt_status status);
   if (workerCount < 1 || maxFps < 1 || maxConcurrent < 0) {
     return WT_ERR_INVALID_ARGUMENT;
   }
-  wt_sched *sched = SharedScheduler();
+  wt_sched *sched = WTSharedScheduler();
   if (sched == nullptr) return WT_ERR_NO_MEMORY;
   wt_sched_options options;
   wt_sched_options_init_default(&options);
@@ -278,6 +287,32 @@ static void ReportError(void *context, wt_status status);
   return wt_player_seek(_player, frame);
 }
 
+- (void)setHasTarget:(BOOL)hasTarget {
+  _hasTarget.store(hasTarget);
+  if (!hasTarget) return;
+  std::lock_guard<std::mutex> lk(_playerMu);
+  // Lets a parked player draw again (it got WT_NO_TARGET meanwhile).
+  if (_player != nullptr) wt_player_redraw(_player);
+}
+
+- (void)dropFrames {
+  CVPixelBufferRef latest;
+  {
+    std::lock_guard<std::mutex> lk(_latestMu);
+    latest = _latest;
+    _latest = NULL;
+  }
+  if (latest != NULL) CVPixelBufferRelease(latest);
+  if (_pool != NULL) {
+    CVPixelBufferPoolFlush(_pool, kCVPixelBufferPoolFlushExcessBuffers);
+  }
+}
+
+- (int32_t)withPlayerHandle:(int32_t (^)(wt_player *))block {
+  std::lock_guard<std::mutex> lk(_playerMu);
+  return block(_player);
+}
+
 - (void)close {
   wt_player *player;
   {
@@ -311,6 +346,8 @@ static void ReportError(void *context, wt_status status);
 
 static wt_status AcquireBuffer(void *context, wt_buffer *out) {
   __unsafe_unretained WTPlayer *player = (__bridge WTPlayer *)context;
+  // Nothing shows these buffers: wait for setHasTarget:YES.
+  if (!player->_hasTarget.load()) return WT_NO_TARGET;
   CVPixelBufferRef buffer = NULL;
   const CVReturn rv = CVPixelBufferPoolCreatePixelBufferWithAuxAttributes(
       NULL, player->_pool, (__bridge CFDictionaryRef)player->_poolAux, &buffer);

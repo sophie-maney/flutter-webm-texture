@@ -253,6 +253,246 @@ class WtBindings {
       _lookup<ffi.NativeFunction<ffi.Int32 Function()>>('wt_api_version');
   late final _wt_api_version = _wt_api_versionPtr.asFunction<int Function()>();
 
+  /// Moves player (on the atlas's scheduler) into a slot of its output size:
+  /// the lowest page with a free slot for that size, else the first page that
+  /// can grow or reuse rows for it, else a new page. Waits for the player's
+  /// frame in flight; from then on its frames go to the slot (its own sink's
+  /// error callback still reports decode failures) and the frame that should be
+  /// showing is drawn right away. A page that grew wants a new target (see
+  /// wt_atlas_page_info.wanted_height); until it has one, the new slot isn't
+  /// shown.
+  ///
+  /// Returns WT_ERR_INVALID_ARGUMENT for a player already in an atlas, on
+  /// another scheduler, or whose size can never fit a page, and WT_ERR_LIMIT
+  /// when every page is full and there are max_pages of them (nothing changes;
+  /// keep the player standalone).
+  /// Thread: any thread but the scheduler's own, not concurrently with another
+  /// call on atlas or player.
+  int wt_atlas_attach(
+    ffi.Pointer<wt_atlas> atlas,
+    ffi.Pointer<wt_player> player,
+    ffi.Pointer<wt_atlas_slot> out_slot,
+  ) {
+    return _wt_atlas_attach(atlas, player, out_slot);
+  }
+
+  late final _wt_atlas_attachPtr =
+      _lookup<
+        ffi.NativeFunction<
+          wt_status Function(
+            ffi.Pointer<wt_atlas>,
+            ffi.Pointer<wt_player>,
+            ffi.Pointer<wt_atlas_slot>,
+          )
+        >
+      >('wt_atlas_attach');
+  late final _wt_atlas_attach = _wt_atlas_attachPtr
+      .asFunction<
+        int Function(
+          ffi.Pointer<wt_atlas>,
+          ffi.Pointer<wt_player>,
+          ffi.Pointer<wt_atlas_slot>,
+        )
+      >();
+
+  /// Creates an empty atlas on sched (which must outlive it). Pages are created
+  /// as wt_atlas_attach needs them. options: NULL for the defaults.
+  /// Returns WT_ERR_INVALID_ARGUMENT for an option out of range.
+  /// Thread: any thread.
+  int wt_atlas_create(
+    ffi.Pointer<wt_sched> sched,
+    ffi.Pointer<wt_atlas_options> options,
+    ffi.Pointer<ffi.Pointer<wt_atlas>> out_atlas,
+  ) {
+    return _wt_atlas_create(sched, options, out_atlas);
+  }
+
+  late final _wt_atlas_createPtr =
+      _lookup<
+        ffi.NativeFunction<
+          wt_status Function(
+            ffi.Pointer<wt_sched>,
+            ffi.Pointer<wt_atlas_options>,
+            ffi.Pointer<ffi.Pointer<wt_atlas>>,
+          )
+        >
+      >('wt_atlas_create');
+  late final _wt_atlas_create = _wt_atlas_createPtr
+      .asFunction<
+        int Function(
+          ffi.Pointer<wt_sched>,
+          ffi.Pointer<wt_atlas_options>,
+          ffi.Pointer<ffi.Pointer<wt_atlas>>,
+        )
+      >();
+
+  /// Gives every attached player back its own sink (as wt_atlas_detach), waits
+  /// for presents in flight, and frees the atlas. No target callback runs once
+  /// this returns, so the glue may release every page's buffers. NULL does
+  /// nothing.
+  /// Thread: any thread but the scheduler's own, not concurrently with another
+  /// call on atlas or on its players.
+  void wt_atlas_destroy(ffi.Pointer<wt_atlas> atlas) {
+    return _wt_atlas_destroy(atlas);
+  }
+
+  late final _wt_atlas_destroyPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Pointer<wt_atlas>)>>(
+        'wt_atlas_destroy',
+      );
+  late final _wt_atlas_destroy = _wt_atlas_destroyPtr
+      .asFunction<void Function(ffi.Pointer<wt_atlas>)>();
+
+  /// Frees player's slot and gives it back the sink it had before
+  /// wt_atlas_attach, waiting for its frame in flight; the frame that should be
+  /// showing is then drawn into that sink. The page may now want a smaller
+  /// target, or none. Returns WT_ERR_INVALID_ARGUMENT when player isn't in this
+  /// atlas.
+  /// Thread: as wt_atlas_attach.
+  int wt_atlas_detach(
+    ffi.Pointer<wt_atlas> atlas,
+    ffi.Pointer<wt_player> player,
+  ) {
+    return _wt_atlas_detach(atlas, player);
+  }
+
+  late final _wt_atlas_detachPtr =
+      _lookup<
+        ffi.NativeFunction<
+          wt_status Function(ffi.Pointer<wt_atlas>, ffi.Pointer<wt_player>)
+        >
+      >('wt_atlas_detach');
+  late final _wt_atlas_detach = _wt_atlas_detachPtr
+      .asFunction<
+        int Function(ffi.Pointer<wt_atlas>, ffi.Pointer<wt_player>)
+      >();
+
+  /// Fills *out_info for page index `page` (< wt_atlas_page_count).
+  /// Thread: any thread, not concurrently with wt_atlas_destroy. Never waits for
+  /// a frame or a present.
+  int wt_atlas_get_page(
+    ffi.Pointer<wt_atlas> atlas,
+    int page,
+    ffi.Pointer<wt_atlas_page_info> out_info,
+  ) {
+    return _wt_atlas_get_page(atlas, page, out_info);
+  }
+
+  late final _wt_atlas_get_pagePtr =
+      _lookup<
+        ffi.NativeFunction<
+          wt_status Function(
+            ffi.Pointer<wt_atlas>,
+            ffi.Uint32,
+            ffi.Pointer<wt_atlas_page_info>,
+          )
+        >
+      >('wt_atlas_get_page');
+  late final _wt_atlas_get_page = _wt_atlas_get_pagePtr
+      .asFunction<
+        int Function(
+          ffi.Pointer<wt_atlas>,
+          int,
+          ffi.Pointer<wt_atlas_page_info>,
+        )
+      >();
+
+  /// Fills *out with the defaults listed in wt_atlas_options. Does nothing when
+  /// out is NULL.
+  /// Thread: any thread.
+  void wt_atlas_options_init_default(ffi.Pointer<wt_atlas_options> out) {
+    return _wt_atlas_options_init_default(out);
+  }
+
+  late final _wt_atlas_options_init_defaultPtr =
+      _lookup<
+        ffi.NativeFunction<ffi.Void Function(ffi.Pointer<wt_atlas_options>)>
+      >('wt_atlas_options_init_default');
+  late final _wt_atlas_options_init_default = _wt_atlas_options_init_defaultPtr
+      .asFunction<void Function(ffi.Pointer<wt_atlas_options>)>();
+
+  /// Pages created so far; a page's index never changes. 0 for NULL.
+  /// Thread: any thread, not concurrently with wt_atlas_destroy.
+  int wt_atlas_page_count(ffi.Pointer<wt_atlas> atlas) {
+    return _wt_atlas_page_count(atlas);
+  }
+
+  late final _wt_atlas_page_countPtr =
+      _lookup<ffi.NativeFunction<ffi.Uint32 Function(ffi.Pointer<wt_atlas>)>>(
+        'wt_atlas_page_count',
+      );
+  late final _wt_atlas_page_count = _wt_atlas_page_countPtr
+      .asFunction<int Function(ffi.Pointer<wt_atlas>)>();
+
+  /// Sets the buffer queue page `page` presents into, waiting for a present in
+  /// flight on the old one: once this returns, the old target's callbacks are
+  /// never called again. target is copied; NULL leaves the page without one
+  /// (say, while the surface is gone). height is the target's buffer height, a
+  /// multiple of 16 in 16..options.max_height (normally wanted_height); with a
+  /// NULL target it is the height the page will have when a target comes back,
+  /// or 0 when the page has no buffers any more. A new target is presented into
+  /// right away with every live slot that fits in its height.
+  /// Returns WT_ERR_INVALID_ARGUMENT for an unknown page, a bad height, or a
+  /// target without acquire or present.
+  /// Thread: any thread but the scheduler's own, not concurrently with another
+  /// call on atlas.
+  int wt_atlas_set_target(
+    ffi.Pointer<wt_atlas> atlas,
+    int page,
+    ffi.Pointer<wt_atlas_target> target,
+    int height,
+  ) {
+    return _wt_atlas_set_target(atlas, page, target, height);
+  }
+
+  late final _wt_atlas_set_targetPtr =
+      _lookup<
+        ffi.NativeFunction<
+          wt_status Function(
+            ffi.Pointer<wt_atlas>,
+            ffi.Uint32,
+            ffi.Pointer<wt_atlas_target>,
+            ffi.Uint32,
+          )
+        >
+      >('wt_atlas_set_target');
+  late final _wt_atlas_set_target = _wt_atlas_set_targetPtr
+      .asFunction<
+        int Function(
+          ffi.Pointer<wt_atlas>,
+          int,
+          ffi.Pointer<wt_atlas_target>,
+          int,
+        )
+      >();
+
+  /// The page whose current target shows player's slot: its index once a
+  /// present into the target last given by wt_atlas_set_target has shown a
+  /// frame of player in the slot, else -1. It is -1 before the slot's first
+  /// frame, after a new target until a present into it, and for a player that
+  /// isn't in atlas (or NULL arguments). Callers keep showing what they showed
+  /// before (a placeholder, an older texture) until then: until a present
+  /// wrote it, a slot's area of the target's buffers holds stale pixels.
+  /// Thread: as wt_atlas_attach (may wait while another thread attaches);
+  /// never waits for a frame or a present.
+  int wt_atlas_shown_page(
+    ffi.Pointer<wt_atlas> atlas,
+    ffi.Pointer<wt_player> player,
+  ) {
+    return _wt_atlas_shown_page(atlas, player);
+  }
+
+  late final _wt_atlas_shown_pagePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<wt_atlas>, ffi.Pointer<wt_player>)
+        >
+      >('wt_atlas_shown_page');
+  late final _wt_atlas_shown_page = _wt_atlas_shown_pagePtr
+      .asFunction<
+        int Function(ffi.Pointer<wt_atlas>, ffi.Pointer<wt_player>)
+      >();
+
   /// Deletes every cache file and temporary in dir. *out_removed (may be NULL)
   /// receives the cache files deleted. Animations that have a file open keep
   /// playing from it; a writer whose temporary was deleted gives up quietly.
@@ -452,7 +692,8 @@ class WtBindings {
 
   /// Removes player from its scheduler and destroys it and its animation. Waits
   /// for a frame in flight, so no sink callback runs once this returns and the
-  /// sink's context may be freed. NULL does nothing.
+  /// sink's context may be freed. A player attached to an atlas leaves it first
+  /// (its slot is freed). NULL does nothing.
   /// Thread: any thread but the scheduler's own (not from a sink callback), and
   /// not concurrently with another call on player.
   void wt_player_destroy(ffi.Pointer<wt_player> player) {
@@ -770,7 +1011,9 @@ class WtBindings {
       .asFunction<ffi.Pointer<ffi.Char> Function(int)>();
 }
 
-const int WT_API_VERSION = 4;
+const int WT_API_VERSION = 6;
+
+const int WT_ATLAS_MAX_PAGES = 16;
 
 const int WT_BUSY = 2;
 
@@ -826,6 +1069,244 @@ const int WT_SCHED_MAX_WORKERS = 8;
 
 /// A playback cursor that decodes one source at one output size. Opaque.
 final class wt_anim extends ffi.Opaque {}
+
+/// Atlas handle. Opaque.
+final class wt_atlas extends ffi.Opaque {}
+
+/// Layout of an atlas's pages. Start from wt_atlas_options_init_default.
+final class wt_atlas_options extends ffi.Struct {
+  /// Page width in pixels, 16..2048, rounded down to a multiple of 16.
+  /// Default 2048.
+  @ffi.Uint32()
+  external int width;
+
+  /// The tallest a page may grow, 16..2048, rounded down to a multiple of 16.
+  /// Default 2048.
+  @ffi.Uint32()
+  external int max_height;
+
+  /// Transparent border on every side of a slot's content, 2..64. Default 2.
+  @ffi.Uint32()
+  external int gutter;
+
+  /// Most pages, 1..WT_ATLAS_MAX_PAGES. Default 4.
+  @ffi.Uint32()
+  external int max_pages;
+
+  /// WT_PIXEL_FORMAT_* of the pages' buffers. Default RGBA8888.
+  @wt_pixel_format()
+  external int format;
+
+  static ffi.Pointer<wt_atlas_options> $allocate(
+    ffi.Allocator $allocator, {
+    required int width,
+    required int max_height,
+    required int gutter,
+    required int max_pages,
+    required int format,
+  }) => $allocator<wt_atlas_options>()
+    ..ref.width = width
+    ..ref.max_height = max_height
+    ..ref.gutter = gutter
+    ..ref.max_pages = max_pages
+    ..ref.format = format;
+}
+
+/// What wt_atlas_get_page reports.
+final class wt_atlas_page_info extends ffi.Struct {
+  /// Page width (options.width after rounding).
+  @ffi.Uint32()
+  external int width;
+
+  /// Rows the slots use, a multiple of 16; 0 with no slots.
+  @ffi.Uint32()
+  external int used_height;
+
+  /// The buffer height the page should have: used_height, or the current
+  /// height while the rows freed are fewer than max(128, height / 4) (so
+  /// pages don't flip-flop), or 0 with no slots (release the target). When
+  /// it differs from `height`, give the page a new target of this height.
+  @ffi.Uint32()
+  external int wanted_height;
+
+  /// The height last passed to wt_atlas_set_target.
+  @ffi.Uint32()
+  external int height;
+
+  /// Whether the page has a target now.
+  @ffi.Uint32()
+  external int has_target;
+
+  /// Slots in use.
+  @ffi.Uint32()
+  external int live_slots;
+
+  /// Distinct buffers the current target handed out (by buffer id), and
+  /// their row stride in bytes.
+  @ffi.Uint32()
+  external int buffers;
+
+  @ffi.Uint32()
+  external int buffer_stride;
+
+  /// buffers x buffer_stride x height: the target's buffer memory.
+  @ffi.Uint64()
+  external int buffer_bytes;
+
+  /// CPU memory: the slots' latest frames and the spare frames for decoding.
+  @ffi.Uint64()
+  external int cpu_bytes;
+
+  /// Presents shown, and presents that failed (no buffer, a bad buffer).
+  @ffi.Uint64()
+  external int presents;
+
+  @ffi.Uint64()
+  external int present_failures;
+
+  static ffi.Pointer<wt_atlas_page_info> $allocate(
+    ffi.Allocator $allocator, {
+    required int width,
+    required int used_height,
+    required int wanted_height,
+    required int height,
+    required int has_target,
+    required int live_slots,
+    required int buffers,
+    required int buffer_stride,
+    required int buffer_bytes,
+    required int cpu_bytes,
+    required int presents,
+    required int present_failures,
+  }) => $allocator<wt_atlas_page_info>()
+    ..ref.width = width
+    ..ref.used_height = used_height
+    ..ref.wanted_height = wanted_height
+    ..ref.height = height
+    ..ref.has_target = has_target
+    ..ref.live_slots = live_slots
+    ..ref.buffers = buffers
+    ..ref.buffer_stride = buffer_stride
+    ..ref.buffer_bytes = buffer_bytes
+    ..ref.cpu_bytes = cpu_bytes
+    ..ref.presents = presents
+    ..ref.present_failures = present_failures;
+}
+
+/// Where an attached player's frames go, in page pixels (origin top left).
+final class wt_atlas_slot extends ffi.Struct {
+  /// Index of the page, 0..wt_atlas_page_count - 1.
+  @ffi.Uint32()
+  external int page;
+
+  /// The content rect: the player's output size.
+  @ffi.Uint32()
+  external int x;
+
+  @ffi.Uint32()
+  external int y;
+
+  @ffi.Uint32()
+  external int width;
+
+  @ffi.Uint32()
+  external int height;
+
+  /// The whole slot: content plus a transparent gutter of at least `gutter`
+  /// px on every side, 16-px aligned.
+  @ffi.Uint32()
+  external int outer_x;
+
+  @ffi.Uint32()
+  external int outer_y;
+
+  @ffi.Uint32()
+  external int outer_width;
+
+  @ffi.Uint32()
+  external int outer_height;
+
+  static ffi.Pointer<wt_atlas_slot> $allocate(
+    ffi.Allocator $allocator, {
+    required int page,
+    required int x,
+    required int y,
+    required int width,
+    required int height,
+    required int outer_x,
+    required int outer_y,
+    required int outer_width,
+    required int outer_height,
+  }) => $allocator<wt_atlas_slot>()
+    ..ref.page = page
+    ..ref.x = x
+    ..ref.y = y
+    ..ref.width = width
+    ..ref.height = height
+    ..ref.outer_x = outer_x
+    ..ref.outer_y = outer_y
+    ..ref.outer_width = outer_width
+    ..ref.outer_height = outer_height;
+}
+
+/// A page's platform buffer queue. The core calls these on scheduler workers;
+/// see "Callbacks" above.
+final class wt_atlas_target extends ffi.Struct {
+  external ffi.Pointer<ffi.Void> context;
+
+  /// Provides a buffer for the whole page: width x height (the height given
+  /// to wt_atlas_set_target) in options.format, rows top to bottom, its
+  /// contents undefined. *out_buffer_id identifies the underlying buffer (an
+  /// IOSurface ID, a gralloc address) for the memory stats; 0 uses
+  /// out->pixels instead. Return WT_OK after filling *out; present is then
+  /// called exactly once, on the same thread. WT_BUSY retries a period later,
+  /// WT_NO_TARGET waits for wt_atlas_set_target, and an error retries about
+  /// 100 ms later. Required.
+  external ffi.Pointer<
+    ffi.NativeFunction<
+      wt_status Function(
+        ffi.Pointer<ffi.Void> context,
+        ffi.Pointer<wt_buffer> out,
+        ffi.Pointer<ffi.Uint64> out_buffer_id,
+      )
+    >
+  >
+  acquire;
+
+  /// Ends what acquire started. With WT_OK the buffer holds the whole page:
+  /// show it. Otherwise the core rejected the buffer (wrong size or format)
+  /// and wrote nothing. Required.
+  external ffi.Pointer<
+    ffi.NativeFunction<
+      ffi.Void Function(ffi.Pointer<ffi.Void> context, wt_status status)
+    >
+  >
+  present;
+
+  static ffi.Pointer<wt_atlas_target> $allocate(
+    ffi.Allocator $allocator, {
+    required ffi.Pointer<ffi.Void> context,
+    required ffi.Pointer<
+      ffi.NativeFunction<
+        wt_status Function(
+          ffi.Pointer<ffi.Void> context,
+          ffi.Pointer<wt_buffer> out,
+          ffi.Pointer<ffi.Uint64> out_buffer_id,
+        )
+      >
+    >
+    acquire,
+    required ffi.Pointer<
+      ffi.NativeFunction<
+        ffi.Void Function(ffi.Pointer<ffi.Void> context, wt_status status)
+      >
+    >
+    present,
+  }) => $allocator<wt_atlas_target>()
+    ..ref.context = context
+    ..ref.acquire = acquire
+    ..ref.present = present;
+}
 
 /// A destination for one frame, filled by wt_sink.acquire.
 final class wt_buffer extends ffi.Struct {

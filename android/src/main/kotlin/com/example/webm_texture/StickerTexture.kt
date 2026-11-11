@@ -6,11 +6,14 @@ import io.flutter.view.TextureRegistry
 private const val TAG = "WebmTexture"
 
 /**
- * One animation shown through one `SurfaceProducer` (T2.2).
+ * One animation shown through one `SurfaceProducer` (T2.2), or through a slot
+ * of a [StickerAtlas] page (T4.2).
  *
  * The native player (a decoder on the process-wide scheduler, T3.3) is
  * created first, off the main thread; [attach] then gives it the producer's
- * surface. Every method here runs on the platform main thread.
+ * surface. While the animation is in an atlas it has no producer of its own
+ * ([retireProducer]); leaving the atlas gives it a new one. Every method here
+ * runs on the platform main thread.
  *
  * Lifecycle rules from spike B ([ADR 0005](docs/decisions/0005-no-ui-image-fallback.md)):
  * the producer uses `SurfaceLifecycle.resetInBackground`; [onSurfaceCleanup]
@@ -24,7 +27,22 @@ internal class StickerTexture(
     private var handle = 0L
     private var producer: TextureRegistry.SurfaceProducer? = null
 
+    /** The output size, known once [createNative] succeeded. */
+    var width = 0
+        private set
+    var height = 0
+        private set
+
+    /** The atlas the animation draws into, if any (managed by the plugin). */
+    var atlas: StickerAtlas? = null
+
     val textureId: Long get() = producer?.id() ?: -1
+
+    /** The native handle for `WtNative.nativeAtlas*`; 0 after [dispose]. */
+    val nativeHandle: Long get() = handle
+
+    /** Whether the animation has a producer of its own. */
+    val hasProducer: Boolean get() = producer != null
 
     /**
      * Creates the native player. Returns `{status, width, height, frames}`
@@ -42,6 +60,8 @@ internal class StickerTexture(
         handle = WtNative.nativeCreate(
             this, source.bytes, source.path, width, height, loop, cacheDir, sourceKey, out,
         )
+        this.width = out[WtNative.OUT_WIDTH]
+        this.height = out[WtNative.OUT_HEIGHT]
         return out
     }
 
@@ -71,6 +91,19 @@ internal class StickerTexture(
     /** Shows [frame] next; returns a `wt_status`. */
     fun seekToFrame(frame: Int): Int =
         if (handle != 0L) WtNative.nativeSeek(handle, frame) else WtNative.WT_OK
+
+    /**
+     * Gives up the producer once the animation draws into an atlas: the
+     * native side forgets its window, and the caller keeps the producer
+     * (showing its last frame) until Dart stops drawing it.
+     */
+    fun retireProducer(): TextureRegistry.SurfaceProducer? {
+        val p = producer ?: return null
+        p.setCallback(null)
+        if (handle != 0L) WtNative.nativeSetSurface(handle, null)
+        producer = null
+        return p
+    }
 
     /** Stops drawing, then releases the producer. Safe to call twice. */
     fun dispose() {

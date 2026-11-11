@@ -97,8 +97,8 @@ class RenderStickerVisibility extends RenderProxyBox {
   }
 
   /// The part of [box] that is on screen, in [box]'s coordinates, or null
-  /// when none of it is.
-  @visibleForTesting
+  /// when none of it is. Needs a laid-out tree: call it after layout (in
+  /// paint or after the frame).
   static Rect? visibleRect(RenderBox box) {
     if (!box.attached || !box.hasSize || box.size.isEmpty) return null;
     // Box to current ancestor, and the visible part in that ancestor's

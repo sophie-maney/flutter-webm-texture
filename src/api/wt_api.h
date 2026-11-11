@@ -60,9 +60,9 @@
  * later phase adds before it fills them in.
  * T3.1 added wt_anim_create_cached (WT_API_VERSION 2), T3.2 the cache
  * directory functions (WT_API_VERSION 3), T3.3 the scheduler (wt_sched,
- * wt_player and the WT_BUSY / WT_NO_TARGET codes, WT_API_VERSION 4). The
- * atlas (Phase 4) will add more functions; they won't change the existing
- * ones without bumping WT_API_VERSION.
+ * wt_player and the WT_BUSY / WT_NO_TARGET codes, WT_API_VERSION 4), T4.2
+ * the atlas compositor (wt_atlas, WT_API_VERSION 5), T4.3
+ * wt_atlas_shown_page (WT_API_VERSION 6).
  */
 #ifndef WT_API_H_
 #define WT_API_H_
@@ -81,7 +81,7 @@ extern "C" {
  * Bumped whenever a type or a signature in this header changes, so the Dart
  * bindings can refuse a mismatched native library at load time.
  */
-#define WT_API_VERSION 4
+#define WT_API_VERSION 6
 
 /*
  * Result codes. 0 is success, positive values are non-error outcomes and
@@ -664,7 +664,8 @@ WT_API wt_status wt_player_create(wt_sched* sched, wt_anim* anim, bool loop,
 /*
  * Removes player from its scheduler and destroys it and its animation. Waits
  * for a frame in flight, so no sink callback runs once this returns and the
- * sink's context may be freed. NULL does nothing.
+ * sink's context may be freed. A player attached to an atlas leaves it first
+ * (its slot is freed). NULL does nothing.
  * Thread: any thread but the scheduler's own (not from a sink callback), and
  * not concurrently with another call on player.
  */
@@ -702,6 +703,245 @@ WT_API wt_status wt_player_seek(wt_player* player, uint32_t frame_index);
  * Thread: any thread; never blocks on a frame.
  */
 WT_API void wt_player_redraw(wt_player* player);
+
+/* ------------------------------------------------------------------------- */
+/* Atlas                                                                      */
+/* ------------------------------------------------------------------------- */
+
+/*
+ * An atlas shows many players through a few platform textures (PLAN.md,
+ * "Two render modes"; ADR 0006, ADR 0020). It is a set of pages; each page is
+ * one platform buffer queue (an ANativeWindow, a CVPixelBufferPool) that the
+ * glue hands over as a wt_atlas_target. A player attached to the atlas draws
+ * into a slot of a page (wt::SlotAllocator, ADR 0019) instead of its own
+ * sink:
+ *
+ * - Workers decode each frame into a CPU copy of the slot, so every slot
+ *   always has its latest frame at hand.
+ * - When the jobs a scheduler round dispatched for a page's players are done,
+ *   a worker presents the page: it locks one buffer of the target for the
+ *   whole page, writes every live slot (content plus a cleared gutter, the
+ *   slot's whole outer rect) and shows it. Queued buffers hold stale frames,
+ *   so nothing is drawn incrementally. A page presents at most once per
+ *   clock period (max_fps), and never twice at once. Its players show their
+ *   playback frames on the page's beat (its shortest frame, at least a clock
+ *   period; ADR 0021), so the page presents at the content rate however its
+ *   players' clocks are phased.
+ * - A page is as tall as its slots need (wanted_height in wt_atlas_page_info,
+ *   from the rows in use). Its buffers have a fixed size, so the glue gives a
+ *   page a new target (and a new platform texture) when wanted_height
+ *   changes, and keeps the old texture on screen until Dart has switched to
+ *   the new one. With no slots, a page wants no target at all.
+ * - wt_atlas_detach (or destroying the atlas) gives a player back the sink it
+ *   had before wt_atlas_attach, and redraws.
+ *
+ * Memory: the target's buffers (wt_atlas_page_info.buffers distinct buffers
+ * of stride x height), plus one CPU frame per live slot and a few spare
+ * frames for frames being decoded (cpu_bytes).
+ *
+ * Callbacks: the target's acquire and present run on scheduler workers,
+ * never two at once for one page and never after wt_atlas_set_target (or
+ * wt_atlas_destroy) has replaced the target. They must not call wt_atlas_*,
+ * wt_player_* or wt_sched_* functions.
+ */
+
+/* Atlas handle. Opaque. */
+typedef struct wt_atlas wt_atlas;
+
+/* The most pages an atlas may have. */
+#define WT_ATLAS_MAX_PAGES 16
+
+/*
+ * Layout of an atlas's pages. Start from wt_atlas_options_init_default.
+ */
+typedef struct wt_atlas_options {
+  /* Page width in pixels, 16..2048, rounded down to a multiple of 16.
+     Default 2048. */
+  uint32_t width;
+  /* The tallest a page may grow, 16..2048, rounded down to a multiple of 16.
+     Default 2048. */
+  uint32_t max_height;
+  /* Transparent border on every side of a slot's content, 2..64. Default 2. */
+  uint32_t gutter;
+  /* Most pages, 1..WT_ATLAS_MAX_PAGES. Default 4. */
+  uint32_t max_pages;
+  /* WT_PIXEL_FORMAT_* of the pages' buffers. Default RGBA8888. */
+  wt_pixel_format format;
+} wt_atlas_options;
+
+/* Where an attached player's frames go, in page pixels (origin top left). */
+typedef struct wt_atlas_slot {
+  /* Index of the page, 0..wt_atlas_page_count - 1. */
+  uint32_t page;
+  /* The content rect: the player's output size. */
+  uint32_t x;
+  uint32_t y;
+  uint32_t width;
+  uint32_t height;
+  /* The whole slot: content plus a transparent gutter of at least `gutter`
+     px on every side, 16-px aligned. */
+  uint32_t outer_x;
+  uint32_t outer_y;
+  uint32_t outer_width;
+  uint32_t outer_height;
+} wt_atlas_slot;
+
+/* What wt_atlas_get_page reports. */
+typedef struct wt_atlas_page_info {
+  /* Page width (options.width after rounding). */
+  uint32_t width;
+  /* Rows the slots use, a multiple of 16; 0 with no slots. */
+  uint32_t used_height;
+  /* The buffer height the page should have: used_height, or the current
+     height while the rows freed are fewer than max(128, height / 4) (so
+     pages don't flip-flop), or 0 with no slots (release the target). When
+     it differs from `height`, give the page a new target of this height. */
+  uint32_t wanted_height;
+  /* The height last passed to wt_atlas_set_target. */
+  uint32_t height;
+  /* Whether the page has a target now. */
+  uint32_t has_target;
+  /* Slots in use. */
+  uint32_t live_slots;
+  /* Distinct buffers the current target handed out (by buffer id), and
+     their row stride in bytes. */
+  uint32_t buffers;
+  uint32_t buffer_stride;
+  /* buffers x buffer_stride x height: the target's buffer memory. */
+  uint64_t buffer_bytes;
+  /* CPU memory: the slots' latest frames and the spare frames for decoding. */
+  uint64_t cpu_bytes;
+  /* Presents shown, and presents that failed (no buffer, a bad buffer). */
+  uint64_t presents;
+  uint64_t present_failures;
+} wt_atlas_page_info;
+
+/*
+ * A page's platform buffer queue. The core calls these on scheduler workers;
+ * see "Callbacks" above.
+ */
+typedef struct wt_atlas_target {
+  void* context;
+  /*
+   * Provides a buffer for the whole page: width x height (the height given
+   * to wt_atlas_set_target) in options.format, rows top to bottom, its
+   * contents undefined. *out_buffer_id identifies the underlying buffer (an
+   * IOSurface ID, a gralloc address) for the memory stats; 0 uses
+   * out->pixels instead. Return WT_OK after filling *out; present is then
+   * called exactly once, on the same thread. WT_BUSY retries a period later,
+   * WT_NO_TARGET waits for wt_atlas_set_target, and an error retries about
+   * 100 ms later. Required.
+   */
+  wt_status (*acquire)(void* context, wt_buffer* out, uint64_t* out_buffer_id);
+  /*
+   * Ends what acquire started. With WT_OK the buffer holds the whole page:
+   * show it. Otherwise the core rejected the buffer (wrong size or format)
+   * and wrote nothing. Required.
+   */
+  void (*present)(void* context, wt_status status);
+} wt_atlas_target;
+
+/*
+ * Fills *out with the defaults listed in wt_atlas_options. Does nothing when
+ * out is NULL.
+ * Thread: any thread.
+ */
+WT_API void wt_atlas_options_init_default(wt_atlas_options* out);
+
+/*
+ * Creates an empty atlas on sched (which must outlive it). Pages are created
+ * as wt_atlas_attach needs them. options: NULL for the defaults.
+ * Returns WT_ERR_INVALID_ARGUMENT for an option out of range.
+ * Thread: any thread.
+ */
+WT_API wt_status wt_atlas_create(wt_sched* sched,
+                                 const wt_atlas_options* options,
+                                 wt_atlas** out_atlas);
+
+/*
+ * Gives every attached player back its own sink (as wt_atlas_detach), waits
+ * for presents in flight, and frees the atlas. No target callback runs once
+ * this returns, so the glue may release every page's buffers. NULL does
+ * nothing.
+ * Thread: any thread but the scheduler's own, not concurrently with another
+ * call on atlas or on its players.
+ */
+WT_API void wt_atlas_destroy(wt_atlas* atlas);
+
+/*
+ * Moves player (on the atlas's scheduler) into a slot of its output size:
+ * the lowest page with a free slot for that size, else the first page that
+ * can grow or reuse rows for it, else a new page. Waits for the player's
+ * frame in flight; from then on its frames go to the slot (its own sink's
+ * error callback still reports decode failures) and the frame that should be
+ * showing is drawn right away. A page that grew wants a new target (see
+ * wt_atlas_page_info.wanted_height); until it has one, the new slot isn't
+ * shown.
+ *
+ * Returns WT_ERR_INVALID_ARGUMENT for a player already in an atlas, on
+ * another scheduler, or whose size can never fit a page, and WT_ERR_LIMIT
+ * when every page is full and there are max_pages of them (nothing changes;
+ * keep the player standalone).
+ * Thread: any thread but the scheduler's own, not concurrently with another
+ * call on atlas or player.
+ */
+WT_API wt_status wt_atlas_attach(wt_atlas* atlas, wt_player* player,
+                                 wt_atlas_slot* out_slot);
+
+/*
+ * Frees player's slot and gives it back the sink it had before
+ * wt_atlas_attach, waiting for its frame in flight; the frame that should be
+ * showing is then drawn into that sink. The page may now want a smaller
+ * target, or none. Returns WT_ERR_INVALID_ARGUMENT when player isn't in this
+ * atlas.
+ * Thread: as wt_atlas_attach.
+ */
+WT_API wt_status wt_atlas_detach(wt_atlas* atlas, wt_player* player);
+
+/*
+ * Pages created so far; a page's index never changes. 0 for NULL.
+ * Thread: any thread, not concurrently with wt_atlas_destroy.
+ */
+WT_API uint32_t wt_atlas_page_count(wt_atlas* atlas);
+
+/*
+ * Fills *out_info for page index `page` (< wt_atlas_page_count).
+ * Thread: any thread, not concurrently with wt_atlas_destroy. Never waits for
+ * a frame or a present.
+ */
+WT_API wt_status wt_atlas_get_page(wt_atlas* atlas, uint32_t page,
+                                   wt_atlas_page_info* out_info);
+
+/*
+ * Sets the buffer queue page `page` presents into, waiting for a present in
+ * flight on the old one: once this returns, the old target's callbacks are
+ * never called again. target is copied; NULL leaves the page without one
+ * (say, while the surface is gone). height is the target's buffer height, a
+ * multiple of 16 in 16..options.max_height (normally wanted_height); with a
+ * NULL target it is the height the page will have when a target comes back,
+ * or 0 when the page has no buffers any more. A new target is presented into
+ * right away with every live slot that fits in its height.
+ * Returns WT_ERR_INVALID_ARGUMENT for an unknown page, a bad height, or a
+ * target without acquire or present.
+ * Thread: any thread but the scheduler's own, not concurrently with another
+ * call on atlas.
+ */
+WT_API wt_status wt_atlas_set_target(wt_atlas* atlas, uint32_t page,
+                                     const wt_atlas_target* target,
+                                     uint32_t height);
+
+/*
+ * The page whose current target shows player's slot: its index once a
+ * present into the target last given by wt_atlas_set_target has shown a
+ * frame of player in the slot, else -1. It is -1 before the slot's first
+ * frame, after a new target until a present into it, and for a player that
+ * isn't in atlas (or NULL arguments). Callers keep showing what they showed
+ * before (a placeholder, an older texture) until then: until a present
+ * wrote it, a slot's area of the target's buffers holds stale pixels.
+ * Thread: as wt_atlas_attach (may wait while another thread attaches);
+ * never waits for a frame or a present.
+ */
+WT_API int32_t wt_atlas_shown_page(wt_atlas* atlas, const wt_player* player);
 
 #ifdef __cplusplus
 } /* extern "C" */

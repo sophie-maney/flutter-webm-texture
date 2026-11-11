@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:webm_texture/webm_texture.dart';
 
+import 'atlas_demo.dart';
 import 'checkerboard_page.dart';
 import 'chat_page.dart';
 import 'probe_page.dart';
@@ -48,7 +49,7 @@ final _entries = [
   _Entry(
     'openStress',
     'Stress',
-    '200 standalone stickers in a grid',
+    '200 stickers in a grid, atlas or standalone',
     (_) => const StressPage(),
   ),
   _Entry(
@@ -62,6 +63,12 @@ final _entries = [
     'Textures (dev)',
     'Raw platform texture glue',
     (_) => const TextureDemoPage(),
+  ),
+  _Entry(
+    'openAtlas',
+    'Atlas (dev)',
+    '64 stickers through atlas page textures',
+    (_) => const AtlasDemoPage(),
   ),
   _Entry(
     'openVisibility',

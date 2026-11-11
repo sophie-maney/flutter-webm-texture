@@ -113,8 +113,20 @@ NS_SWIFT_NAME(WTPlayer)
 /// -close. Any thread.
 - (int32_t)seekToFrame:(uint32_t)frame NS_SWIFT_NAME(seek(toFrame:));
 
+/// Whether the player's own buffers are on screen (T4.2). With NO (its
+/// texture was retired: the animation draws into an atlas, or its atlas was
+/// disposed), a frame meant for its own buffers parks the player instead of
+/// being decoded; YES draws the frame that should be showing. Any thread.
+- (void)setHasTarget:(BOOL)hasTarget;
+
+/// Frees the newest frame and the pool's idle buffers, once nothing shows
+/// the player's own texture (it is in an atlas). Any thread.
+- (void)dropFrames;
+
 /// Takes the player off the scheduler, waiting for a frame in flight, and
 /// frees the decoder and every buffer. Idempotent. Not on the main thread.
+/// A player in an atlas leaves it; detach it first if the atlas may be
+/// closed at the same time (wt_atlas_destroy must not overlap it).
 - (void)close;
 
 /// The static name of a wt_status, such as "WT_ERR_DECODE".

@@ -46,6 +46,7 @@ let package = Package(
             ],
             linkerSettings: [
                 .linkedFramework("CoreVideo"),
+                .linkedFramework("IOSurface"),
             ]
         ),
         .target(

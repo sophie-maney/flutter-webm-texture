@@ -7,6 +7,8 @@
 import 'package:integration_test/integration_test.dart';
 
 import 'app_test.dart' as app;
+import 'atlas_demo_test.dart' as atlas_demo;
+import 'atlas_test.dart' as atlas;
 import 'cache_test.dart' as cache;
 import 'plugin_integration_test.dart' as plugin;
 import 'probe_test.dart' as probe;
@@ -17,6 +19,8 @@ import 'visibility_test.dart' as visibility;
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   app.main();
+  atlas.main();
+  atlas_demo.main();
   cache.main();
   plugin.main();
   probe.main();

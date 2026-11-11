@@ -69,6 +69,11 @@ class SurfacePlayer {
   // WT_ERR_INVALID_ARGUMENT when frame is past the last frame.
   wt_status SeekTo(uint32_t frame);
 
+  // The scheduler's handle, for wt_atlas_attach and wt_atlas_detach. While
+  // the player is in an atlas, its frames go there and this object only
+  // reports errors; without a window it parks (WT_NO_TARGET) when detached.
+  wt_player* player() const { return player_; }
+
  private:
   SurfacePlayer(uint32_t width, uint32_t height, ErrorCallback on_error);
 

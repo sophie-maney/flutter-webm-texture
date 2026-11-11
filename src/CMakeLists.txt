@@ -47,8 +47,11 @@ endif()
 # --- Core -------------------------------------------------------------------
 set(WT_CORE_SOURCES
   api/anim.cc
+  api/atlas_api.cc
   api/sched_api.cc
   api/wt_api.cc
+  atlas/compositor.cc
+  atlas/slot_allocator.cc
   cache/crc32.cc
   cache/sha256.cc
   cache/store.cc
