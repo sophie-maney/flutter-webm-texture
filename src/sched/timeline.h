@@ -102,7 +102,8 @@ class Timeline {
   void Seek(uint32_t frame);
   // The frame on screen was lost (a new surface). A running timeline with a
   // frame after shown() just makes that frame due now; otherwise shown() is
-  // requested again.
+  // requested again. If the timeline stops before that next frame is drawn,
+  // Stop requests shown() after all.
   void Redraw(TimePoint now);
 
   void Start(TimePoint now);
@@ -140,6 +141,8 @@ class Timeline {
   Nanos remaining_{};  // Meaningful while stopped: shown_'s time left.
   uint32_t cursor_ = 0;
   bool cursor_known_ = false;
+  // Redraw is waiting for the next playback frame (see Stop).
+  bool redraw_owed_ = false;
 };
 
 }  // namespace wt

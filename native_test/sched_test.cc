@@ -239,6 +239,27 @@ TEST(TimelineTest, RedrawWhilePlayingMakesTheNextFrameDue) {
   EXPECT_EQ(job.target, 1u);
 }
 
+// T4.2: stopping between the redraw and the frame standing in for it would
+// leave a new target empty.
+TEST(TimelineTest, StoppingBeforeARedrawIsDrawnRequestsTheShownFrame) {
+  Timeline t = Started(Uniform(10, 40));
+  t.Redraw(kT0 + milliseconds(5));
+  ASSERT_FALSE(t.dirty());
+  t.Stop(kT0 + milliseconds(6));
+  EXPECT_TRUE(t.dirty());
+  EXPECT_EQ(t.PlanRequest().target, 0u);
+
+  // Once the next frame was drawn, stopping owes nothing.
+  Timeline u = Started(Uniform(10, 40));
+  u.Redraw(kT0 + milliseconds(5));
+  FrameJob job;
+  ASSERT_TRUE(u.PlanPlayback(kT0 + milliseconds(5), kEarly, kStall, &job));
+  Drawn(&u, job, kT0 + milliseconds(6));
+  u.Stop(kT0 + milliseconds(7));
+  EXPECT_FALSE(u.dirty());
+  EXPECT_EQ(u.shown(), 1u);
+}
+
 TEST(TimelineTest, RedrawWhilePausedRequestsTheShownFrame) {
   Timeline t = Started(Uniform(10, 40));
   t.Stop(kT0 + milliseconds(5));
