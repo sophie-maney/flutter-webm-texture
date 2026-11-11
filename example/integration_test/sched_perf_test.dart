@@ -22,16 +22,16 @@
 // Prints one `SCHED_PERF {json}` line. Not part of all_test.dart: the
 // numbers depend on the machine. Real-device budgets come from T3.5.
 import 'dart:convert';
-import 'dart:ffi';
 import 'dart:io';
 
-import 'package:ffi/ffi.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:webm_texture/webm_texture.dart';
 import 'package:webm_texture_example/stress_page.dart';
+
+import 'perf_util.dart';
 
 /// The grid: 6 x 10 cells fill the screen, so exactly 60 stickers show.
 const _columns = 6;
@@ -51,95 +51,13 @@ const _warmUp = Duration(seconds: 8);
 const _traceFor = Duration(seconds: 20);
 const _cpuWindow = Duration(seconds: 5);
 
-final class _Timeval extends Struct {
-  @Int64()
-  external int seconds;
-
-  // suseconds_t is 32 bits on Darwin and 64 on Linux; both little-endian and
-  // below 10^6, so the low half is the value.
-  @Int32()
-  external int micros;
-}
-
-typedef _GetrusageC = Int32 Function(Int32 who, Pointer<Uint8> usage);
-typedef _GetrusageDart = int Function(int who, Pointer<Uint8> usage);
-
-final _getrusage = DynamicLibrary.process()
-    .lookupFunction<_GetrusageC, _GetrusageDart>('getrusage');
-
-/// User + system CPU time of the whole process so far.
-Duration _cpuTime() {
-  // struct rusage starts with ru_utime and ru_stime (16 bytes each on both
-  // platforms); the rest is 14 longs.
-  final usage = calloc<Uint8>(256);
-  try {
-    if (_getrusage(0 /* RUSAGE_SELF */, usage) != 0) {
-      throw StateError('getrusage failed');
-    }
-    Duration at(int offset) {
-      final t = Pointer<_Timeval>.fromAddress(usage.address + offset).ref;
-      return Duration(seconds: t.seconds, microseconds: t.micros);
-    }
-
-    return at(0) + at(16);
-  } finally {
-    calloc.free(usage);
-  }
-}
-
-/// Process CPU over [window] as a percentage of one core.
-Future<double> _cpuPercent(Duration window) async {
-  final start = _cpuTime();
-  final wall = Stopwatch()..start();
-  await Future<void>.delayed(window);
-  final used = _cpuTime() - start;
-  return used.inMicroseconds / wall.elapsedMicroseconds * 100;
-}
-
-/// p50/p90/p99 (ms) and count of every complete event named [name].
-Map<String, num?> _durations(List<Map<String, dynamic>> events, String name) {
-  final ms = <double>[];
-  final open = <int, List<num>>{};
-  final sorted = [...events]
-    ..sort((a, b) => ((a['ts'] ?? 0) as num).compareTo((b['ts'] ?? 0) as num));
-  for (final e in sorted) {
-    if (e['name'] != name) continue;
-    final tid = (e['tid'] ?? 0) as int;
-    switch (e['ph']) {
-      case 'X':
-        ms.add((e['dur'] as num) / 1000);
-      case 'B':
-        (open[tid] ??= []).add(e['ts'] as num);
-      case 'E':
-        final stack = open[tid];
-        if (stack != null && stack.isNotEmpty) {
-          ms.add(((e['ts'] as num) - stack.removeLast()) / 1000);
-        }
-    }
-  }
-  return _summary(ms);
-}
-
-/// Count and p50/p90/p99 of [ms]; the percentiles are null when it is
-/// empty.
-Map<String, num?> _summary(List<double> ms) {
-  final sorted = [...ms]..sort();
-  double? pct(double p) => sorted.isEmpty
-      ? null
-      : sorted[((p / 100 * sorted.length).ceil() - 1).clamp(
-          0,
-          sorted.length - 1,
-        )];
-  return {'n': sorted.length, 'p50': pct(50), 'p90': pct(90), 'p99': pct(99)};
-}
-
 void main() {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets('60 visible standalone stickers: raster and CPU', (tester) async {
     await tester.pumpWidget(const SizedBox());
     await Future<void>.delayed(const Duration(seconds: 2));
-    final baselineCpu = await _cpuPercent(_cpuWindow);
+    final baselineCpu = await cpuPercent(_cpuWindow);
 
     final ticking = ValueNotifier(true);
     await tester.pumpWidget(
@@ -149,6 +67,7 @@ void main() {
           builder: (_, on, child) => TickerMode(enabled: on, child: child!),
           child: const StressPage(
             initiallyPrivate: true,
+            initiallyAtlas: false,
             columns: _columns,
             rows: _rows,
           ),
@@ -167,7 +86,7 @@ void main() {
 
     // The first loop decodes and writes each cache file; later ones read it.
     await Future<void>.delayed(_warmUp);
-    final playingCpu = await _cpuPercent(_cpuWindow);
+    final playingCpu = await cpuPercent(_cpuWindow);
 
     // Android reports a FrameTiming per rasterised frame; iOS doesn't for
     // texture-only frames, so it relies on the timeline.
@@ -184,9 +103,9 @@ void main() {
     final events = <Map<String, dynamic>>[
       for (final e in timeline.traceEvents!) e.json!,
     ];
-    final raster = _durations(events, 'Rasterizer::DrawToSurfaces');
+    final raster = durations(events, 'Rasterizer::DrawToSurfaces');
     final rasterPerSec = raster['n']! / _traceFor.inSeconds;
-    final frameTimings = _summary(frameRaster);
+    final frameTimings = summary(frameRaster);
 
     // Pause everything; the clock and workers should go to sleep.
     ticking.value = false;
@@ -194,7 +113,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
     expect(WebmStickers.debugActiveCount.value, 0);
     await Future<void>.delayed(const Duration(seconds: 2));
-    final pausedCpu = await _cpuPercent(_cpuWindow);
+    final pausedCpu = await cpuPercent(_cpuWindow);
 
     final result = {
       'platform': Platform.operatingSystem,

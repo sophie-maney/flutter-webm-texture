@@ -19,7 +19,10 @@ wt::Player* Impl(wt_player* p) { return reinterpret_cast<wt::Player*>(p); }
 // Plays a wt_anim, which it owns.
 class AnimSource final : public wt::FrameSource {
  public:
-  explicit AnimSource(wt_anim* anim) : anim_(anim) {}
+  // The size is read here, before the scheduler can use the animation.
+  explicit AnimSource(wt_anim* anim) : anim_(anim) {
+    wt_anim_get_info(anim, nullptr, &width_, &height_);
+  }
   ~AnimSource() override { wt_anim_destroy(anim_); }
 
   // Gives the animation back to the caller.
@@ -29,6 +32,10 @@ class AnimSource final : public wt::FrameSource {
     return anim;
   }
 
+  void GetOutputSize(uint32_t* width, uint32_t* height) const override {
+    *width = width_;
+    *height = height_;
+  }
   uint32_t frame_count() const override {
     return anim_->anim->info().frame_count;
   }
@@ -44,6 +51,8 @@ class AnimSource final : public wt::FrameSource {
 
  private:
   wt_anim* anim_;
+  uint32_t width_ = 0;
+  uint32_t height_ = 0;
 };
 
 }  // namespace

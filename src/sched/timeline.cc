@@ -12,10 +12,20 @@ std::vector<Nanos> Clamped(std::vector<Nanos> durations) {
   return durations;
 }
 
+Nanos Shortest(const std::vector<Nanos>& durations) {
+  Nanos m = kMinFrameTime;
+  if (!durations.empty()) {
+    m = *std::min_element(durations.begin(), durations.end());
+  }
+  return m;
+}
+
 }  // namespace
 
 Timeline::Timeline(std::vector<Nanos> durations, bool loop)
-    : durations_(Clamped(std::move(durations))), loop_(loop) {
+    : durations_(Clamped(std::move(durations))),
+      loop_(loop),
+      min_duration_(Shortest(durations_)) {
   remaining_ = durations_.empty() ? kMinFrameTime : durations_[0];
 }
 
@@ -33,6 +43,7 @@ void Timeline::Seek(uint32_t frame) {
   shown_ = frame;
   dirty_ = true;
   ended_ = false;
+  redraw_owed_ = false;
   ++generation_;
 }
 
@@ -41,11 +52,14 @@ void Timeline::Redraw(TimePoint now) {
   // Only when there is a next frame: a non-looping timeline on its last
   // frame (ended or about to be) must draw that frame again.
   if (running_ && animates() && !dirty_ && NextAfter(shown_, &next)) {
-    // The next frame is as good as the lost one, and needs no seek.
+    // The next frame is as good as the lost one, and needs no seek. Stop
+    // turns this back into a request if it stops before that frame is drawn.
     due_ = std::min(due_, now);
+    redraw_owed_ = true;
     return;
   }
   dirty_ = true;
+  redraw_owed_ = false;
   ++generation_;
 }
 
@@ -59,6 +73,13 @@ void Timeline::Stop(TimePoint now) {
   if (!running_) return;
   running_ = false;
   remaining_ = std::clamp<Nanos>(due_ - now, Nanos::zero(), durations_[shown_]);
+  if (redraw_owed_) {
+    // A redraw was waiting for the next playback frame, which now won't
+    // come: the new target would stay empty. Draw shown() instead.
+    redraw_owed_ = false;
+    dirty_ = true;
+    ++generation_;
+  }
 }
 
 void Timeline::Position(FrameJob* job) const {
@@ -134,6 +155,7 @@ void Timeline::Complete(const FrameJob& job, const FrameOutcome& outcome,
   // A request made while the job ran wins over it.
   if (job.generation != generation_ || !outcome.drawn) return;
   shown_ = job.target;
+  redraw_owed_ = false;  // A frame reached the (possibly new) target.
   const Nanos duration = durations_[shown_];
   if (job.kind == FrameJob::Kind::kRequest) {
     dirty_ = false;

@@ -1,8 +1,11 @@
-// Stress: a 200-item grid of standalone stickers (one texture per animation).
-// The switch gives every cell its own animation through a controller of its
-// own; without it, cells showing the same file share one. The grid button
-// makes the cells small enough for 60+ on a phone screen, the T3.3 budget
-// (integration_test/sched_perf_test.dart).
+// Stress: a 200-item grid of stickers. In atlas mode (the default for grids,
+// ADR 0006) the grid sits in a StickerAtlasScope and the stickers on screen
+// share a few atlas page textures; the layers button switches to standalone,
+// one texture per animation. The "own" switch gives every cell its own
+// animation through a controller of its own; without it, cells showing the
+// same file share one. The grid button makes the cells small enough for 60+
+// on a phone screen, the T3.3 budget (integration_test/sched_perf_test.dart,
+// atlas_perf_test.dart).
 import 'package:flutter/material.dart';
 import 'package:webm_texture/webm_texture.dart';
 
@@ -16,9 +19,13 @@ class StressPage extends StatefulWidget {
     super.key,
     this.initiallyDense = false,
     this.initiallyPrivate = false,
+    this.initiallyAtlas = true,
     this.columns,
     this.rows,
   });
+
+  /// Starts in atlas mode (a StickerAtlasScope around the grid).
+  final bool initiallyAtlas;
 
   /// Starts with the small cells.
   final bool initiallyDense;
@@ -40,6 +47,7 @@ class StressPage extends StatefulWidget {
 class _StressPageState extends State<StressPage> {
   List<WebmStickerController>? _controllers;
   late bool _dense = widget.initiallyDense;
+  late bool _atlas = widget.initiallyAtlas;
 
   @override
   void initState() {
@@ -101,6 +109,12 @@ class _StressPageState extends State<StressPage> {
             child: Center(child: _ActiveCounter()),
           ),
           IconButton(
+            key: const Key('atlasMode'),
+            tooltip: _atlas ? 'Standalone textures' : 'Atlas',
+            icon: Icon(_atlas ? Icons.layers : Icons.layers_clear),
+            onPressed: () => setState(() => _atlas = !_atlas),
+          ),
+          IconButton(
             key: const Key('denseGrid'),
             tooltip: _dense ? 'Large cells' : 'Small cells',
             icon: Icon(_dense ? Icons.grid_view : Icons.apps),
@@ -118,30 +132,32 @@ class _StressPageState extends State<StressPage> {
         ],
       ),
       body: LayoutBuilder(
-        builder: (context, constraints) => GridView.builder(
-          key: const Key('stressGrid'),
-          padding: const EdgeInsets.all(8),
-          gridDelegate: widget.columns != null
-              ? SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: widget.columns!,
-                  mainAxisSpacing: 4,
-                  crossAxisSpacing: 4,
-                  childAspectRatio: _aspect(constraints),
-                )
-              : SliverGridDelegateWithMaxCrossAxisExtent(
-                  maxCrossAxisExtent: _dense ? 56 : 96,
-                  mainAxisSpacing: _dense ? 4 : 8,
-                  crossAxisSpacing: _dense ? 4 : 8,
+        builder: (context, constraints) => _maybeAtlas(
+          GridView.builder(
+            key: const Key('stressGrid'),
+            padding: const EdgeInsets.all(8),
+            gridDelegate: widget.columns != null
+                ? SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: widget.columns!,
+                    mainAxisSpacing: 4,
+                    crossAxisSpacing: 4,
+                    childAspectRatio: _aspect(constraints),
+                  )
+                : SliverGridDelegateWithMaxCrossAxisExtent(
+                    maxCrossAxisExtent: _dense ? 56 : 96,
+                    mainAxisSpacing: _dense ? 4 : 8,
+                    crossAxisSpacing: _dense ? 4 : 8,
+                  ),
+            itemCount: stressItemCount,
+            itemBuilder: (context, i) => WebmSticker(
+              source: corpusSource(playableCorpus[i % playableCorpus.length]),
+              controller: controllers?[i],
+              placeholder: const ColoredBox(color: Color(0x14000000)),
+              errorBuilder: (_, e) => Center(
+                child: Text(
+                  e is StickerException ? e.name : '$e',
+                  style: const TextStyle(fontSize: 9, color: Colors.red),
                 ),
-          itemCount: stressItemCount,
-          itemBuilder: (context, i) => WebmSticker(
-            source: corpusSource(playableCorpus[i % playableCorpus.length]),
-            controller: controllers?[i],
-            placeholder: const ColoredBox(color: Color(0x14000000)),
-            errorBuilder: (_, e) => Center(
-              child: Text(
-                e is StickerException ? e.name : '$e',
-                style: const TextStyle(fontSize: 9, color: Colors.red),
               ),
             ),
           ),
@@ -149,6 +165,10 @@ class _StressPageState extends State<StressPage> {
       ),
     );
   }
+
+  Widget _maybeAtlas(Widget grid) => _atlas
+      ? StickerAtlasScope(key: const Key('stressAtlas'), child: grid)
+      : grid;
 }
 
 /// Shows [WebmStickers.debugActiveCount].

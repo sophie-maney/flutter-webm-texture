@@ -311,7 +311,7 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 
 **Accept:** unit tests plus a randomized alloc/free property test.
 
-### [ ] T4.2 Native atlas compositor
+### [x] T4.2 Native atlas compositor
 **Model** Opus 5.5 · `xhigh` · **Depends** T4.1, T3.3 · **Track** A
 - One platform texture per atlas page. Scheduler workers write frames into slot regions of the locked buffer and present once per tick per page. Animations can switch between standalone and atlas.
 - From spike C:
@@ -322,11 +322,20 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 
 **Accept:** a TSan stress test passes · the device demo shows 60+ animations with one texture per page.
 
-### [ ] T4.3 `StickerAtlasScope` widget
+### [x] T4.3 `StickerAtlasScope` widget
 **Model** Opus 5.5 · `high` · **Depends** T4.2 · **Track** A
 - An inherited scope owns the atlas pages. Child `WebmSticker`s render a clipped and translated `Texture(atlasId)` for their slot, and slots are released when children deactivate.
+- From T4.2 ([ADR 0020](docs/decisions/0020-atlas-compositor.md)); `example/lib/atlas_demo.dart` has a bare version of the slot widget:
+  - Batch `attachToAtlas`/`detachFromAtlas` per frame.
+  - Lay slots out from the latest page table: a page that changed size has a new texture id.
+  - Release `retiredTextureIds` after the frame that stopped drawing them.
+  - Show the placeholder until the slot's first frame.
+  - Key the registry so that no animation is standalone and in an atlas at once.
+  - After `disposeAtlas`, animations still in it have no texture until `detachFromAtlas`.
 
 **Accept:** the Stress page in atlas mode matches standalone output visually, with no slot bleed (golden) · perf meets the T0.9 targets: with 60 stickers, Flutter renders at the content rate (no extra frames) and every tick is delivered on the API 37 emulator and the latest iOS simulator, and iOS simulator raster p90 is ≤ 3 ms (spike C measured 2.0 ms).
+
+**Done:** [ADR 0021](docs/decisions/0021-atlas-scope-and-content-rate.md). With 60 stickers at the high tier, both devices render 30.1 fps for 30.3 page presents/s; raster p90 is 1.7 ms (API 37) and 1.6 ms (iOS simulator).
 
 ### ~~T4.4 Dart `ui.Image` atlas fallback (only if T0.8 requires it)~~ (dropped)
 **Dropped:** T0.8 found that platform textures composite alpha correctly ([ADR 0005](docs/decisions/0005-no-ui-image-fallback.md)).

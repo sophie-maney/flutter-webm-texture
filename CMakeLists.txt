@@ -7,7 +7,7 @@
 #
 # Thread check of the scheduler (TSan; can't be combined with WT_SANITIZE):
 #   cmake -S . -B build/tsan -DWT_HOST_TESTS=ON -DWT_TSAN=ON
-#   cmake --build build/tsan -j && ctest --test-dir build/tsan -R 'Sched|Timeline' --output-on-failure
+#   cmake --build build/tsan -j && ctest --test-dir build/tsan -R 'Sched|Timeline|SkipFrame|SanitizerTest|Atlas' --output-on-failure
 #
 # The plugin itself doesn't use this file: Android adds src/ from
 # android/CMakeLists.txt, and iOS builds the sources through SwiftPM.

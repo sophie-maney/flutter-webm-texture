@@ -39,6 +39,15 @@ Nanos PeriodFor(uint32_t max_fps) {
   return Nanos(std::chrono::seconds(1)) / max_fps;
 }
 
+// The latest beat at or before t. Beats are multiples of `beat` since the
+// steady clock's epoch, so every group with the same beat shares them.
+TimePoint BeatAtOrBefore(TimePoint t, Nanos beat) {
+  const Nanos since = t.time_since_epoch();
+  Nanos past = since % beat;
+  if (past < Nanos::zero()) past += beat;
+  return t - past;
+}
+
 // Dispatch order: the players that run first, then by priority and recency.
 bool Better(const Player* a, uint64_t a_priority, uint64_t a_activated,
             const Player* b, uint64_t b_priority, uint64_t b_activated) {
@@ -115,9 +124,12 @@ Scheduler::~Scheduler() {
     std::lock_guard<std::mutex> ol(options_mu_);
     JoinWorkers(0);
   }
-  // No thread is left, so no lock is needed.
+  // No thread is left, so no lock is needed. Groups left behind (a bug in
+  // the owner) are freed without calling their targets.
   for (Player* p : players_) delete p;
   players_.clear();
+  for (Group* g : groups_) delete g;
+  groups_.clear();
 }
 
 bool Scheduler::StartWorker() {
@@ -209,15 +221,33 @@ wt_status Scheduler::AddPlayer(std::unique_ptr<FrameSource>* source, bool loop,
 }
 
 void Scheduler::RemovePlayer(Player* p) {
+  Group* group = nullptr;
   {
     std::unique_lock<std::mutex> lk(mu_);
     p->removing_ = true;
     if (p->in_flight_ && !p->executing_) {
       queue_.erase(std::find(queue_.begin(), queue_.end(), p));
       p->in_flight_ = false;
+      // The dropped job still counts for its round's batch.
+      if (p->group_ != nullptr) {
+        CompleteBatch(p->group_, p->job_round_, SchedClock::now());
+      }
     }
     done_cv_.wait(lk, [p] { return !p->in_flight_; });
+    group = p->group_;
+  }
+  // The group's owner forgets the player (an atlas frees its slot). Nothing
+  // can retarget a player that is being removed, so group_ stays put.
+  if (group != nullptr) group->target_->Leave(p);
+  {
+    std::lock_guard<std::mutex> lk(mu_);
+    Group* left = p->group_;
+    if (left != nullptr) {
+      --left->members_;
+      p->group_ = nullptr;
+    }
     players_.erase(std::find(players_.begin(), players_.end(), p));
+    if (left != nullptr) UpdateBeat(left);
     // A frozen player may take its place.
     if (p->timeline_.running()) ranks_dirty_ = true;
   }
@@ -271,6 +301,131 @@ void Scheduler::Redraw(Player* p) {
 bool Scheduler::IsRunning(const Player* p) const {
   std::lock_guard<std::mutex> lk(mu_);
   return p->timeline_.running();
+}
+
+wt_status Scheduler::Retarget(Player* p, const wt_sink& sink, Group* group,
+                              Group* expect, wt_sink* previous) {
+  if (sink.acquire == nullptr || sink.release == nullptr) {
+    return WT_ERR_INVALID_ARGUMENT;
+  }
+  {
+    std::unique_lock<std::mutex> lk(mu_);
+    if (p->removing_ || p->retargeting_ || p->group_ != expect ||
+        (group != nullptr && group->removing_)) {
+      return WT_ERR_INVALID_ARGUMENT;
+    }
+    // Round() leaves the player alone from here on, and Finish wakes us.
+    p->retargeting_ = true;
+    done_cv_.wait(lk, [p] { return !p->in_flight_; });
+    if (previous != nullptr) *previous = p->sink_;
+    Group* left = p->group_;
+    if (left != nullptr) --left->members_;
+    p->sink_ = sink;
+    p->group_ = group;
+    if (group != nullptr) ++group->members_;
+    if (left != nullptr) UpdateBeat(left);
+    if (group != nullptr && group != left) UpdateBeat(group);
+    p->retargeting_ = false;
+    // As Redraw: the new target gets the frame that should be showing.
+    p->parked_ = false;
+    ++p->target_generation_;
+    p->retry_at_ = TimePoint::min();
+    p->timeline_.Redraw(SchedClock::now());
+  }
+  clock_cv_.notify_one();
+  return WT_OK;
+}
+
+wt_status Scheduler::AddGroup(PresentTarget* target, Group** out) {
+  *out = nullptr;
+  if (target == nullptr) return WT_ERR_INVALID_ARGUMENT;
+  Group* g = new (std::nothrow) Group(target);
+  if (g == nullptr) return WT_ERR_NO_MEMORY;
+  std::lock_guard<std::mutex> lk(mu_);
+  groups_.push_back(g);
+  *out = g;
+  return WT_OK;
+}
+
+wt_status Scheduler::RemoveGroup(Group* g) {
+  {
+    std::unique_lock<std::mutex> lk(mu_);
+    if (g->members_ != 0 || g->removing_) return WT_ERR_INVALID_ARGUMENT;
+    g->removing_ = true;
+    if (g->queued_) {
+      present_queue_.erase(
+          std::find(present_queue_.begin(), present_queue_.end(), g));
+      g->queued_ = false;
+    }
+    done_cv_.wait(lk, [g] { return !g->presenting_; });
+    groups_.erase(std::find(groups_.begin(), groups_.end(), g));
+  }
+  delete g;
+  return WT_OK;
+}
+
+void Scheduler::RequestPresent(Group* g) {
+  std::lock_guard<std::mutex> lk(mu_);
+  if (g->removing_) return;
+  g->pending_ = true;
+  g->parked_ = false;
+  MaybeQueuePresent(g, SchedClock::now());
+}
+
+void Scheduler::CompleteBatch(Group* g, uint64_t round, TimePoint now) {
+  auto it =
+      std::find_if(g->batches_.begin(), g->batches_.end(),
+                   [round](const Group::Batch& b) { return b.round == round; });
+  if (it == g->batches_.end()) return;  // Can't happen; don't crash on it.
+  if (--it->remaining != 0) return;
+  g->batches_.erase(it);
+  g->pending_ = true;
+  MaybeQueuePresent(g, now);
+}
+
+void Scheduler::MaybeQueuePresent(Group* g, TimePoint now) {
+  if (!g->pending_ || g->queued_ || g->presenting_ || g->parked_ ||
+      g->removing_) {
+    return;
+  }
+  if (now < g->not_before_) {
+    WakeClockBy(g->not_before_);
+    return;
+  }
+  g->queued_ = true;
+  present_queue_.push_back(g);
+  work_cv_.notify_one();
+}
+
+void Scheduler::RunPresent(std::unique_lock<std::mutex>* lk) {
+  Group* g = present_queue_.front();
+  present_queue_.pop_front();
+  g->queued_ = false;
+  g->presenting_ = true;
+  g->pending_ = false;  // Frames done from here on need another present.
+  const TimePoint start = SchedClock::now();
+  // One present per group per clock period, like the rounds themselves.
+  g->not_before_ = start + period_ - kRoundSlack;
+  lk->unlock();
+  const wt_status status = g->target_->Present(start);
+  const TimePoint done = SchedClock::now();
+  lk->lock();
+  g->presenting_ = false;
+  if (status == WT_BUSY) {
+    g->pending_ = true;
+    g->not_before_ = std::max(g->not_before_, done + period_);
+  } else if (status == WT_NO_TARGET) {
+    g->pending_ = true;
+    g->parked_ = true;
+  } else if (status < 0) {
+    g->pending_ = true;
+    g->not_before_ = done + kErrorRetry;
+  }
+  if (g->removing_) {
+    done_cv_.notify_all();
+    return;
+  }
+  MaybeQueuePresent(g, done);
 }
 
 // --- Clock -------------------------------------------------------------------
@@ -341,14 +496,29 @@ void Scheduler::Rerank(TimePoint now) {
 }
 
 TimePoint Scheduler::Round(TimePoint now) {
+  ++round_seq_;
   const Nanos early = period_ / 2;
   const Nanos stall = std::max<Nanos>(2 * period_, kMinStall);
   const bool round_open = now + kRoundSlack >= last_round_ + period_;
   TimePoint request_wake = TimePoint::max();
   TimePoint playback_wake = TimePoint::max();
   bool played = false;
+  // Presents held back by the rate limit or a retry.
+  for (Group* g : groups_) {
+    if (!g->pending_ || g->queued_ || g->presenting_ || g->parked_ ||
+        g->removing_) {
+      continue;
+    }
+    if (now >= g->not_before_) {
+      MaybeQueuePresent(g, now);
+    } else {
+      request_wake = std::min(request_wake, g->not_before_);
+    }
+  }
   for (Player* p : players_) {
-    if (p->in_flight_ || p->removing_ || p->parked_) continue;
+    if (p->in_flight_ || p->removing_ || p->retargeting_ || p->parked_) {
+      continue;
+    }
     Timeline& t = p->timeline_;
     if (t.dirty()) {
       if (now < p->retry_at_) {
@@ -365,7 +535,15 @@ TimePoint Scheduler::Round(TimePoint now) {
     }
     if (round_open) {
       FrameJob job;
-      if (t.PlanPlayback(now, early, stall, &job)) {
+      // A group member plays the frames whose nearest beat has come: those
+      // due before the current beat plus half a beat.
+      Nanos lead = early;
+      if (p->group_ != nullptr) {
+        const Nanos beat = BeatOf(p->group_);
+        lead =
+            BeatAtOrBefore(now + kRoundSlack, beat) + beat / 2 - now - Nanos(1);
+      }
+      if (t.PlanPlayback(now, lead, stall, &job)) {
         Dispatch(p, job);
         played = true;
         continue;
@@ -375,7 +553,7 @@ TimePoint Scheduler::Round(TimePoint now) {
         continue;
       }
     }
-    playback_wake = std::min(playback_wake, t.due() - early);
+    playback_wake = std::min(playback_wake, PlaybackWake(p));
   }
   if (played) {
     last_round_ = now;
@@ -392,13 +570,43 @@ TimePoint Scheduler::Round(TimePoint now) {
 void Scheduler::Dispatch(Player* p, const FrameJob& job) {
   p->job_ = job;
   p->job_target_generation_ = p->target_generation_;
+  p->job_round_ = round_seq_;
   p->in_flight_ = true;
+  if (Group* g = p->group_) {
+    // Every job of this Round() call for the group joins one batch.
+    if (g->batches_.empty() || g->batches_.back().round != round_seq_) {
+      g->batches_.push_back(Group::Batch{round_seq_, 0});
+    }
+    ++g->batches_.back().remaining;
+  }
   queue_.push_back(p);
   work_cv_.notify_one();
 }
 
 void Scheduler::WakeClockBy(TimePoint when) {
   if (when < clock_wake_) clock_cv_.notify_one();
+}
+
+Nanos Scheduler::BeatOf(const Group* g) const {
+  return g->min_frame_ == Nanos::max() ? period_
+                                       : std::max(period_, g->min_frame_);
+}
+
+TimePoint Scheduler::PlaybackWake(const Player* p) const {
+  const TimePoint due = p->timeline_.due();
+  if (p->group_ == nullptr) return due - period_ / 2;
+  const Nanos beat = BeatOf(p->group_);
+  return BeatAtOrBefore(due + beat / 2, beat);
+}
+
+void Scheduler::UpdateBeat(Group* g) {
+  Nanos shortest = Nanos::max();
+  for (const Player* p : players_) {
+    if (p->group_ == g && p->timeline_.frame_count() > 1) {
+      shortest = std::min(shortest, p->timeline_.min_duration());
+    }
+  }
+  g->min_frame_ = shortest;
 }
 
 // --- Workers -----------------------------------------------------------------
@@ -417,9 +625,15 @@ void Scheduler::WorkerLoop(uint32_t index) {
     std::unique_lock<std::mutex> lk(mu_);
     for (;;) {
       work_cv_.wait(lk, [this, index] {
-        return quit_ || index >= worker_target_ || !queue_.empty();
+        return quit_ || index >= worker_target_ || !queue_.empty() ||
+               !present_queue_.empty();
       });
       if (quit_ || index >= worker_target_) break;
+      // Presents first: they finish a tick that is already decoded.
+      if (!present_queue_.empty()) {
+        RunPresent(&lk);
+        continue;
+      }
       Player* p = queue_.front();
       queue_.pop_front();
       p->executing_ = true;
@@ -514,8 +728,13 @@ void Scheduler::Finish(Player* p, const FrameJob& job, const JobResult& r,
   // Complete set the clock from the job; ask for the new target's frame
   // again on top of it.
   if (redrawn) p->timeline_.Redraw(done);
+  if (p->group_ != nullptr) CompleteBatch(p->group_, p->job_round_, done);
   if (p->removing_) {
     done_cv_.notify_all();
+    return;
+  }
+  if (p->retargeting_) {
+    done_cv_.notify_all();  // Retarget takes over from here.
     return;
   }
   if (p->parked_) return;
@@ -523,7 +742,7 @@ void Scheduler::Finish(Player* p, const FrameJob& job, const JobResult& r,
   if (t.dirty()) {
     WakeClockBy(std::max(p->retry_at_, done));
   } else if (t.running() && t.animates()) {
-    WakeClockBy(std::max(p->retry_at_, t.due() - period_ / 2));
+    WakeClockBy(std::max(p->retry_at_, PlaybackWake(p)));
   }
 }
 

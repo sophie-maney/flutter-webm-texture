@@ -88,6 +88,61 @@ _Static_assert(offsetof(wt_sink, release) == 2 * sizeof(void*),
 _Static_assert(offsetof(wt_sink, error) == 3 * sizeof(void*), "wt_sink layout");
 _Static_assert(sizeof(wt_sink) == 4 * sizeof(void*), "wt_sink layout");
 
+_Static_assert(offsetof(wt_atlas_options, width) == 0,
+               "wt_atlas_options layout");
+_Static_assert(offsetof(wt_atlas_options, max_height) == 4,
+               "wt_atlas_options layout");
+_Static_assert(offsetof(wt_atlas_options, gutter) == 8,
+               "wt_atlas_options layout");
+_Static_assert(offsetof(wt_atlas_options, max_pages) == 12,
+               "wt_atlas_options layout");
+_Static_assert(offsetof(wt_atlas_options, format) == 16,
+               "wt_atlas_options layout");
+_Static_assert(sizeof(wt_atlas_options) == 20, "wt_atlas_options layout");
+
+_Static_assert(offsetof(wt_atlas_slot, page) == 0, "wt_atlas_slot layout");
+_Static_assert(offsetof(wt_atlas_slot, x) == 4, "wt_atlas_slot layout");
+_Static_assert(offsetof(wt_atlas_slot, height) == 16, "wt_atlas_slot layout");
+_Static_assert(offsetof(wt_atlas_slot, outer_x) == 20, "wt_atlas_slot layout");
+_Static_assert(offsetof(wt_atlas_slot, outer_height) == 32,
+               "wt_atlas_slot layout");
+_Static_assert(sizeof(wt_atlas_slot) == 36, "wt_atlas_slot layout");
+
+_Static_assert(offsetof(wt_atlas_page_info, width) == 0,
+               "wt_atlas_page_info layout");
+_Static_assert(offsetof(wt_atlas_page_info, used_height) == 4,
+               "wt_atlas_page_info layout");
+_Static_assert(offsetof(wt_atlas_page_info, wanted_height) == 8,
+               "wt_atlas_page_info layout");
+_Static_assert(offsetof(wt_atlas_page_info, height) == 12,
+               "wt_atlas_page_info layout");
+_Static_assert(offsetof(wt_atlas_page_info, has_target) == 16,
+               "wt_atlas_page_info layout");
+_Static_assert(offsetof(wt_atlas_page_info, live_slots) == 20,
+               "wt_atlas_page_info layout");
+_Static_assert(offsetof(wt_atlas_page_info, buffers) == 24,
+               "wt_atlas_page_info layout");
+_Static_assert(offsetof(wt_atlas_page_info, buffer_stride) == 28,
+               "wt_atlas_page_info layout");
+_Static_assert(offsetof(wt_atlas_page_info, buffer_bytes) == 32,
+               "wt_atlas_page_info layout");
+_Static_assert(offsetof(wt_atlas_page_info, cpu_bytes) == 40,
+               "wt_atlas_page_info layout");
+_Static_assert(offsetof(wt_atlas_page_info, presents) == 48,
+               "wt_atlas_page_info layout");
+_Static_assert(offsetof(wt_atlas_page_info, present_failures) == 56,
+               "wt_atlas_page_info layout");
+_Static_assert(sizeof(wt_atlas_page_info) == 64, "wt_atlas_page_info layout");
+
+_Static_assert(offsetof(wt_atlas_target, context) == 0,
+               "wt_atlas_target layout");
+_Static_assert(offsetof(wt_atlas_target, acquire) == sizeof(void*),
+               "wt_atlas_target layout");
+_Static_assert(offsetof(wt_atlas_target, present) == 2 * sizeof(void*),
+               "wt_atlas_target layout");
+_Static_assert(sizeof(wt_atlas_target) == 3 * sizeof(void*),
+               "wt_atlas_target layout");
+
 /* Called from api_test.cc: proves the functions link and work from C. Only
    checks behaviour that stays true once the stubs are implemented. */
 int wt_c_abi_check(void) {
@@ -127,6 +182,24 @@ int wt_c_abi_check(void) {
     }
     wt_sched_destroy(NULL);
     wt_player_destroy(NULL);
+  }
+  {
+    wt_atlas_options options;
+    wt_atlas_page_info info;
+    wt_atlas_slot slot;
+    wt_atlas_options_init_default(&options);
+    if (options.width == 0 || options.max_pages == 0) return 14;
+    if (wt_atlas_create(NULL, &options, NULL) != WT_ERR_INVALID_ARGUMENT) {
+      return 15;
+    }
+    if (wt_atlas_attach(NULL, NULL, &slot) != WT_ERR_INVALID_ARGUMENT) {
+      return 16;
+    }
+    if (wt_atlas_get_page(NULL, 0, &info) != WT_ERR_INVALID_ARGUMENT) {
+      return 17;
+    }
+    if (wt_atlas_page_count(NULL) != 0) return 18;
+    wt_atlas_destroy(NULL);
   }
   return 0;
 }

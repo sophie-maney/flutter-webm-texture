@@ -83,6 +83,8 @@ class Timeline {
   uint32_t frame_count() const {
     return static_cast<uint32_t>(durations_.size());
   }
+  // The shortest frame (after raising to kMinFrameTime).
+  Nanos min_duration() const { return min_duration_; }
   bool loop() const { return loop_; }
   // The frame on screen, or the one a pending request will draw.
   uint32_t shown() const { return shown_; }
@@ -102,7 +104,8 @@ class Timeline {
   void Seek(uint32_t frame);
   // The frame on screen was lost (a new surface). A running timeline with a
   // frame after shown() just makes that frame due now; otherwise shown() is
-  // requested again.
+  // requested again. If the timeline stops before that next frame is drawn,
+  // Stop requests shown() after all.
   void Redraw(TimePoint now);
 
   void Start(TimePoint now);
@@ -130,6 +133,7 @@ class Timeline {
 
   const std::vector<Nanos> durations_;
   const bool loop_;
+  const Nanos min_duration_;
 
   uint32_t shown_ = 0;
   bool dirty_ = true;
@@ -140,6 +144,8 @@ class Timeline {
   Nanos remaining_{};  // Meaningful while stopped: shown_'s time left.
   uint32_t cursor_ = 0;
   bool cursor_known_ = false;
+  // Redraw is waiting for the next playback frame (see Stop).
+  bool redraw_owed_ = false;
 };
 
 }  // namespace wt
