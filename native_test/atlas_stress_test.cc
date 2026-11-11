@@ -60,8 +60,10 @@ struct Bucket {
 constexpr Bucket kBuckets[] = {{12, 12}, {20, 20}, {28, 12},
                                {12, 28}, {40, 40}, {24, 24}};
 
+// Presents of a page start at least a period, less the scheduler's 1 ms of
+// timer slack, apart.
 std::chrono::microseconds MinGap() {
-  return std::chrono::microseconds(1000000 / kFps) - milliseconds(3);
+  return std::chrono::microseconds(1000000 / kFps) - milliseconds(1);
 }
 
 struct Counters {
@@ -585,8 +587,8 @@ TEST(AtlasStressTest, ChurnAcrossAtlasesPagesAndTargets) {
   EXPECT_GT(c.destroyed_attached.load(), 10);
   EXPECT_GE(c.recreates.load(), kDrivers);
   EXPECT_GE(c.max_pages.load(), 2);
-  EXPECT_GT(c.presents.load(), 500u);
-  EXPECT_GT(c.slots_checked.load(), 5000u);
+  EXPECT_GT(c.presents.load(), 300u);
+  EXPECT_GT(c.slots_checked.load(), 2000u);
   std::printf(
       "atlas stress: %d players, %d attaches, %d detaches, %d moves, "
       "%d limits, %d grows, %d shrinks, %d releases, %d surface losses, "

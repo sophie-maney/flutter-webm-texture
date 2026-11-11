@@ -393,7 +393,7 @@ void Scheduler::RunPresent(std::unique_lock<std::mutex>* lk) {
   // One present per group per clock period, like the rounds themselves.
   g->not_before_ = start + period_ - kRoundSlack;
   lk->unlock();
-  const wt_status status = g->target_->Present();
+  const wt_status status = g->target_->Present(start);
   const TimePoint done = SchedClock::now();
   lk->lock();
   g->presenting_ = false;

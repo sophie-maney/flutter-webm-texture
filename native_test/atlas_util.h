@@ -261,16 +261,17 @@ class Tags {
 //   frame, and zeros in the rest of its outer rect (the gutter), however
 //   stale the buffer was;
 // - slots that don't fit lie below the target's height;
-// - presents of one page start at least min_gap apart (one per tick).
+// - presents of one page start at least min_gap apart (one per tick), by
+//   the start time the scheduler gives each present.
 class PresentChecker : public wt::AtlasPresentObserver {
  public:
   PresentChecker(const Tags* tags, std::chrono::microseconds min_gap)
       : tags_(tags), min_gap_(min_gap) {}
 
-  void OnPresent(uint32_t page, const wt_buffer& buf, uint32_t width,
-                 uint32_t height,
+  void OnPresent(uint32_t page, wt::TimePoint start, const wt_buffer& buf,
+                 uint32_t width, uint32_t height,
                  const std::vector<wt::AtlasSlotView>& slots) override {
-    const auto now = std::chrono::steady_clock::now();
+    const wt::TimePoint now = start;
     std::lock_guard<std::mutex> lk(mu_);
     ++presents_;
     auto last = last_present_.find(page);
@@ -353,7 +354,7 @@ class PresentChecker : public wt::AtlasPresentObserver {
   int failures_ = 0;
   uint64_t presents_ = 0;
   uint64_t slots_checked_ = 0;
-  std::map<uint32_t, std::chrono::steady_clock::time_point> last_present_;
+  std::map<uint32_t, wt::TimePoint> last_present_;
   std::unordered_map<const wt::Player*, uint32_t> shown_;
 };
 

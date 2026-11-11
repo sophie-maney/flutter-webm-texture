@@ -59,7 +59,7 @@ class Atlas::Page final : public PresentTarget {
         format_(atlas->options_.format),
         alloc_(layout) {}
 
-  wt_status Present() override;
+  wt_status Present(TimePoint start) override;
   void Leave(Player* player) override { atlas_->OnLeave(player); }
 
   // Requires slots_mu_. A spare frame of exactly `size` bytes, or none.
@@ -153,7 +153,7 @@ void WriteSlot(const wt_buffer& buf, const Entry& e) {
 
 }  // namespace
 
-wt_status Atlas::Page::Present() {
+wt_status Atlas::Page::Present(TimePoint start) {
   std::lock_guard<std::mutex> tl(target_mu_);
   if (!has_target_) return WT_NO_TARGET;
   wt_buffer buf{};
@@ -193,7 +193,7 @@ wt_status Atlas::Page::Present() {
       }
     }
     if (observer != nullptr) {
-      observer->OnPresent(index_, buf, width_, height, views_);
+      observer->OnPresent(index_, start, buf, width_, height, views_);
     }
   }
   target_.present(target_.context, WT_OK);

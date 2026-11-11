@@ -71,8 +71,11 @@ class AtlasPresentObserver {
  public:
   virtual ~AtlasPresentObserver() = default;
   // Runs on the presenting worker after the slots were written and before
-  // the target's present. Must not call into the atlas or the scheduler.
-  virtual void OnPresent(uint32_t page, const wt_buffer& buffer, uint32_t width,
+  // the target's present. `start` is the scheduler's start time of this
+  // present (PresentTarget::Present). Must not call into the atlas or the
+  // scheduler.
+  virtual void OnPresent(uint32_t page, TimePoint start,
+                         const wt_buffer& buffer, uint32_t width,
                          uint32_t height,
                          const std::vector<AtlasSlotView>& slots) = 0;
 };

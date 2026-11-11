@@ -53,11 +53,12 @@ class PresentTarget {
 
   // Shows the latest frames of the group. Called after a round's batch for
   // the group finished and after Scheduler::RequestPresent, never twice at
-  // once for one group, at most once per clock period, and never after
-  // RemoveGroup returns. Returns WT_OK, WT_BUSY (try again a period later),
-  // WT_NO_TARGET (wait for RequestPresent) or an error (try again in about
-  // 100 ms).
-  virtual wt_status Present() = 0;
+  // once for one group, and never after RemoveGroup returns. `start` is when
+  // the scheduler started this present; the starts of one group's presents
+  // are at least a clock period (less 1 ms of timer slack) apart. Returns
+  // WT_OK, WT_BUSY (try again a period later), WT_NO_TARGET (wait for
+  // RequestPresent) or an error (try again in about 100 ms).
+  virtual wt_status Present(TimePoint start) = 0;
 
   // `player`, a member of the group, is being destroyed: its frame in flight
   // is done and its sink won't be called again. Runs on the thread calling

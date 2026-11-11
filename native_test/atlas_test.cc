@@ -30,10 +30,10 @@ using wt_test::Tags;
 
 constexpr auto kWait = milliseconds(3000);
 
-// Presents of a page are at least a period apart; allow for when the
-// checker's clock is read inside the present.
+// Presents of a page start at least a period, less the scheduler's 1 ms of
+// timer slack, apart.
 std::chrono::microseconds MinGap(uint32_t fps) {
-  return std::chrono::microseconds(1000000 / fps) - milliseconds(3);
+  return std::chrono::microseconds(1000000 / fps) - milliseconds(1);
 }
 
 wt_atlas_options Options(uint32_t width, uint32_t max_height,
@@ -63,7 +63,9 @@ class AtlasTest : public ::testing::Test {
     wt_atlas_destroy(atlas_);
     for (wt::Player* p : players_) impl_->RemovePlayer(p);
     wt_sched_destroy(sched_);
-    if (checker_ != nullptr) EXPECT_EQ(checker_->failures(), 0);
+    if (checker_ != nullptr) {
+      EXPECT_EQ(checker_->failures(), 0);
+    }
   }
 
   wt::Atlas* Impl() { return reinterpret_cast<wt::Atlas*>(atlas_); }
@@ -285,7 +287,9 @@ TEST_F(AtlasTest, PagesGrowShrinkAndEmpty) {
   EXPECT_EQ(info.used_height, 432u);
   EXPECT_EQ(info.wanted_height, 480u);
   // At least max(128, 480 / 4) rows free: shrink.
-  for (int i = 17; i >= 2; --i) ASSERT_EQ(Detach(ps[i]), WT_OK);
+  for (int i = 17; i >= 2; --i) {
+    ASSERT_EQ(Detach(ps[i]), WT_OK);
+  }
   info = Page(0);
   EXPECT_EQ(info.used_height, 48u);
   EXPECT_EQ(info.wanted_height, 48u);
