@@ -54,10 +54,10 @@
  * Android writes WT_PIXEL_FORMAT_RGBA8888 and iOS WT_PIXEL_FORMAT_BGRA8888.
  *
  * Status of this header (T1.1): the types and signatures are final for Phase 1.
- * As of T1.5 every function is implemented for WebM; WebP and GIF sources
- * sniff correctly but wt_probe and wt_anim_create return WT_ERR_UNSUPPORTED
- * for them until Phase 5. WT_ERR_UNIMPLEMENTED is reserved for functions a
- * later phase adds before it fills them in.
+ * As of T1.5 every function is implemented for WebM, and as of T5.1 for
+ * animated WebP; GIF sources sniff correctly but wt_probe and wt_anim_create
+ * return WT_ERR_UNSUPPORTED for them until T5.2. WT_ERR_UNIMPLEMENTED is
+ * reserved for functions a later phase adds before it fills them in.
  * T3.1 added wt_anim_create_cached (WT_API_VERSION 2), T3.2 the cache
  * directory functions (WT_API_VERSION 3), T3.3 the scheduler (wt_sched,
  * wt_player and the WT_BUSY / WT_NO_TARGET codes, WT_API_VERSION 4), T4.2

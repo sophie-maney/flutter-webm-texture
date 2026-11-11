@@ -21,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [fuzz_sniff, fuzz_probe, fuzz_webm, fuzz_wsc]
+        target: [fuzz_sniff, fuzz_probe, fuzz_webm, fuzz_webp, fuzz_wsc]
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:

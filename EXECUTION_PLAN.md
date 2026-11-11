@@ -349,7 +349,7 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 
 ## Phase 5: Animated WebP + GIF
 
-### [ ] T5.1 Animated WebP
+### [x] T5.1 Animated WebP
 **Model** Sonnet 5.5 · `medium` · **Depends** T3.1 · **Track** A
 - `WebPAnimDecoder` produces an RGBA canvas, which is converted to the YUVA cache path. Respect per-frame durations and the limits.
 

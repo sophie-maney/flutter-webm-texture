@@ -159,7 +159,7 @@ tool/                      # fetch_prebuilts, build_host_deps.sh (host tests), g
 - Pages present at the content rate: a page's players show their frames on a shared beat (its shortest member frame, at least a clock period), so players started at different times don't make a page present at every tick. Slots draw the page texture frozen, and the scope latches each page's newest image once per frame, because Android's external texture asks for a new image on every un-frozen paint.
 
 ### Phase 5: Animated WebP + GIF
-- `WebPAnimDecoder` (RGBA canvas), converted to the same YUVA cache path.
+- `WebPAnimDecoder` (RGBA canvas), converted to the same YUVA cache path ([ADR 0022](docs/decisions/0022-animated-webp.md)): a `CanvasDecoder` seam that GIF also uses, `RgbaToYuva` in full-range BT.601, frame durations of ≤ 10 ms played as 100 ms, a still WebP as one frame, and a WebP-specific 1:1 colour bar (40 dB, measured 40.83) because the 4:2:0 round trip loses chroma detail WebM sources never had.
 - giflib plus our own frame compositing (disposal methods, transparency index, minimum delay clamped as browsers do).
 
 ### Phase 6: Hardening + pub.dev release

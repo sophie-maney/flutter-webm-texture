@@ -86,10 +86,10 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   }
 
   // The public path: the format a source sniffs as decides the demuxer.
-  // Non-WebM inputs must be rejected without parsing until Phase 5 adds
-  // WebP/GIF. WebM probing is fuzz_probe's job.
+  // GIF must be rejected without parsing until T5.2 adds it. WebM and WebP
+  // probing are fuzz_probe's and fuzz_webp's job.
   const wt_format format = Oracle(data, size);
-  if (format == WT_FORMAT_WEBM) return 0;
+  if (format == WT_FORMAT_WEBM || format == WT_FORMAT_WEBP) return 0;
   wt_source* api = nullptr;
   if (wt_source_create_memory(data, size, nullptr, &api) != WT_OK) {
     return 0;  // Empty input or over max_bytes.
@@ -99,8 +99,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   if (format == WT_FORMAT_UNKNOWN && status != WT_ERR_INVALID_DATA) {
     __builtin_trap();
   }
-  if ((format == WT_FORMAT_WEBP || format == WT_FORMAT_GIF) &&
-      status != WT_ERR_UNSUPPORTED) {
+  if (format == WT_FORMAT_GIF && status != WT_ERR_UNSUPPORTED) {
     __builtin_trap();
   }
   wt_source_destroy(api);

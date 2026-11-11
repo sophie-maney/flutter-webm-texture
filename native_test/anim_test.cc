@@ -344,8 +344,7 @@ TEST(AnimCreateTest, Errors) {
   Anim anim;
   EXPECT_EQ(OpenAnim("garbage.bin", 0, 0, &anim), WT_ERR_INVALID_DATA);
   EXPECT_EQ(OpenAnim("vp9_2048.webm", 0, 0, &anim), WT_ERR_LIMIT);
-  // Phase 5 decodes these.
-  EXPECT_EQ(OpenAnim("anim.webp", 0, 0, &anim), WT_ERR_UNSUPPORTED);
+  // GIF arrives in T5.2.
   EXPECT_EQ(OpenAnim("anim_disposal.gif", 0, 0, &anim), WT_ERR_UNSUPPORTED);
   EXPECT_EQ(anim.p, nullptr);
 

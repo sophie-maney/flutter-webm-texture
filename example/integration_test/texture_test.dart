@@ -130,8 +130,8 @@ void main() {
             throwsCode('WT_ERR_INVALID_DATA'),
             reason: name,
           );
-        } else if (kind != 'webm') {
-          // WebP and GIF don't decode until Phase 5.
+        } else if (kind == 'gif') {
+          // GIF doesn't decode until T5.2.
           await expectLater(
             create,
             throwsCode('WT_ERR_UNSUPPORTED'),

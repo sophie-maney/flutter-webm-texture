@@ -7,8 +7,9 @@ inputs into the first corpus directory.
 | Target | Seeds |
 |---|---|
 | `fuzz_sniff` | `test_assets/` |
-| `fuzz_probe` | `test_assets/`, `fuzz/corpus/webm/` |
+| `fuzz_probe` | `test_assets/`, `fuzz/corpus/webm/`, `fuzz/corpus/webp/` |
 | `fuzz_webm` | `fuzz/corpus/webm/` (+ `fuzz/webm.dict`) |
+| `fuzz_webp` | `test_assets/`, `fuzz/corpus/webp/` (+ `fuzz/webp.dict`) |
 | `fuzz_wsc` | `fuzz/corpus/wsc/` (+ `fuzz/wsc.dict`) |
 
 When a run finds a bug, fix it and add the reproducer from
@@ -52,3 +53,16 @@ build/fuzz/wsc_seeds test_assets fuzz/corpus/wsc
 ```
 
 `fuzz/wsc.dict` lists the magic and common header values.
+
+## `webp/` (`fuzz_webp`, `fuzz_probe`)
+
+Small hand-made WebPs, also read by `native_test/webp_test.cc`. The animated
+corpus file `test_assets/anim.webp` is the main seed and comes from
+`test_assets/`.
+
+- `still_lossless_alpha.webp`, `still_lossy.webp`: non-animated files (a
+  VP8L with alpha, a lossy VP8), made with `cwebp -lossless -exact` and
+  `cwebp -q 70` from a 12x8 and a 16x16 gradient.
+- `anim_zero_duration.webp`: two lossless 12x8 frames muxed with
+  `webpmux -frame a.webp +0+0+0+0-b -frame b.webp +40+0+0+1+b`, so the first
+  frame has duration 0 (the 100 ms policy, ADR 0022).

@@ -58,9 +58,11 @@ set(WT_CORE_SOURCES
   cache/wsc.cc
   convert/yuva.cc
   decode/vpx_decoder.cc
+  decode/webp_decoder.cc
   demux/sniff.cc
   demux/source.cc
   demux/webm.cc
+  demux/webp.cc
   sched/scheduler.cc
   sched/timeline.cc
 )

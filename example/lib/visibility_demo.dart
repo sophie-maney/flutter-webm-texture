@@ -12,7 +12,7 @@ const _assets = [
   'vp9_odd_301x199.webm',
   'vp9_opaque_256.webm',
   'vp9_with_audio.webm',
-  // WebP and GIF join in Phase 5, when the platform can play them.
+  // GIF joins in T5.2, when the platform can play it.
 ];
 
 /// Number of rows.

@@ -1,0 +1,18 @@
+# libFuzzer dictionary for fuzz_webp: RIFF/WebP chunk tags the demuxer and
+# decoder read, and the smallest sizes they treat specially.
+riff="RIFF"
+webp="WEBP"
+vp8x="VP8X"
+anim="ANIM"
+anmf="ANMF"
+alph="ALPH"
+vp8="VP8 "
+vp8l="VP8L"
+iccp="ICCP"
+exif="EXIF"
+xmp="XMP "
+vp8_sig="\x9D\x01\x2A"
+vp8l_sig="\x2F"
+flags_anim_alpha="\x12\x00\x00\x00"
+size_0="\x00\x00\x00\x00"
+size_max="\xFF\xFF\xFF\xFF"

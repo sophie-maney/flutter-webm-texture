@@ -10,8 +10,10 @@
 //   edges differ a little; the thresholds catch a wrong filter, a shifted
 //   or flipped image and a swapped channel, not rounding.
 //
-// WebP and GIF references are not checked here: wt_anim_create returns
-// WT_ERR_UNSUPPORTED for them until Phase 5.
+// WebP (T5.1) goes through the same checks with its own bars, because it
+// reaches the YUVA cache path from a straight-alpha RGBA canvas and 4:2:0
+// subsampling loses chroma detail that WebM sources never had (ADR 0022).
+// GIF references are not checked here until T5.2.
 #include <algorithm>
 #include <cstdint>
 #include <string>
@@ -194,6 +196,117 @@ TEST(GoldenTest, ScaledBucketsMatchAreaAveragedReferences) {
           }
         }
       }
+    }
+  }
+}
+
+// --- Animated WebP (T5.1) ---------------------------------------------------
+
+// Colour at 1:1 is the one bar WebP can't share with WebM: the straight RGBA
+// canvas takes a 4:2:0 round trip (ADR 0022). Measured minimum over
+// anim.webp's 16 frames is 40.83 dB; the bar leaves under 1 dB of margin.
+// Alpha stays exact, and the bucket tests reuse the shared bars (measured
+// minimums 35.06 dB colour, 33.06 dB alpha).
+constexpr double kWebpMinPsnr = 40.0;
+
+Golden GoldenWebp() {
+  Golden g;
+  for (const Json& f : wt_test::Manifest()["files"].array) {
+    if (f["kind"].string != "webp") continue;
+    g.name = f["name"].string;
+    g.width = static_cast<uint32_t>(f["width"].Int());
+    g.height = static_cast<uint32_t>(f["height"].Int());
+    g.alpha = f["alpha"].boolean;
+    for (int64_t i : f["ref_frames"].Ints()) {
+      g.frames.push_back(static_cast<uint32_t>(i));
+    }
+  }
+  return g;
+}
+
+// Alpha comes through the canvas untouched, so it must match exactly; colour
+// carries the 4:2:0 round trip.
+void ExpectWebpGolden(const Bytes& pixels, const Bytes& ref) {
+  ASSERT_EQ(pixels.size(), ref.size());
+  EXPECT_EQ(wt_test::MaxError(pixels, ref, kAlpha), 0) << "alpha differs";
+  EXPECT_GE(wt_test::Psnr(pixels, ref, kRgb), kWebpMinPsnr);
+}
+
+TEST(WebpGoldenTest, CorpusHasReferences) {
+  const Golden g = GoldenWebp();
+  EXPECT_EQ(g.name, "anim.webp");
+  EXPECT_EQ(g.frames.size(), 16u);
+}
+
+TEST(WebpGoldenTest, SequentialDecodeMatchesReferencesAtSourceSize) {
+  const Golden g = GoldenWebp();
+  Anim anim;
+  ASSERT_EQ(OpenAnim(g.name, 0, 0, &anim), WT_OK);
+  Bytes pixels, ref;
+  for (uint32_t i : g.frames) {
+    SCOPED_TRACE("frame " + std::to_string(i));
+    ASSERT_EQ(Next(anim, &pixels), WT_OK);
+    ASSERT_TRUE(wt_test::LoadRefFrame(g.name, static_cast<int>(i), g.width,
+                                      g.height, &ref));
+    ExpectWebpGolden(pixels, ref);
+  }
+  wt_frame_info info;
+  EXPECT_EQ(Next(anim, &pixels, WT_PIXEL_FORMAT_RGBA8888, &info), WT_END);
+}
+
+// Frames out of order: backward seeks reset the decoder and decode forward.
+TEST(WebpGoldenTest, SeekedFramesMatchReferencesAtSourceSize) {
+  const Golden g = GoldenWebp();
+  Anim anim;
+  ASSERT_EQ(OpenAnim(g.name, 0, 0, &anim), WT_OK);
+  Bytes pixels, ref;
+  std::vector<uint32_t> order = {9, 3, 15, 0, 12, 12, 11, 1, 8, 7, 14, 2};
+  for (uint32_t i : order) {
+    SCOPED_TRACE("frame " + std::to_string(i));
+    ASSERT_EQ(wt_anim_seek(anim.p, i), WT_OK);
+    wt_frame_info info;
+    ASSERT_EQ(Next(anim, &pixels, WT_PIXEL_FORMAT_RGBA8888, &info), WT_OK);
+    EXPECT_EQ(info.index, i);
+    ASSERT_TRUE(wt_test::LoadRefFrame(g.name, static_cast<int>(i), g.width,
+                                      g.height, &ref));
+    ExpectWebpGolden(pixels, ref);
+  }
+}
+
+TEST(WebpGoldenTest, BgraMatchesSwappedReferences) {
+  const Golden g = GoldenWebp();
+  Anim anim;
+  ASSERT_EQ(OpenAnim(g.name, 0, 0, &anim), WT_OK);
+  ASSERT_EQ(wt_anim_seek(anim.p, 10), WT_OK);
+  Bytes pixels, ref;
+  ASSERT_EQ(Next(anim, &pixels, WT_PIXEL_FORMAT_BGRA8888), WT_OK);
+  ASSERT_TRUE(wt_test::LoadRefFrame(g.name, 10, g.width, g.height, &ref));
+  for (size_t p = 0; p < pixels.size(); p += 4)
+    std::swap(pixels[p], pixels[p + 2]);
+  ExpectWebpGolden(pixels, ref);
+}
+
+TEST(WebpGoldenTest, ScaledBucketsMatchAreaAveragedReferences) {
+  const Golden g = GoldenWebp();
+  for (double scale : {0.5, 0.375, 0.25}) {
+    const Bucket b = BucketFor(g, scale);
+    SCOPED_TRACE(std::to_string(b.w) + "x" + std::to_string(b.h));
+    Anim anim;
+    ASSERT_EQ(OpenAnim(g.name, b.w, b.h, &anim), WT_OK);
+    for (uint32_t i : g.frames) {
+      SCOPED_TRACE("frame " + std::to_string(i));
+      Bytes ref;
+      ASSERT_TRUE(wt_test::LoadRefFrame(g.name, static_cast<int>(i), g.width,
+                                        g.height, &ref));
+      const Bytes expected =
+          wt_test::AreaDownscale(ref, g.width, g.height, b.w, b.h);
+      Bytes pixels;
+      ASSERT_EQ(Next(anim, &pixels), WT_OK);
+      ASSERT_EQ(pixels.size(), expected.size());
+      const double rgb = wt_test::Psnr(pixels, expected, kRgb);
+      const double alpha = wt_test::Psnr(pixels, expected, kAlpha);
+      EXPECT_GE(rgb, kMinBucketRgbPsnr);
+      EXPECT_GE(alpha, kMinBucketAlphaPsnr);
     }
   }
 }
