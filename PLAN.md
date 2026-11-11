@@ -152,7 +152,7 @@ tool/                      # fetch_prebuilts, build_host_deps.sh (host tests), g
 
 ### Phase 4: Atlas mode
 - `StickerAtlasScope`: slot allocator (shelf packing per bucket), native compositor that writes into one platform buffer, and clipped `Texture` children. This is the documented way to show grids ([ADR 0006](docs/decisions/0006-atlas-for-grids.md)).
-- Pages are sized to content (≤ 2048 wide, height rounded to 16 px) and every slot has a ≥ 2-px transparent gutter.
+- Pages are sized to content (≤ 2048 wide, height rounded to 16 px) and every slot has a ≥ 2-px transparent gutter. The allocator's shelf, reuse and handle rules are in [ADR 0019](docs/decisions/0019-slot-allocator.md): slots never move, and the page shrinks only from the bottom.
 - Slots are reclaimed when items scroll out, and the atlas grows (taller page) or splits (new page) when full.
 
 ### Phase 5: Animated WebP + GIF

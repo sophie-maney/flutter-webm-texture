@@ -302,7 +302,7 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 ## Phase 4: Atlas mode (grids)
 *Go ahead: grids use atlas mode ([ADR 0006](docs/decisions/0006-atlas-for-grids.md)).*
 
-### [ ] T4.1 Slot allocator
+### [x] T4.1 Slot allocator
 **Model** Sonnet 5.5 · `high` · **Depends** T0.9 · **Track** A
 - Pure C++ shelf packing per bucket in atlas pages up to 2048 px wide: alloc/free/compaction stats. Allocation fails when full so the caller can grow the page or add one.
 - From spike C ([ADR 0006](docs/decisions/0006-atlas-for-grids.md)):

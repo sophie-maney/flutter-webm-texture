@@ -36,6 +36,7 @@ add_executable(wt_native_tests
   sanitizer_test.cc
   sched_stress_test.cc
   sched_test.cc
+  slot_allocator_test.cc
   source_test.cc
   store_test.cc
   webm_test.cc
