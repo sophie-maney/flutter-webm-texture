@@ -11,8 +11,8 @@
 //   rect that adds a transparent gutter of at least 2 px on every side. The
 //   outer rect is the slot's pitch: bucket + 2 * gutter, rounded up to a
 //   multiple of 16, so every outer rect starts on a 16-px boundary in both
-//   axes (128-px bucket -> 144-px pitch, a 8-px gutter right and bottom, 2 px
-//   left and top). The compositor must clear the whole outer rect, gutter
+//   axes (128-px bucket -> 144-px pitch: 2 px left and top, 14 px right and
+//   bottom). The compositor must clear the whole outer rect, gutter
 //   included, on every write.
 // - The page is a stack of shelves from y = 0. A shelf is as tall as its
 //   slots' pitch, holds slots of one bucket (width x height) only, and fits
