@@ -160,7 +160,7 @@ tool/                      # fetch_prebuilts, build_host_deps.sh (host tests), g
 
 ### Phase 5: Animated WebP + GIF
 - `WebPAnimDecoder` (RGBA canvas), converted to the same YUVA cache path ([ADR 0022](docs/decisions/0022-animated-webp.md)): a `CanvasDecoder` seam that GIF also uses, `RgbaToYuva` in full-range BT.601, frame durations of ≤ 10 ms played as 100 ms, a still WebP as one frame, and a WebP-specific 1:1 colour bar (40 dB, measured 40.83) because the 4:2:0 round trip loses chroma detail WebM sources never had.
-- giflib plus our own frame compositing (disposal methods, transparency index, minimum delay clamped as browsers do).
+- giflib plus our own frame compositing ([ADR 0023](docs/decisions/0023-gif.md)): a sequential low-level reader (never `DGifSlurp`) behind the same `CanvasDecoder` seam, disposal none/background/previous with a transparent canvas, the transparency index and local palettes, de-interlacing, rects clipped to the screen, delays under 20 ms played as 100 ms, and rect areas counted against `max_total_pixels`. Its 1:1 colour meets the shared bar (50.01 dB measured), but at buckets whose chroma can't resolve pixel-aligned saturated edges the colour bar is GIF-specific (14 dB, measured 15.26).
 
 ### Phase 6: Hardening + pub.dev release
 - Integration tests in `example/`:

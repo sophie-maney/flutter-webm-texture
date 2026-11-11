@@ -355,7 +355,7 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 
 **Accept:** golden tests against reference frames · fuzz target `fuzz_webp`.
 
-### [ ] T5.2 GIF
+### [x] T5.2 GIF
 **Model** Sonnet 5.5 · `high` · **Depends** T3.1 · **Track** B
 - giflib with our own compositing (disposal none/background/previous, transparency index, local palettes). Clamp delays below 20 ms to 100 ms, as browsers do.
 

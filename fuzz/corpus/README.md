@@ -7,9 +7,10 @@ inputs into the first corpus directory.
 | Target | Seeds |
 |---|---|
 | `fuzz_sniff` | `test_assets/` |
-| `fuzz_probe` | `test_assets/`, `fuzz/corpus/webm/`, `fuzz/corpus/webp/` |
+| `fuzz_probe` | `test_assets/`, `fuzz/corpus/webm/`, `fuzz/corpus/webp/`, `fuzz/corpus/gif/` |
 | `fuzz_webm` | `fuzz/corpus/webm/` (+ `fuzz/webm.dict`) |
 | `fuzz_webp` | `test_assets/`, `fuzz/corpus/webp/` (+ `fuzz/webp.dict`) |
+| `fuzz_gif` | `test_assets/`, `fuzz/corpus/gif/` (+ `fuzz/gif.dict`) |
 | `fuzz_wsc` | `fuzz/corpus/wsc/` (+ `fuzz/wsc.dict`) |
 
 When a run finds a bug, fix it and add the reproducer from
@@ -66,3 +67,30 @@ corpus file `test_assets/anim.webp` is the main seed and comes from
 - `anim_zero_duration.webp`: two lossless 12x8 frames muxed with
   `webpmux -frame a.webp +0+0+0+0-b -frame b.webp +40+0+0+1+b`, so the first
   frame has duration 0 (the 100 ms policy, ADR 0022).
+
+## `gif/` (`fuzz_gif`, `fuzz_probe`)
+
+Small GIFs crafted with the test writer `native_test/gif_writer.h`, also
+usable as hand inputs. The animated corpus file `test_assets/anim_disposal.gif`
+is the main seed and comes from `test_assets/`. Regenerate them from a fuzz
+build when the writer changes:
+
+```sh
+cmake --build build/fuzz --target gif_seeds
+build/fuzz/gif_seeds fuzz/corpus/gif
+```
+
+- `interlaced_disposals.gif`: an interlaced first frame, then "background" and
+  "previous" disposals.
+- `local_palette_transparent.gif`: a local colour map and a transparency index.
+- `oversized_rect.gif`: a rect that sticks out of the canvas and one wholly
+  outside it (clipping).
+- `zero_screen.gif`: a zero-size logical screen (taken from the first frame).
+- `zero_delay.gif`: delays of 0, 1 and 2 cs (the 100 ms policy, ADR 0023).
+- `previous_first.gif`: "restore to previous" on the first frame.
+- `short_lzw_no_trailer.gif`: an LZW stream that ends early (a decode error)
+  and no trailer (a truncated file).
+- `huge_rect_no_palette.gif`: a 65535 x 65535 rect and no colour map.
+
+`fuzz/gif.dict` lists the block introducers, extension labels and header
+bytes the demuxer looks for.

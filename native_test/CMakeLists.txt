@@ -31,6 +31,7 @@ add_executable(wt_native_tests
   cache_test.cc
   decode_test.cc
   deps_test.cc
+  gif_test.cc
   golden_test.cc
   manifest.cc
   probe_test.cc

@@ -344,8 +344,6 @@ TEST(AnimCreateTest, Errors) {
   Anim anim;
   EXPECT_EQ(OpenAnim("garbage.bin", 0, 0, &anim), WT_ERR_INVALID_DATA);
   EXPECT_EQ(OpenAnim("vp9_2048.webm", 0, 0, &anim), WT_ERR_LIMIT);
-  // GIF arrives in T5.2.
-  EXPECT_EQ(OpenAnim("anim_disposal.gif", 0, 0, &anim), WT_ERR_UNSUPPORTED);
   EXPECT_EQ(anim.p, nullptr);
 
   // Output sizes: both zero or both in 1..max_dimension.

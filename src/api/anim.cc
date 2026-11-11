@@ -8,6 +8,7 @@
 
 #include "cache/crc32.h"
 #include "cache/store.h"
+#include "decode/gif_decoder.h"
 #include "decode/webp_decoder.h"
 
 namespace wt {
@@ -55,27 +56,32 @@ void WebmTimings(const WebmIndex& index, std::vector<FrameTiming>* out) {
   }
 }
 
-void WebpInfo(const WebpIndex& index, wt_info* out) {
+// What a canvas format reports: one durations list, in ms, each >= 1 (the
+// demuxers enforce it and the summed total against max_duration_ms).
+void CanvasInfo(wt_format format, wt_codec codec, uint32_t width,
+                uint32_t height, bool has_alpha, bool truncated,
+                const std::vector<uint32_t>& durations_ms, wt_info* out) {
   std::memset(out, 0, sizeof(*out));
-  out->format = WT_FORMAT_WEBP;
-  out->codec = WT_CODEC_WEBP;
-  out->width = index.width;
-  out->height = index.height;
-  out->frame_count = static_cast<uint32_t>(index.duration_ms.size());
+  out->format = format;
+  out->codec = codec;
+  out->width = width;
+  out->height = height;
+  out->frame_count = static_cast<uint32_t>(durations_ms.size());
   uint64_t total_ms = 0;
-  for (uint32_t ms : index.duration_ms) total_ms += ms;  // <= max_duration_ms.
+  for (uint32_t ms : durations_ms) total_ms += ms;  // <= max_duration_ms.
   out->duration_ms = ClampToU32(static_cast<int64_t>(total_ms));
   out->fps = out->duration_ms == 0
                  ? 0.0
                  : out->frame_count * 1000.0 / out->duration_ms;
-  out->has_alpha = index.has_alpha;
-  out->truncated = index.truncated;
+  out->has_alpha = has_alpha;
+  out->truncated = truncated;
 }
 
-void WebpTimings(const WebpIndex& index, std::vector<FrameTiming>* out) {
-  out->reserve(index.duration_ms.size());
+void CanvasTimings(const std::vector<uint32_t>& durations_ms,
+                   std::vector<FrameTiming>* out) {
+  out->reserve(durations_ms.size());
   int64_t pts = 0;
-  for (uint32_t ms : index.duration_ms) {
+  for (uint32_t ms : durations_ms) {
     FrameTiming t;
     t.duration_ms = ms;
     t.pts_ms = pts;
@@ -83,6 +89,10 @@ void WebpTimings(const WebpIndex& index, std::vector<FrameTiming>* out) {
     pts += ms;
     out->push_back(t);
   }
+}
+
+bool IsCanvasFormat(wt_format format) {
+  return format == WT_FORMAT_WEBP || format == WT_FORMAT_GIF;
 }
 
 }  // namespace
@@ -126,12 +136,29 @@ wt_status ProbeSource(ByteView bytes, wt_format format, const wt_limits& limits,
           idx->webp.height == 0) {
         return WT_ERR_INTERNAL;  // The demuxer promises a playable frame.
       }
-      WebpInfo(idx->webp, out_info);
-      WebpTimings(idx->webp, &idx->frames);
+      CanvasInfo(WT_FORMAT_WEBP, WT_CODEC_WEBP, idx->webp.width,
+                 idx->webp.height, idx->webp.has_alpha, idx->webp.truncated,
+                 idx->webp.duration_ms, out_info);
+      CanvasTimings(idx->webp.duration_ms, &idx->frames);
       return WT_OK;
     }
-    case WT_FORMAT_GIF:
-      return WT_ERR_UNSUPPORTED;  // T5.2.
+    case WT_FORMAT_GIF: {
+      const wt_status s = DemuxGif(bytes, limits, &idx->gif);
+      if (s != WT_OK) return s;
+      if (idx->gif.frames.empty() || idx->gif.width == 0 ||
+          idx->gif.height == 0) {
+        return WT_ERR_INTERNAL;  // The demuxer promises a playable frame.
+      }
+      std::vector<uint32_t> durations;
+      durations.reserve(idx->gif.frames.size());
+      for (const GifFrame& f : idx->gif.frames) {
+        durations.push_back(f.duration_ms);
+      }
+      CanvasInfo(WT_FORMAT_GIF, WT_CODEC_GIF, idx->gif.width, idx->gif.height,
+                 idx->gif.has_alpha, idx->gif.truncated, durations, out_info);
+      CanvasTimings(durations, &idx->frames);
+      return WT_OK;
+    }
     default:
       return WT_ERR_INVALID_DATA;
   }
@@ -176,7 +203,7 @@ wt_status Anim::Create(ByteView bytes, wt_format format,
   }
   wt_status s = anim->frame_.Allocate(width, height, anim->info_.has_alpha);
   if (s != WT_OK) return s;
-  if (format == WT_FORMAT_WEBP &&
+  if (IsCanvasFormat(format) &&
       (width != anim->info_.width || height != anim->info_.height)) {
     s = anim->stage_.Allocate(anim->info_.width, anim->info_.height,
                               anim->info_.has_alpha);
@@ -205,6 +232,15 @@ Anim::CacheMode Anim::cache_mode() const {
 
 wt_status Anim::EnsureDecoder(uint32_t target) {
   if (has_decoder()) return WT_OK;
+  if (info_.format == WT_FORMAT_GIF) {
+    std::unique_ptr<GifDecoder> gif;
+    const wt_status s = GifDecoder::Create(bytes_, index_.gif, &gif);
+    if (s != WT_OK) return s;
+    canvas_ = std::move(gif);
+    decoder_healthy_ = true;
+    next_decode_ = 0;
+    return WT_OK;
+  }
   if (info_.format == WT_FORMAT_WEBP) {
     // A cut file decodes from its complete-frames prefix (demux/webp.h).
     const ByteView source =

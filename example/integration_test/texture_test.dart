@@ -113,7 +113,6 @@ void main() {
     final textures = <int>{};
     for (final entry in entries) {
       final name = entry['name'] as String;
-      final kind = entry['kind'] as String;
       final expect_ = entry['expect'] as String;
       final data = await load(name);
       final file = File('${dir.path}/$name')..writeAsBytesSync(data);
@@ -128,13 +127,6 @@ void main() {
           await expectLater(
             create,
             throwsCode('WT_ERR_INVALID_DATA'),
-            reason: name,
-          );
-        } else if (kind == 'gif') {
-          // GIF doesn't decode until T5.2.
-          await expectLater(
-            create,
-            throwsCode('WT_ERR_UNSUPPORTED'),
             reason: name,
           );
         } else {
