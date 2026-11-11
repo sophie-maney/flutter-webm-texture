@@ -572,6 +572,34 @@ class WebmTextureHostApi {
     return pigeonVar_replyValue! as DeviceSignalsMessage;
   }
 
+  /// Applies the tier's scheduler tunables (`wt_sched_set_options`, ADR 0018)
+  /// to the process-wide scheduler, creating it if needed. [workerCount] is
+  /// 1..8, [maxFps] is 1..240, and a [maxConcurrent] of 0 means no limit.
+  /// Changes reach running animations on the next scheduler round. Throws
+  /// `WT_ERR_INVALID_ARGUMENT` for a value out of range.
+  Future<void> setSchedulerOptions(
+    int workerCount,
+    int maxFps,
+    int maxConcurrent,
+  ) async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.webm_texture.WebmTextureHostApi.setSchedulerOptions$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
+      <Object?>[workerCount, maxFps, maxConcurrent],
+    );
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+    _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: true,
+    );
+  }
+
   /// Sets the directory for the frame cache and returns the one in use, an
   /// absolute path. With a null [directory] nothing changes: the result is
   /// the current one, which starts as `webm_texture` under the app's cache
@@ -621,5 +649,30 @@ Stream<AnimationErrorMessage> streamErrors({String instanceName = ''}) {
   );
   return streamErrorsChannel.receiveBroadcastStream().map((dynamic event) {
     return event as AnimationErrorMessage;
+  });
+}
+
+/// A fresh reading of every device signal, sent when Low Power Mode, battery
+/// saver or the thermal state changes while the app runs. Same content as
+/// [WebmTextureHostApi.deviceSignals].
+///
+/// Returns a broadcast [Stream] of events from the `streamDeviceSignals` event channel.
+///
+/// Each call to this method creates a new [EventChannel], so it should
+/// not be called multiple times for the same `instanceName`. To deliver
+/// events to multiple listeners, call this method once and listen to the
+/// returned broadcast stream multiple times instead.
+Stream<DeviceSignalsMessage> streamDeviceSignals({String instanceName = ''}) {
+  if (instanceName.isNotEmpty) {
+    instanceName = '.$instanceName';
+  }
+  final EventChannel streamDeviceSignalsChannel = EventChannel(
+    'dev.flutter.pigeon.webm_texture.WebmTextureEvents.streamDeviceSignals$instanceName',
+    pigeonMethodCodec,
+  );
+  return streamDeviceSignalsChannel.receiveBroadcastStream().map((
+    dynamic event,
+  ) {
+    return event as DeviceSignalsMessage;
   });
 }

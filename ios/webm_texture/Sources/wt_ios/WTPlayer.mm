@@ -235,6 +235,22 @@ static void ReportError(void *context, wt_status status);
   return wt_cache_evict(directory.fileSystemRepresentation, nullptr);
 }
 
++ (int32_t)setSchedulerWorkerCount:(int32_t)workerCount
+                            maxFps:(int32_t)maxFps
+                     maxConcurrent:(int32_t)maxConcurrent {
+  if (workerCount < 1 || maxFps < 1 || maxConcurrent < 0) {
+    return WT_ERR_INVALID_ARGUMENT;
+  }
+  wt_sched *sched = SharedScheduler();
+  if (sched == nullptr) return WT_ERR_NO_MEMORY;
+  wt_sched_options options;
+  wt_sched_options_init_default(&options);
+  options.worker_count = static_cast<uint32_t>(workerCount);
+  options.max_fps = static_cast<uint32_t>(maxFps);
+  options.max_concurrent = static_cast<uint32_t>(maxConcurrent);
+  return wt_sched_set_options(sched, &options);
+}
+
 - (BOOL)hasFrame {
   std::lock_guard<std::mutex> lk(_latestMu);
   return _latest != NULL;

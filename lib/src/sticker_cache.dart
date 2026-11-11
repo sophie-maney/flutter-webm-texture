@@ -7,35 +7,8 @@ import 'package:flutter/foundation.dart';
 import 'gen/messages.g.dart';
 import 'gen/wt_bindings.g.dart';
 import 'native_library.dart';
+import 'sticker_config.dart';
 import 'sticker_info.dart';
-
-/// Settings for [WebmStickers.configure].
-///
-/// More fields (tiers, concurrency, limits) join this class as their features
-/// land.
-@immutable
-class StickerConfig {
-  /// Creates a configuration; a null field keeps its default.
-  const StickerConfig({
-    this.cacheDirectory,
-    this.diskBudgetBytes = defaultDiskBudgetBytes,
-  }) : assert(diskBudgetBytes >= 0, 'diskBudgetBytes must not be negative');
-
-  /// The default for [diskBudgetBytes]: 200 MiB.
-  static const int defaultDiskBudgetBytes = 200 << 20;
-
-  /// An absolute path for the frame cache, or null for `webm_texture` under
-  /// the app's cache directory.
-  ///
-  /// The plugin creates it, and only ever reads, writes and deletes the
-  /// `*.wsc` files it made there.
-  final String? cacheDirectory;
-
-  /// The most disk the frame cache may use, in bytes. The least recently used
-  /// files are deleted to stay within it: at startup and after each write.
-  /// Zero keeps nothing on disk.
-  final int diskBudgetBytes;
-}
 
 /// How much the frame cache holds, from [WebmStickers.cacheStats].
 @immutable

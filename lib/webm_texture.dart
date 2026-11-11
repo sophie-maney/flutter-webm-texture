@@ -2,12 +2,15 @@ import 'package:flutter/foundation.dart';
 
 import 'src/probe.dart';
 import 'src/sticker_cache.dart';
+import 'src/sticker_config.dart';
+import 'src/sticker_tier.dart';
 import 'src/sticker_info.dart';
 import 'src/sticker_runtime.dart';
 import 'src/sticker_source.dart';
 import 'webm_texture_platform_interface.dart';
 
-export 'src/sticker_cache.dart' show CacheStats, StickerConfig;
+export 'src/sticker_cache.dart' show CacheStats;
+export 'src/sticker_config.dart' show StickerConfig;
 export 'src/sticker_info.dart'
     show
         StickerCodec,
@@ -26,6 +29,7 @@ export 'src/sticker_source.dart'
         StickerFetchResult,
         StickerFetcher,
         StickerSource;
+export 'src/sticker_tier.dart' show StickerTier;
 export 'src/webm_sticker.dart'
     show StickerErrorWidgetBuilder, WebmSticker, WebmStickerController;
 
@@ -47,15 +51,29 @@ abstract final class WebmStickers {
     resolver.clear();
   }
 
-  /// Applies [config]: where the frame cache lives and how big it may grow.
+  /// Applies [config]: where the frame cache lives and how big it may grow,
+  /// and which tier stickers run at.
   ///
   /// Call it once at startup, before the first sticker is shown; stickers
   /// created earlier keep caching where they began. The cache is evicted down
   /// to [StickerConfig.diskBudgetBytes] right away. Without it the cache
   /// lives in `webm_texture` under the app's cache directory with a 200 MiB
-  /// budget.
-  static Future<void> configure(StickerConfig config) =>
-      StickerRuntime.instance.cache.configure(config);
+  /// budget, and the tier is detected ([StickerTier.auto]). The tier and its
+  /// overrides can be changed later: running stickers follow at once.
+  static Future<void> configure(StickerConfig config) async {
+    final runtime = StickerRuntime.instance;
+    await Future.wait([
+      runtime.cache.configure(config),
+      runtime.tiers.configure(config),
+    ]);
+  }
+
+  /// The tier stickers run at now: never [StickerTier.auto]. With
+  /// [StickerTier.auto] it follows Low Power Mode and thermal state.
+  ///
+  /// Meant for debug overlays and tests.
+  static ValueListenable<StickerTier> get debugTier =>
+      StickerRuntime.instance.tiers.tier;
 
   /// How many animations the frame cache holds and how much disk they use.
   ///

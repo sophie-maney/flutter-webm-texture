@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:collection';
 
 import 'package:flutter/foundation.dart';
@@ -9,6 +10,7 @@ import 'sticker_info.dart';
 import 'sticker_registry.dart';
 import 'sticker_resolver.dart';
 import 'sticker_source.dart';
+import 'sticker_tier.dart';
 
 /// Reads a sticker's metadata; [probeSticker] outside tests.
 typedef StickerProber = Future<StickerInfo> Function(StickerSource source);
@@ -24,11 +26,14 @@ class StickerRuntime {
     StickerProber? prober,
     StickerResolver? resolver,
     StickerCache? cache,
+    StickerTierController? tiers,
     this.infoCacheSize = 256,
-  }) : registry = registry ?? StickerRegistry(),
+  }) : tiers = tiers ?? StickerTierController(),
        resolver = resolver ?? StickerResolver(),
        cache = cache ?? StickerCache(),
-       _prober = prober ?? probeSticker;
+       _prober = prober ?? probeSticker {
+    this.registry = registry ?? StickerRegistry(beforeCreate: _startTiers);
+  }
 
   static StickerRuntime? _default;
   static StickerRuntime? _override;
@@ -41,8 +46,12 @@ class StickerRuntime {
   @visibleForTesting
   static set debugOverride(StickerRuntime? runtime) => _override = runtime;
 
-  /// Shares animations between widgets.
-  final StickerRegistry registry;
+  /// Shares animations between widgets. Without one given, it waits for the
+  /// tier before creating the first animation.
+  late final StickerRegistry registry;
+
+  /// Applies the device tier to the native scheduler.
+  final StickerTierController tiers;
 
   /// Loads asset and network sources and names every source's content.
   final StickerResolver resolver;
@@ -74,6 +83,18 @@ class StickerRuntime {
     );
     return probe;
   }
+
+  Future<void> _startTiers() {
+    // The lifecycle needs a binding, which exists once widgets create
+    // animations (but maybe not when configure() runs at startup).
+    if (!_tiersAttached) {
+      _tiersAttached = true;
+      tiers.attachLifecycle(appRunning);
+    }
+    return tiers.start();
+  }
+
+  bool _tiersAttached = false;
 
   AppLifecycleListener? _lifecycle;
   ValueNotifier<bool>? _appRunning;
@@ -107,6 +128,7 @@ class StickerRuntime {
     _appRunning?.dispose();
     _appRunning = null;
     _infos.clear();
+    unawaited(tiers.dispose());
     return registry.dispose();
   }
 }

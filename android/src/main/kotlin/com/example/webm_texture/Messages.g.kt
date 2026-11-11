@@ -568,6 +568,14 @@ interface WebmTextureHostApi {
   /** Reads the current device signals. */
   fun deviceSignals(): DeviceSignalsMessage
   /**
+   * Applies the tier's scheduler tunables (`wt_sched_set_options`, ADR 0018)
+   * to the process-wide scheduler, creating it if needed. [workerCount] is
+   * 1..8, [maxFps] is 1..240, and a [maxConcurrent] of 0 means no limit.
+   * Changes reach running animations on the next scheduler round. Throws
+   * `WT_ERR_INVALID_ARGUMENT` for a value out of range.
+   */
+  fun setSchedulerOptions(workerCount: Long, maxFps: Long, maxConcurrent: Long)
+  /**
    * Sets the directory for the frame cache and returns the one in use, an
    * absolute path. With a null [directory] nothing changes: the result is
    * the current one, which starts as `webm_texture` under the app's cache
@@ -704,6 +712,26 @@ interface WebmTextureHostApi {
         }
       }
       run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.webm_texture.WebmTextureHostApi.setSchedulerOptions$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val workerCountArg = args[0] as Long
+            val maxFpsArg = args[1] as Long
+            val maxConcurrentArg = args[2] as Long
+            val wrapped: List<Any?> = try {
+              api.setSchedulerOptions(workerCountArg, maxFpsArg, maxConcurrentArg)
+              listOf(null)
+            } catch (exception: Throwable) {
+              MessagesPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
         val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.webm_texture.WebmTextureHostApi.configureCache$separatedMessageChannelSuffix", codec)
         if (api != null) {
           channel.setMessageHandler { message, reply ->
@@ -805,6 +833,51 @@ abstract class StreamErrorsStreamHandler : MessagesPigeonEventChannelWrapper<Ani
 
   // Implement methods from MessagesPigeonEventChannelWrapper
   override fun onListen(p0: Any?, sink: PigeonEventSink<AnimationErrorMessage>) {}
+
+  override fun onCancel(p0: Any?) {}
+}
+      
+/** A typed channel for communicating with the Flutter application using asynchronous event streams. */
+class StreamDeviceSignalsEventChannel(messenger: BinaryMessenger, instanceName: String = "") {
+  private val channel: EventChannel
+
+  init {
+    var channelName = "dev.flutter.pigeon.webm_texture.WebmTextureEvents.streamDeviceSignals"
+    if (instanceName.isNotEmpty()) {
+      channelName += ".$instanceName"
+    }
+    channel = EventChannel(messenger, channelName, MessagesPigeonMethodCodec)
+  }
+
+  /**
+   * Sets the stream handler for this channel, replacing any previous handler.
+   *
+   * Pass `null` to remove the event channel registration.
+   */
+  fun setStreamHandler(streamHandler: StreamDeviceSignalsStreamHandler?) {
+    val internalHandler = streamHandler?.let { MessagesPigeonStreamHandler<DeviceSignalsMessage>(it) }
+    channel.setStreamHandler(internalHandler)
+  }
+}
+
+abstract class StreamDeviceSignalsStreamHandler : MessagesPigeonEventChannelWrapper<DeviceSignalsMessage> {
+  companion object {
+    /**
+     * Creates and returns a new event channel that calls the provided stream handler.
+     *
+     * The returned channel can be stored to allow changing or removing the stream handler.
+     * If the handler will not be changed for the lifetime of the engine associated with the messenger,
+     * the return value can be ignored.
+     */
+    fun register(messenger: BinaryMessenger, streamHandler: StreamDeviceSignalsStreamHandler, instanceName: String = ""): StreamDeviceSignalsEventChannel {
+      val channel = StreamDeviceSignalsEventChannel(messenger, instanceName)
+      channel.setStreamHandler(streamHandler)
+      return channel
+    }
+  }
+
+  // Implement methods from MessagesPigeonEventChannelWrapper
+  override fun onListen(p0: Any?, sink: PigeonEventSink<DeviceSignalsMessage>) {}
 
   override fun onCancel(p0: Any?) {}
 }

@@ -83,6 +83,13 @@ internal object WtNative {
      */
     @JvmStatic external fun nativeDestroy(handle: Long)
 
+    /**
+     * Applies the device tier's tunables to the process-wide scheduler:
+     * 1..8 workers, 1..240 fps, and a concurrency limit (0 for none).
+     * Returns a `wt_status`. Main thread.
+     */
+    @JvmStatic external fun nativeSetSchedulerOptions(workerCount: Int, maxFps: Int, maxConcurrent: Int): Int
+
     /** The core's name for a `wt_status`, such as `WT_ERR_LIMIT`. */
     @JvmStatic external fun nativeStatusName(status: Int): String
 }

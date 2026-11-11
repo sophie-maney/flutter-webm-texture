@@ -65,7 +65,7 @@ Platform glue                                 FrameCache (disk: LZ4 YUVA420 fram
   - high: source fps, unlimited animations
   - mid: ≤30 fps, ≤30 concurrent
   - low: ≤15 fps, ≤8 concurrent, the rest show a static first frame
-  - Apps override this with `StickerConfig(tier:, maxFps:, maxConcurrent:)`.
+  - Apps override this with `StickerConfig(tier:, maxFps:, maxConcurrent:)`. The rules (thresholds, how Low Power Mode and thermal state lower the tier, worker counts) are in [ADR 0018](docs/decisions/0018-device-tiers.md); `WebmStickers.debugTier` shows the tier in force.
 - **Safety:** input from other users is untrusted.
   - libvpx is built with `--size-limit=1024x1024`.
   - The core enforces limits (configurable): max dimensions, frame count, duration, file size, and total decode budget.
@@ -148,7 +148,7 @@ tool/                      # fetch_prebuilts, build_host_deps.sh (host tests), g
 ### Phase 3: Cache, scheduler, tiers
 - `.wsc` cache writer/reader, LRU eviction under budget, versioned format, and atomic writes (temp file + rename). The budget is enforced after each write and at startup, LRU on mtime, and the platform glue caches under `<cache dir>/webm_texture` ([ADR 0015](docs/decisions/0015-frame-cache-file-and-abi.md), [ADR 0016](docs/decisions/0016-cache-budget-and-eviction.md)).
 - Clock and worker pool, frame dropping, and the global `maxConcurrent` limit, prioritising the most visible stickers. One scheduler per process in `src/sched/`, behind `wt_sched_*`/`wt_player_*` and a `wt_sink` per animation; the visible area reaches it through the Pigeon call `setPriority` ([ADR 0017](docs/decisions/0017-scheduler.md)).
-- Tier detection on each platform plus runtime downgrades (thermal state, Low Power Mode).
+- Tier detection on each platform plus runtime downgrades (thermal state, Low Power Mode): the platforms report `deviceSignals` and push changes on `streamDeviceSignals`, Dart picks the tier and sends it through `setSchedulerOptions` ([ADR 0018](docs/decisions/0018-device-tiers.md)).
 
 ### Phase 4: Atlas mode
 - `StickerAtlasScope`: slot allocator (shelf packing per bucket), native compositor that writes into one platform buffer, and clipped `Texture` children. This is the documented way to show grids ([ADR 0006](docs/decisions/0006-atlas-for-grids.md)).

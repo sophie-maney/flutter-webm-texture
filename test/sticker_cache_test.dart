@@ -6,11 +6,14 @@
 @TestOn('vm')
 library;
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:webm_texture/src/sticker_cache.dart';
+import 'package:webm_texture/src/sticker_config.dart';
 import 'package:webm_texture/src/sticker_runtime.dart';
+import 'package:webm_texture/src/sticker_tier.dart';
 import 'package:webm_texture/webm_texture.dart'
     show StickerException, WebmStickers;
 
@@ -91,7 +94,13 @@ void main() {
     });
 
     test('WebmStickers delegates to the runtime\'s cache', () async {
-      StickerRuntime.debugOverride = StickerRuntime(cache: cache);
+      StickerRuntime.debugOverride = StickerRuntime(
+        cache: cache,
+        tiers: StickerTierController(
+          host: FakeHost(),
+          signalChanges: () => const Stream.empty(),
+        ),
+      );
       addTearDown(() => StickerRuntime.debugOverride = null);
       await WebmStickers.configure(
         const StickerConfig(cacheDirectory: '/x', diskBudgetBytes: 7),

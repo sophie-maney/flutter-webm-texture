@@ -125,15 +125,21 @@ class _EntryId {
 /// ([StickerLease.setActive]). All methods must be called from the UI isolate.
 class StickerRegistry {
   /// Creates a registry over [host] (the real platform API when null).
+  /// [beforeCreate] finishes before any animation is created.
   ///
   /// An animation nobody holds is kept for [gracePeriod] before the platform
   /// disposes it, so scrolling back doesn't recreate it.
   StickerRegistry({
     WebmTextureHostApi? host,
     this.gracePeriod = const Duration(seconds: 2),
+    this.beforeCreate,
   }) : _host = host ?? WebmTextureHostApi();
 
   final WebmTextureHostApi _host;
+
+  /// Awaited before each platform creation: the tier's scheduler options must
+  /// be in place before the first animation plays.
+  final Future<void> Function()? beforeCreate;
 
   /// How long an unused animation stays alive.
   final Duration gracePeriod;
@@ -196,13 +202,18 @@ class StickerRegistry {
     if (entry == null) {
       entry = _Entry(id, bucket);
       _entries[id] = entry;
-      final created = entry.created = _host.createAnimation(
+      final message = _toMessage(source);
+      Future<AnimationHandleMessage> create() => _host.createAnimation(
         key,
-        _toMessage(source),
+        message,
         bucket.width,
         bucket.height,
         loop,
       );
+      final before = beforeCreate;
+      final created = entry.created = before == null
+          ? create()
+          : before().then((_) => create());
       final e = entry;
       // A failed creation must not stay registered, whoever is waiting.
       unawaited(
