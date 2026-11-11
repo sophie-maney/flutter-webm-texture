@@ -499,8 +499,9 @@ TEST_F(WebpCacheTest, ForeignCacheIsReplaced) {
   Bytes other = bytes;
   other[other.size() / 2] ^= 1;  // Same size, other content.
   std::unique_ptr<wt::Anim> b;
-  const wt_status s = Create(other, 0, 0, &b, nullptr, path.c_str());
-  if (s == WT_OK) EXPECT_NE(b->cache_mode(), Mode::kReading);
+  // The flip lands in pixel data, which probing doesn't read.
+  ASSERT_EQ(Create(other, 0, 0, &b, nullptr, path.c_str()), WT_OK);
+  EXPECT_NE(b->cache_mode(), Mode::kReading);
 }
 
 }  // namespace
