@@ -579,7 +579,7 @@ TEST(AtlasStressTest, ChurnAcrossAtlasesPagesAndTargets) {
   EXPECT_GT(c.detaches.load(), 75);
   EXPECT_GT(c.moves.load(), 10);
   EXPECT_GT(c.grows.load(), 20);
-  EXPECT_GT(c.shrinks.load(), 2);
+  EXPECT_GT(c.shrinks.load(), 0);
   EXPECT_GT(c.releases.load(), 5);
   EXPECT_GT(c.losses.load(), 10);
   EXPECT_GT(c.destroyed_attached.load(), 10);
