@@ -59,8 +59,9 @@
  * for them until Phase 5. WT_ERR_UNIMPLEMENTED is reserved for functions a
  * later phase adds before it fills them in.
  * T3.1 added wt_anim_create_cached (WT_API_VERSION 2), T3.2 the cache
- * directory functions (WT_API_VERSION 3). The scheduler and
- * atlas (Phases 3-4) will add more functions; they won't change the existing
+ * directory functions (WT_API_VERSION 3), T3.3 the scheduler (wt_sched,
+ * wt_player and the WT_BUSY / WT_NO_TARGET codes, WT_API_VERSION 4). The
+ * atlas (Phase 4) will add more functions; they won't change the existing
  * ones without bumping WT_API_VERSION.
  */
 #ifndef WT_API_H_
@@ -80,7 +81,7 @@ extern "C" {
  * Bumped whenever a type or a signature in this header changes, so the Dart
  * bindings can refuse a mismatched native library at load time.
  */
-#define WT_API_VERSION 3
+#define WT_API_VERSION 4
 
 /*
  * Result codes. 0 is success, positive values are non-error outcomes and
@@ -94,6 +95,12 @@ enum {
   /* wt_anim_next_frame: the last frame was already returned; nothing was
      written. wt_anim_seek(anim, 0) starts the next loop. */
   WT_END = 1,
+  /* wt_sink.acquire: no buffer is free right now (e.g. every pool buffer is
+     still on screen). The scheduler tries again on its next tick. */
+  WT_BUSY = 2,
+  /* wt_sink.acquire: there is nothing to draw into (e.g. the surface is
+     gone). The scheduler stops drawing the player until wt_player_redraw. */
+  WT_NO_TARGET = 3,
 
   /* A NULL pointer, zero size, unknown enum value or out-of-range number. */
   WT_ERR_INVALID_ARGUMENT = -1,
@@ -467,6 +474,234 @@ WT_API wt_status wt_cache_evict(const char* dir, wt_cache_stats* out_after);
  * Thread: background thread.
  */
 WT_API wt_status wt_cache_clear(const char* dir, wt_cache_stats* out_removed);
+
+/* ------------------------------------------------------------------------- */
+/* Scheduler                                                                  */
+/* ------------------------------------------------------------------------- */
+
+/*
+ * The scheduler plays every animation in the process on one clock thread and
+ * a few worker threads (PLAN.md, "Scheduler"; ADR 0017). The platform glue
+ * creates one wt_sched and turns each animation into a wt_player, giving it a
+ * wt_sink: callbacks that hand out a destination buffer (a locked
+ * ANativeWindow buffer, a pool CVPixelBuffer) and show it once drawn.
+ *
+ * - The clock runs at most options.max_fps rounds a second, and only while a
+ *   player is due: with nothing playing it sleeps until something changes, so
+ *   an idle scheduler costs no CPU.
+ * - Each round queues the due frame of every playing player to the workers.
+ *   A player has at most one frame in flight. Playback follows the content's
+ *   own timing; when a frame is late (a slow worker, or content faster than
+ *   max_fps) the frames in between are decoded but never shown, and after a
+ *   long stall playback carries on from where it was instead of catching up.
+ * - When more than options.max_concurrent players are active, the ones with
+ *   the highest priority (wt_player_set_priority), then the most recently
+ *   activated, play; the others hold their frame until a slot frees.
+ * - Seeks and redraws are drawn as soon as a worker is free, whether or not
+ *   the player is playing.
+ */
+
+/* Scheduler and player handles. Opaque. */
+typedef struct wt_sched wt_sched;
+typedef struct wt_player wt_player;
+
+/* The most worker threads a scheduler runs. */
+#define WT_SCHED_MAX_WORKERS 8
+
+/*
+ * Tunables of a scheduler; device tiers (PLAN.md, "Tiers") set them. Start
+ * from wt_sched_options_init_default. Zero is invalid for worker_count and
+ * max_fps.
+ */
+typedef struct wt_sched_options {
+  /* Threads that decode frames, 1..WT_SCHED_MAX_WORKERS. Default: half the
+     CPU cores, between 1 and 4. */
+  uint32_t worker_count;
+  /* Most clock rounds a second, 1..240, and so the most frames a second any
+     player shows. Content faster than this skips frames to keep its timing.
+     Default 60. */
+  uint32_t max_fps;
+  /* Most players that play at once; 0 means no limit. Default 0. */
+  uint32_t max_concurrent;
+} wt_sched_options;
+
+/*
+ * Optional hooks run by every scheduler thread (the clock and each worker)
+ * when it starts and just before it exits; e.g. the Android glue attaches the
+ * thread to the JVM for its lifetime. Either function may be NULL. name is
+ * the thread's name ("wt-clock", "wt-worker-0", ...), static.
+ */
+typedef struct wt_sched_hooks {
+  void* context;
+  void (*thread_start)(void* context, const char* name);
+  void (*thread_stop)(void* context);
+} wt_sched_hooks;
+
+/* What wt_sched_get_stats reports. */
+typedef struct wt_sched_stats {
+  /* Players alive. */
+  uint32_t players;
+  /* Players set active. */
+  uint32_t active;
+  /* Active players that are playing: within max_concurrent, with more than
+     one frame, and not a non-looping player that ended. */
+  uint32_t running;
+  /* Worker threads running. */
+  uint32_t workers;
+  /* Clock rounds that queued at least one playback frame. */
+  uint64_t ticks;
+  /* Times the clock thread woke up, for whatever reason. */
+  uint64_t wakeups;
+  /* Frames drawn into a sink buffer successfully. */
+  uint64_t frames_drawn;
+  /* Playback frames decoded but never shown, to keep the content's timing. */
+  uint64_t frames_skipped;
+} wt_sched_stats;
+
+/* A destination for one frame, filled by wt_sink.acquire. */
+typedef struct wt_buffer {
+  /* The first row. */
+  uint8_t* pixels;
+  /* Bytes the core may write from pixels; at least
+     stride * (height - 1) + width * 4 for the player's output size. */
+  size_t size;
+  /* Bytes from one row to the next; >= width * 4. */
+  uint32_t stride;
+  /* A WT_PIXEL_FORMAT_* value. */
+  wt_pixel_format format;
+} wt_buffer;
+
+/*
+ * How a player gets its frames on screen. The scheduler calls these on its
+ * worker threads, never two at once for the same player (one frame in flight),
+ * and never after wt_player_destroy returns. They must not call wt_player_* or
+ * wt_sched_* functions on their own scheduler.
+ */
+typedef struct wt_sink {
+  void* context;
+  /*
+   * Provides a buffer of the player's output size for the next frame. Return
+   * WT_OK after filling *out; release is then called exactly once, on the
+   * same thread. Any other status skips this attempt, and nothing else is
+   * called: WT_BUSY retries on the next tick, WT_NO_TARGET waits for
+   * wt_player_redraw, and a negative status retries about 100 ms later.
+   * Required.
+   */
+  wt_status (*acquire)(void* context, wt_buffer* out);
+  /*
+   * Ends the attempt that acquire started. status is WT_OK when the buffer
+   * holds frame->index, ready to show; otherwise the buffer may hold a
+   * partial frame and the previous frame should stay on screen. Required.
+   */
+  void (*release)(void* context, wt_status status, const wt_frame_info* frame);
+  /*
+   * A frame failed to decode (status < 0). Playback carries on with the next
+   * one. Called for the first failure of a player only, so a broken file
+   * can't flood the app. May be NULL.
+   */
+  void (*error)(void* context, wt_status status);
+} wt_sink;
+
+/*
+ * Fills *out with the defaults listed in wt_sched_options. Does nothing when
+ * out is NULL.
+ * Thread: any thread.
+ */
+WT_API void wt_sched_options_init_default(wt_sched_options* out);
+
+/*
+ * Creates a scheduler and starts its threads (the clock and
+ * options->worker_count workers, all idle until a player needs them).
+ * options: NULL for the defaults. hooks: may be NULL; copied.
+ * Returns WT_ERR_INVALID_ARGUMENT for an option out of range and
+ * WT_ERR_NO_MEMORY when a thread can't be started.
+ * Thread: any thread.
+ */
+WT_API wt_status wt_sched_create(const wt_sched_options* options,
+                                 const wt_sched_hooks* hooks,
+                                 wt_sched** out_sched);
+
+/*
+ * Stops the scheduler's threads, waiting for frames in flight, then destroys
+ * every player still on it (their handles become invalid). NULL does nothing.
+ * Thread: any thread but the scheduler's own (not from a sink callback).
+ */
+WT_API void wt_sched_destroy(wt_sched* sched);
+
+/*
+ * Applies new options to a running scheduler. Changes to max_fps and
+ * max_concurrent take effect on the next round; fewer workers wait for their
+ * frame in flight to finish.
+ * Returns WT_ERR_INVALID_ARGUMENT for an option out of range (nothing
+ * changes) and WT_ERR_NO_MEMORY when a new worker can't be started (the
+ * others still apply; see wt_sched_get_stats).
+ * Thread: any thread but the scheduler's own.
+ */
+WT_API wt_status wt_sched_set_options(wt_sched* sched,
+                                      const wt_sched_options* options);
+
+/*
+ * Fills *out_stats with the scheduler's counters.
+ * Thread: any thread.
+ */
+WT_API wt_status wt_sched_get_stats(wt_sched* sched, wt_sched_stats* out_stats);
+
+/*
+ * Adds anim to sched as a new player, inactive, with priority 0. It draws its
+ * first frame as soon as the sink gives it a buffer, then holds it until
+ * wt_player_set_active. With loop false, playback stops on the last frame and
+ * holds it until wt_player_seek.
+ *
+ * On success the player owns anim (wt_player_destroy destroys it), and the
+ * caller must not use anim again; on failure the caller keeps it. anim should
+ * not have drawn frames yet: the player starts by seeking it to frame 0.
+ * sink is copied; its acquire and release must be set.
+ * Thread: any thread.
+ */
+WT_API wt_status wt_player_create(wt_sched* sched, wt_anim* anim, bool loop,
+                                  const wt_sink* sink, wt_player** out_player);
+
+/*
+ * Removes player from its scheduler and destroys it and its animation. Waits
+ * for a frame in flight, so no sink callback runs once this returns and the
+ * sink's context may be freed. NULL does nothing.
+ * Thread: any thread but the scheduler's own (not from a sink callback), and
+ * not concurrently with another call on player.
+ */
+WT_API void wt_player_destroy(wt_player* player);
+
+/*
+ * Starts or stops playback. A stopped player holds its frame and, when
+ * started again, gives it the rest of its duration.
+ * Thread: any thread; never blocks on a frame.
+ */
+WT_API void wt_player_set_active(wt_player* player, bool active);
+
+/*
+ * Ranks the player for options.max_concurrent: active players with a higher
+ * priority play first, and among equals the most recently activated. The
+ * glue passes the area, in physical pixels, that the player's widgets show
+ * on screen.
+ * Thread: any thread; never blocks on a frame.
+ */
+WT_API void wt_player_set_priority(wt_player* player, uint64_t priority);
+
+/*
+ * Shows frame_index (0-based) as soon as a worker is free, playing or not; a
+ * playing player carries on from there, and a non-looping one that ended
+ * plays again. Returns WT_ERR_INVALID_ARGUMENT when frame_index is past the
+ * last frame.
+ * Thread: any thread; never blocks on a frame.
+ */
+WT_API wt_status wt_player_seek(wt_player* player, uint32_t frame_index);
+
+/*
+ * The sink has a new target (say, a new surface): draws the frame that should
+ * be showing into it, and lets a player that got WT_NO_TARGET draw again. A
+ * playing player draws its next frame instead, which costs no seek.
+ * Thread: any thread; never blocks on a frame.
+ */
+WT_API void wt_player_redraw(wt_player* player);
 
 #ifdef __cplusplus
 } /* extern "C" */

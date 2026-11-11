@@ -1,0 +1,33 @@
+// wt::FrameSource: what the scheduler plays. The C ABI wraps a wt_anim in
+// one (api/sched_api.cc); tests use fakes.
+#ifndef WT_SCHED_FRAME_SOURCE_H_
+#define WT_SCHED_FRAME_SOURCE_H_
+
+#include <cstdint>
+
+#include "api/wt_api.h"
+
+namespace wt {
+
+// A playback cursor over frames, like wt_anim. The scheduler calls at most
+// one method at a time, from any of its workers. frame_count and
+// frame_duration_ms must not change.
+class FrameSource {
+ public:
+  virtual ~FrameSource() = default;
+
+  // At least 1.
+  virtual uint32_t frame_count() const = 0;
+  // How long frame `index` (< frame_count) is shown, in ms.
+  virtual uint32_t frame_duration_ms(uint32_t index) const = 0;
+  // As wt_anim_seek.
+  virtual wt_status Seek(uint32_t index) = 0;
+  // Moves the cursor past one frame without drawing it (wt::Anim::SkipFrame).
+  virtual wt_status Skip() = 0;
+  // As wt_anim_next_frame, into dst.
+  virtual wt_status Draw(const wt_buffer& dst, wt_frame_info* out_frame) = 0;
+};
+
+}  // namespace wt
+
+#endif  // WT_SCHED_FRAME_SOURCE_H_

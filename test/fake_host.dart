@@ -38,6 +38,12 @@ class FakeHost extends WebmTextureHostApi {
   Future<void> setActive(int animId, bool active) async =>
       activeCalls.add((animId, active));
 
+  final List<(int, int)> priorityCalls = [];
+
+  @override
+  Future<void> setPriority(int animId, int priority) async =>
+      priorityCalls.add((animId, priority));
+
   final List<(int, int)> seekCalls = [];
 
   @override

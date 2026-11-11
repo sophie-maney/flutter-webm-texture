@@ -122,6 +122,51 @@ jobs:
             build/fuzz/logs/
           if-no-files-found: ignore
 
+  # T3.3: the scheduler's race check. TSan can't share a build with ASan, so
+  # this is its own build of the core and the scheduler suites (the 500-player
+  # stress test among them).
+  tsan:
+    name: Scheduler under TSan (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install nasm and zlib
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y nasm zlib1g-dev
+
+      # TSan's shadow memory doesn't fit the high-entropy ASLR of recent
+      # Ubuntu kernels ("unexpected memory mapping").
+      - name: Lower ASLR entropy for TSan
+        if: runner.os == 'Linux'
+        run: sudo sysctl vm.mmap_rnd_bits=28
+
+      - name: Cache host deps
+        id: deps
+        uses: actions/cache@v4
+        with:
+          path: build/deps/host-core/prefix
+          key: host-deps-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('third_party/versions.lock', 'third_party/test-deps.lock', 'third_party/build/common.sh', 'tool/build_host_deps.sh') }}
+
+      - name: Build host deps
+        if: steps.deps.outputs.cache-hit != 'true'
+        run: tool/build_host_deps.sh
+
+      - name: Configure
+        run: cmake -S . -B build/tsan -DWT_HOST_TESTS=ON -DWT_TSAN=ON -DWT_WERROR=ON
+
+      - name: Build
+        run: cmake --build build/tsan -j 4
+
+      - name: Test
+        env:
+          TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1
+        run: ctest --test-dir build/tsan -R 'Sched|Timeline|SkipFrame|SanitizerTest' --output-on-failure
+
   android:
     name: Example APK (debug)
     needs: check

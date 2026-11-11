@@ -1,6 +1,8 @@
 // Fuzzes the WebM demuxer (src/demux/webm.*) and, for inputs it accepts,
 // the decode path behind wt_anim (T1.4): VP8/VP9 colour + alpha decode,
-// scaling to a bucket and conversion into a caller buffer.
+// scaling to a bucket and conversion into a caller buffer. The second pass
+// skips every other frame (wt::Anim::SkipFrame, T3.3), as the scheduler does
+// when frames are late.
 //
 // Besides the sanitizers, it checks the index invariants that the decoder
 // relies on and traps when one breaks, so libFuzzer reports it as a crash.
@@ -8,6 +10,7 @@
 #include <cstdint>
 #include <vector>
 
+#include "api/handles.h"
 #include "demux/webm.h"
 #include "wt_api.h"
 
@@ -18,8 +21,9 @@ bool InBounds(const wt::Span& span, size_t size) {
 }
 
 // Decodes up to max_frames frames at width x height (0 x 0: source size)
-// into a buffer with row padding, then loops once with seek(0). Traps on a
-// status the API doesn't allow or a write into the padding.
+// into a buffer with row padding, then loops once with seek(0), skipping
+// every other frame. Traps on a status the API doesn't allow or a write into
+// the padding.
 void Decode(wt_source* source, uint32_t width, uint32_t height,
             int max_frames) {
   wt_anim* anim = nullptr;
@@ -35,10 +39,14 @@ void Decode(wt_source* source, uint32_t width, uint32_t height,
   for (int pass = 0; pass < 2; ++pass) {
     for (int i = 0; i < max_frames; ++i) {
       wt_frame_info frame;
-      const wt_status s = wt_anim_next_frame(
-          anim, buffer.data(), buffer.size(), static_cast<uint32_t>(stride),
-          (i & 1) ? WT_PIXEL_FORMAT_BGRA8888 : WT_PIXEL_FORMAT_RGBA8888,
-          &frame);
+      const wt_status s =
+          pass == 1 && (i & 1)
+              ? anim->anim->SkipFrame(&frame)
+              : wt_anim_next_frame(anim, buffer.data(), buffer.size(),
+                                   static_cast<uint32_t>(stride),
+                                   (i & 1) ? WT_PIXEL_FORMAT_BGRA8888
+                                           : WT_PIXEL_FORMAT_RGBA8888,
+                                   &frame);
       if (s == WT_END) break;
       if (s == WT_ERR_INVALID_ARGUMENT || s == WT_ERR_INTERNAL ||
           s == WT_ERR_UNIMPLEMENTED || (s == WT_OK && frame.duration_ms == 0)) {

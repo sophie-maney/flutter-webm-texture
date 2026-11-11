@@ -1,6 +1,8 @@
 // Stress: a 200-item grid of standalone stickers (one texture per animation).
 // The switch gives every cell its own animation through a controller of its
-// own; without it, cells showing the same file share one.
+// own; without it, cells showing the same file share one. The grid button
+// makes the cells small enough for 60+ on a phone screen, the T3.3 budget
+// (integration_test/sched_perf_test.dart).
 import 'package:flutter/material.dart';
 import 'package:webm_texture/webm_texture.dart';
 
@@ -10,7 +12,26 @@ import 'corpus.dart';
 const stressItemCount = 200;
 
 class StressPage extends StatefulWidget {
-  const StressPage({super.key});
+  const StressPage({
+    super.key,
+    this.initiallyDense = false,
+    this.initiallyPrivate = false,
+    this.columns,
+    this.rows,
+  });
+
+  /// Starts with the small cells.
+  final bool initiallyDense;
+
+  /// Starts with an animation per cell.
+  final bool initiallyPrivate;
+
+  /// A fixed number of columns, with the small cells' spacing; overrides the
+  /// grid button. Tests use it to put a known number of cells on screen.
+  final int? columns;
+
+  /// With [columns]: stretches the cells so exactly this many rows show.
+  final int? rows;
 
   @override
   State<StressPage> createState() => _StressPageState();
@@ -18,15 +39,37 @@ class StressPage extends StatefulWidget {
 
 class _StressPageState extends State<StressPage> {
   List<WebmStickerController>? _controllers;
+  late bool _dense = widget.initiallyDense;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.initiallyPrivate) _controllers = _newControllers();
+  }
+
+  static List<WebmStickerController> _newControllers() => [
+    for (var i = 0; i < stressItemCount; i++) WebmStickerController(),
+  ];
 
   bool get _private => _controllers != null;
+
+  /// Cell width / height so that [StressPage.rows] rows show in
+  /// [constraints]: row `rows` starts just past the bottom edge, row
+  /// `rows - 1` ends just inside it. Square without [StressPage.rows].
+  double _aspect(BoxConstraints constraints) {
+    final columns = widget.columns!;
+    final rows = widget.rows;
+    if (rows == null || !constraints.hasBoundedHeight) return 1;
+    final width = (constraints.maxWidth - 16 - (columns - 1) * 4) / columns;
+    // 8 px of padding above the first row.
+    final pitch = (constraints.maxHeight - 8) / rows + 0.5;
+    return width / (pitch - 4);
+  }
 
   void _setPrivate(bool value) {
     final old = _controllers;
     setState(() {
-      _controllers = value
-          ? [for (var i = 0; i < stressItemCount; i++) WebmStickerController()]
-          : null;
+      _controllers = value ? _newControllers() : null;
     });
     // Dispose after the grid stopped listening.
     if (old != null) {
@@ -57,6 +100,12 @@ class _StressPageState extends State<StressPage> {
             padding: EdgeInsets.only(right: 8),
             child: Center(child: _ActiveCounter()),
           ),
+          IconButton(
+            key: const Key('denseGrid'),
+            tooltip: _dense ? 'Large cells' : 'Small cells',
+            icon: Icon(_dense ? Icons.grid_view : Icons.apps),
+            onPressed: () => setState(() => _dense = !_dense),
+          ),
           Switch(
             key: const Key('privateAnimations'),
             value: _private,
@@ -68,23 +117,32 @@ class _StressPageState extends State<StressPage> {
           ),
         ],
       ),
-      body: GridView.builder(
-        key: const Key('stressGrid'),
-        padding: const EdgeInsets.all(8),
-        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-          maxCrossAxisExtent: 96,
-          mainAxisSpacing: 8,
-          crossAxisSpacing: 8,
-        ),
-        itemCount: stressItemCount,
-        itemBuilder: (context, i) => WebmSticker(
-          source: corpusSource(playableCorpus[i % playableCorpus.length]),
-          controller: controllers?[i],
-          placeholder: const ColoredBox(color: Color(0x14000000)),
-          errorBuilder: (_, e) => Center(
-            child: Text(
-              e is StickerException ? e.name : '$e',
-              style: const TextStyle(fontSize: 9, color: Colors.red),
+      body: LayoutBuilder(
+        builder: (context, constraints) => GridView.builder(
+          key: const Key('stressGrid'),
+          padding: const EdgeInsets.all(8),
+          gridDelegate: widget.columns != null
+              ? SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: widget.columns!,
+                  mainAxisSpacing: 4,
+                  crossAxisSpacing: 4,
+                  childAspectRatio: _aspect(constraints),
+                )
+              : SliverGridDelegateWithMaxCrossAxisExtent(
+                  maxCrossAxisExtent: _dense ? 56 : 96,
+                  mainAxisSpacing: _dense ? 4 : 8,
+                  crossAxisSpacing: _dense ? 4 : 8,
+                ),
+          itemCount: stressItemCount,
+          itemBuilder: (context, i) => WebmSticker(
+            source: corpusSource(playableCorpus[i % playableCorpus.length]),
+            controller: controllers?[i],
+            placeholder: const ColoredBox(color: Color(0x14000000)),
+            errorBuilder: (_, e) => Center(
+              child: Text(
+                e is StickerException ? e.name : '$e',
+                style: const TextStyle(fontSize: 9, color: Colors.red),
+              ),
             ),
           ),
         ),

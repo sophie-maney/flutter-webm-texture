@@ -136,6 +136,14 @@ abstract class WebmTextureHostApi {
   /// Starts or stops playback. Inactive animations keep their current frame.
   void setActive(int animId, bool active);
 
+  /// Ranks the animation for the native scheduler's `maxConcurrent` limit
+  /// (ADR 0017): [priority] is the area, in physical pixels, that the
+  /// widgets playing it show on screen. When more animations are active than
+  /// the limit allows, the largest visible areas play, then the most recently
+  /// activated; the rest hold their frame. Starts at 0. An unknown or
+  /// disposed [animId] is ignored.
+  void setPriority(int animId, int priority);
+
   /// Shows [frame] (0-based) right away, whether or not the animation is
   /// active; an active one carries on from there. Seeking a non-looping
   /// animation that has ended lets it play again.

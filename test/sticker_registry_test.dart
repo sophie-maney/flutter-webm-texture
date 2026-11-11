@@ -249,6 +249,56 @@ void main() {
     });
   });
 
+  group('priority', () {
+    test('sums the visible areas of the active leases', () async {
+      final a = await acquire('k');
+      final b = await acquire('k');
+      final id = a.animId;
+      a.setVisibleArea(100);
+      expect(host.priorityCalls, isEmpty, reason: 'inactive: not ranked');
+      a.setActive(true);
+      expect(host.priorityCalls, [(id, 100)]);
+      b.setVisibleArea(50);
+      expect(host.priorityCalls, [(id, 100)], reason: 'b is inactive');
+      b.setActive(true);
+      expect(host.priorityCalls, [(id, 100), (id, 150)]);
+      a.setVisibleArea(10);
+      expect(host.priorityCalls.last, (id, 60));
+      a.setVisibleArea(10); // no change
+      a.setActive(false);
+      expect(host.priorityCalls, [(id, 100), (id, 150), (id, 60), (id, 50)]);
+      b.setActive(false);
+      b.setVisibleArea(70);
+      expect(host.priorityCalls, hasLength(4), reason: 'inactive: not sent');
+      b.setActive(true);
+      expect(host.priorityCalls.last, (id, 70));
+      b.release();
+      b.setVisibleArea(5); // released: ignored
+      expect(host.priorityCalls, hasLength(5));
+    });
+
+    test('an unchanged priority is not sent again on reactivation', () async {
+      final a = await acquire('k');
+      a.setVisibleArea(100);
+      a.setActive(true);
+      a.setActive(false);
+      a.setActive(true);
+      expect(host.priorityCalls, [(a.animId, 100)]);
+      expect(host.activeCalls, hasLength(3));
+    });
+
+    test('setPriority errors are swallowed', () async {
+      final throwing = _ThrowingPriorityHost();
+      final r = StickerRegistry(host: throwing, gracePeriod: _grace);
+      final a = await r.acquire(key: 'k', source: _file, bucket: _b128);
+      a.setVisibleArea(10);
+      a.setActive(true);
+      await pumpEventQueue();
+      expect(r.activeAnimations.value, 1);
+      await r.dispose();
+    });
+  });
+
   group('owner', () {
     test('owners get separate animations', () async {
       final o1 = Object();
@@ -348,6 +398,12 @@ class _ThrowingDisposeHost extends FakeHost {
 class _ThrowingActiveHost extends FakeHost {
   @override
   Future<void> setActive(int animId, bool active) async =>
+      throw PlatformException(code: 'BOOM');
+}
+
+class _ThrowingPriorityHost extends FakeHost {
+  @override
+  Future<void> setPriority(int animId, int priority) async =>
       throw PlatformException(code: 'BOOM');
 }
 

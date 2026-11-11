@@ -436,6 +436,54 @@ void main() {
     });
   });
 
+  group('priority', () {
+    testWidgets('the platform ranks a sticker by its on-screen area', (
+      tester,
+    ) async {
+      Widget build(double left) => app(
+        Stack(
+          children: [Positioned(left: left, top: 0, child: sticker('/a'))],
+        ),
+      );
+      await tester.pumpWidget(build(0));
+      await settle(tester);
+      // 100 x 100 logical pixels at a device pixel ratio of 2.
+      expect(host.priorityCalls, [(1, 40000)]);
+      // Half of it past the right edge (the view is 800 wide).
+      await tester.pumpWidget(build(750));
+      await settle(tester);
+      expect(host.priorityCalls, [(1, 40000), (1, 20000)]);
+      await finish(tester);
+    });
+
+    testWidgets('copies of a shared animation add up', (tester) async {
+      Widget build(double left) => app(
+        Stack(
+          children: [
+            Positioned(left: 0, top: 0, child: sticker('/a')),
+            Positioned(left: left, top: 0, child: sticker('/a')),
+          ],
+        ),
+      );
+      await tester.pumpWidget(build(200));
+      await settle(tester);
+      expect(host.priorityCalls.last, (1, 80000));
+      await tester.pumpWidget(build(900));
+      await settle(tester);
+      expect(host.priorityCalls.last, (1, 40000));
+      await finish(tester);
+    });
+
+    testWidgets('a paused sticker is not ranked', (tester) async {
+      await tester.pumpWidget(
+        app(Center(child: sticker('/a', autoplay: false))),
+      );
+      await settle(tester);
+      expect(host.priorityCalls, isEmpty);
+      await finish(tester);
+    });
+  });
+
   group('TickerMode', () {
     testWidgets('a disabled TickerMode pauses, enabling resumes', (
       tester,

@@ -13,16 +13,27 @@ void main() {
         ),
       );
 
-  Widget probe(Key key, List<bool> log, {double size = 100}) =>
+  Widget probe(Key key, List<double> log, {double size = 100}) =>
       StickerVisibility(
         key: key,
         onChanged: log.add,
         child: SizedBox(width: size, height: size),
       );
 
+  test('rounds the visible fraction up to quarters', () {
+    expect(RenderStickerVisibility.quarters(0, 100), 0);
+    expect(RenderStickerVisibility.quarters(1, 0), 0);
+    expect(RenderStickerVisibility.quarters(0.01, 100), 0.25);
+    expect(RenderStickerVisibility.quarters(25, 100), 0.25);
+    expect(RenderStickerVisibility.quarters(26, 100), 0.5);
+    expect(RenderStickerVisibility.quarters(74, 100), 0.75);
+    expect(RenderStickerVisibility.quarters(100, 100), 1);
+    expect(RenderStickerVisibility.quarters(150, 100), 1);
+  });
+
   testWidgets('reports the on-screen part, and only changes', (tester) async {
     const key = Key('p');
-    final log = <bool>[];
+    final log = <double>[];
     Widget build(double left) => app(
       Stack(
         children: [Positioned(left: left, top: 0, child: probe(key, log))],
@@ -30,30 +41,33 @@ void main() {
     );
     await tester.pumpWidget(build(750)); // test view is 800 x 600
     expect(rectOf(tester, key), const Rect.fromLTWH(0, 0, 50, 100));
-    expect(log, [true]);
+    expect(log, [0.5]);
+
+    await tester.pumpWidget(build(780));
+    expect(log, [0.5, 0.25]);
 
     await tester.pumpWidget(build(700));
-    await tester.pumpWidget(build(760));
-    expect(log, [true], reason: 'still visible: no new report');
+    await tester.pumpWidget(build(705));
+    expect(log, [0.5, 0.25, 1], reason: '95% rounds up: no new report');
 
     await tester.pumpWidget(build(800));
     expect(rectOf(tester, key), isNull, reason: 'touching the edge');
-    expect(log, [true, false]);
+    expect(log, [0.5, 0.25, 1, 0]);
 
     await tester.pumpWidget(const SizedBox());
-    expect(log, [true, false], reason: 'already hidden');
+    expect(log, [0.5, 0.25, 1, 0], reason: 'already hidden');
   });
 
   testWidgets('detaching reports hidden', (tester) async {
-    final log = <bool>[];
+    final log = <double>[];
     await tester.pumpWidget(app(Center(child: probe(const Key('p'), log))));
     await tester.pumpWidget(const SizedBox());
-    expect(log, [true, false]);
+    expect(log, [1, 0]);
   });
 
   testWidgets('follows transforms', (tester) async {
     const key = Key('p');
-    final log = <bool>[];
+    final log = <double>[];
     await tester.pumpWidget(
       app(
         Align(
@@ -74,11 +88,11 @@ void main() {
     final r = rectOf(tester, key)!;
     expect(r.left, moreOrLessEquals(37.5));
     expect(r.right, moreOrLessEquals(100));
-    expect(log, [true]);
+    expect(log, [0.75], reason: '62.5% visible');
   });
 
   testWidgets('a horizontal list inside a vertical one', (tester) async {
-    final logs = List.generate(10, (_) => <bool>[]);
+    final logs = List.generate(10, (_) => <double>[]);
     await tester.pumpWidget(
       app(
         ListView(
@@ -97,11 +111,11 @@ void main() {
         ),
       ),
     );
-    // 800 px wide: items 0-2 show (item 2 partly). Item 3 is built for the
-    // cache extent but never shows, so it never reports.
+    // 800 px wide: items 0-2 show (item 2 two thirds). Item 3 is built for
+    // the cache extent but never shows, so it never reports.
     expect(
       [for (final l in logs) l.lastOrNull],
-      [true, true, true, null, null, null, null, null, null, null],
+      [1, 1, 0.75, null, null, null, null, null, null, null],
     );
     expect(
       tester.renderObject(find.byKey(const Key('h3'), skipOffstage: false)),
@@ -112,7 +126,7 @@ void main() {
 
   testWidgets('a kept-alive item scrolled away is hidden', (tester) async {
     const key = Key('kept');
-    final log = <bool>[];
+    final log = <double>[];
     final controller = ScrollController();
     await tester.pumpWidget(
       app(
@@ -126,13 +140,13 @@ void main() {
         ),
       ),
     );
-    expect(log, [true]);
+    expect(log, [1]);
     controller.jumpTo(5000);
     await tester.pump();
     await tester.pump();
     // Still attached (kept alive) but not painted.
     expect(find.byKey(key, skipOffstage: false), findsOneWidget);
-    expect(log, [true, false]);
+    expect(log, [1, 0]);
     expect(rectOf(tester, key), isNull);
   });
 }

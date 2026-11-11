@@ -14,6 +14,7 @@ class StickerLease {
   final _Entry _entry;
   bool _released = false;
   bool _active = false;
+  int _visibleArea = 0;
 
   /// Identifies the animation in platform calls.
   int get animId => _entry.handle.animId;
@@ -30,12 +31,28 @@ class StickerLease {
   /// Whether this claim wants the animation to play.
   bool get isActive => _active;
 
+  /// The on-screen area of this claim's widget, in physical pixels.
+  int get visibleArea => _visibleArea;
+
   /// Says whether this claim wants the animation to play. The animation plays
   /// while at least one of its leases is active. Does nothing once released.
   void setActive(bool active) {
     if (_released || active == _active) return;
     _active = active;
-    _registry._setLeaseActive(_entry, active);
+    _registry._setLeaseActive(_entry, active, _visibleArea);
+  }
+
+  /// Says how much of this claim's widget is on screen, in physical pixels.
+  ///
+  /// The visible areas of an animation's active leases add up to its
+  /// priority: when more animations want to play than the native scheduler's
+  /// `maxConcurrent` limit allows, the most visible ones play (ADR 0017).
+  /// Does nothing once released.
+  void setVisibleArea(int area) {
+    if (_released || area == _visibleArea) return;
+    final delta = area - _visibleArea;
+    _visibleArea = area;
+    if (_active) _registry._addPriority(_entry, delta);
   }
 
   /// Shows [frame] (0-based) on the animation, for every lease on it. A
@@ -67,6 +84,12 @@ class _Entry {
   late AnimationHandleMessage handle;
   int refs = 0;
   int activeLeases = 0;
+
+  /// Sum of the visible areas of the active leases.
+  int priority = 0;
+
+  /// The priority the platform last heard.
+  int sentPriority = 0;
   Timer? graceTimer;
 }
 
@@ -212,18 +235,42 @@ class StickerRegistry {
     return lease;
   }
 
-  void _setLeaseActive(_Entry entry, bool active) {
+  void _setLeaseActive(_Entry entry, bool active, int area) {
     _activeLeaseCount += active ? 1 : -1;
     _publishCounts();
+    entry.priority += active ? area : -area;
     final before = entry.activeLeases;
     entry.activeLeases += active ? 1 : -1;
-    if ((before > 0) == (entry.activeLeases > 0)) return;
+    if ((before > 0) == (entry.activeLeases > 0)) {
+      _sendPriority(entry);
+      return;
+    }
     if (_disposed) return;
     _activeAnimationCount += active ? 1 : -1;
+    // The rank first, so the scheduler places the animation right away.
+    if (active) _sendPriority(entry);
     // Calls on one channel arrive in order, so the last one wins. A failure
     // (the engine is detaching, say) leaves nothing to fix up.
     unawaited(
       _host.setActive(entry.handle.animId, active).catchError((Object _) {}),
+    );
+  }
+
+  void _addPriority(_Entry entry, int delta) {
+    entry.priority += delta;
+    _sendPriority(entry);
+  }
+
+  /// Tells the platform an active animation's new priority. An inactive one
+  /// isn't ranked, so it hears when it becomes active again.
+  void _sendPriority(_Entry entry) {
+    if (_disposed || entry.activeLeases == 0) return;
+    if (entry.priority == entry.sentPriority) return;
+    entry.sentPriority = entry.priority;
+    unawaited(
+      _host
+          .setPriority(entry.handle.animId, entry.priority)
+          .catchError((Object _) {}),
     );
   }
 

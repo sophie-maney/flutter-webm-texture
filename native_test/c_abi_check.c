@@ -43,6 +43,51 @@ _Static_assert(offsetof(wt_cache_stats, total_bytes) == 8,
                "wt_cache_stats layout");
 _Static_assert(sizeof(wt_cache_stats) == 16, "wt_cache_stats layout");
 
+_Static_assert(offsetof(wt_sched_options, worker_count) == 0,
+               "wt_sched_options layout");
+_Static_assert(offsetof(wt_sched_options, max_fps) == 4,
+               "wt_sched_options layout");
+_Static_assert(offsetof(wt_sched_options, max_concurrent) == 8,
+               "wt_sched_options layout");
+_Static_assert(sizeof(wt_sched_options) == 12, "wt_sched_options layout");
+
+_Static_assert(offsetof(wt_sched_hooks, context) == 0, "wt_sched_hooks layout");
+_Static_assert(offsetof(wt_sched_hooks, thread_start) == sizeof(void*),
+               "wt_sched_hooks layout");
+_Static_assert(offsetof(wt_sched_hooks, thread_stop) == 2 * sizeof(void*),
+               "wt_sched_hooks layout");
+_Static_assert(sizeof(wt_sched_hooks) == 3 * sizeof(void*),
+               "wt_sched_hooks layout");
+
+_Static_assert(offsetof(wt_sched_stats, players) == 0, "wt_sched_stats layout");
+_Static_assert(offsetof(wt_sched_stats, active) == 4, "wt_sched_stats layout");
+_Static_assert(offsetof(wt_sched_stats, running) == 8, "wt_sched_stats layout");
+_Static_assert(offsetof(wt_sched_stats, workers) == 12,
+               "wt_sched_stats layout");
+_Static_assert(offsetof(wt_sched_stats, ticks) == 16, "wt_sched_stats layout");
+_Static_assert(offsetof(wt_sched_stats, wakeups) == 24,
+               "wt_sched_stats layout");
+_Static_assert(offsetof(wt_sched_stats, frames_drawn) == 32,
+               "wt_sched_stats layout");
+_Static_assert(offsetof(wt_sched_stats, frames_skipped) == 40,
+               "wt_sched_stats layout");
+_Static_assert(sizeof(wt_sched_stats) == 48, "wt_sched_stats layout");
+
+_Static_assert(offsetof(wt_buffer, pixels) == 0, "wt_buffer layout");
+_Static_assert(offsetof(wt_buffer, size) == sizeof(void*), "wt_buffer layout");
+_Static_assert(offsetof(wt_buffer, stride) == 2 * sizeof(void*),
+               "wt_buffer layout");
+_Static_assert(offsetof(wt_buffer, format) == 2 * sizeof(void*) + 4,
+               "wt_buffer layout");
+_Static_assert(sizeof(wt_buffer) == 2 * sizeof(void*) + 8, "wt_buffer layout");
+
+_Static_assert(offsetof(wt_sink, context) == 0, "wt_sink layout");
+_Static_assert(offsetof(wt_sink, acquire) == sizeof(void*), "wt_sink layout");
+_Static_assert(offsetof(wt_sink, release) == 2 * sizeof(void*),
+               "wt_sink layout");
+_Static_assert(offsetof(wt_sink, error) == 3 * sizeof(void*), "wt_sink layout");
+_Static_assert(sizeof(wt_sink) == 4 * sizeof(void*), "wt_sink layout");
+
 /* Called from api_test.cc: proves the functions link and work from C. Only
    checks behaviour that stays true once the stubs are implemented. */
 int wt_c_abi_check(void) {
@@ -69,5 +114,19 @@ int wt_c_abi_check(void) {
     return 9;
   }
   if (wt_cache_get_budget() == 0) return 10;
+  {
+    wt_sched_options options;
+    wt_sched_options_init_default(&options);
+    if (options.worker_count == 0 || options.max_fps == 0) return 11;
+    if (wt_sched_create(&options, NULL, NULL) != WT_ERR_INVALID_ARGUMENT) {
+      return 12;
+    }
+    if (wt_player_create(NULL, NULL, false, NULL, NULL) !=
+        WT_ERR_INVALID_ARGUMENT) {
+      return 13;
+    }
+    wt_sched_destroy(NULL);
+    wt_player_destroy(NULL);
+  }
   return 0;
 }

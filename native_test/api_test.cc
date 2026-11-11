@@ -16,6 +16,8 @@ namespace {
 constexpr wt_status kAllStatuses[] = {
     WT_OK,
     WT_END,
+    WT_BUSY,
+    WT_NO_TARGET,
     WT_ERR_INVALID_ARGUMENT,
     WT_ERR_UNIMPLEMENTED,
     WT_ERR_INVALID_DATA,

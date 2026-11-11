@@ -34,6 +34,9 @@ public class WebmTexturePlugin: NSObject, FlutterPlugin, WebmTextureHostApi {
       wt_probe, wt_anim_create, wt_anim_destroy, wt_anim_get_info, wt_anim_seek,
       wt_anim_next_frame, wt_anim_create_cached, wt_cache_set_budget, wt_cache_get_budget,
       wt_cache_file_path, wt_cache_get_stats, wt_cache_evict, wt_cache_clear,
+      wt_sched_options_init_default, wt_sched_create, wt_sched_destroy, wt_sched_set_options,
+      wt_sched_get_stats, wt_player_create, wt_player_destroy, wt_player_set_active,
+      wt_player_set_priority, wt_player_seek, wt_player_redraw,
     ]
     let channel = FlutterMethodChannel(name: "webm_texture", binaryMessenger: registrar.messenger())
     let instance = WebmTexturePlugin(registry: registrar.textures())
@@ -41,7 +44,7 @@ public class WebmTexturePlugin: NSObject, FlutterPlugin, WebmTextureHostApi {
     // there afterwards.
     let startupDirectory = instance.cacheDirectory
     DispatchQueue.global(qos: .utility).async {
-      _ = WTAnimation.evictCache(inDirectory: startupDirectory)
+      _ = WTPlayer.evictCache(inDirectory: startupDirectory)
     }
     registrar.addMethodCallDelegate(instance, channel: channel)
     // Publishing makes the engine call detachFromEngine(for:) on teardown.
@@ -66,7 +69,7 @@ public class WebmTexturePlugin: NSObject, FlutterPlugin, WebmTextureHostApi {
       lastAnimId += 1
       return (lastAnimId, self.cacheDirectory)
     }
-    // Decodes frame 0 on the animation's own queue, off the main thread.
+    // Probes the source off the main thread; the scheduler draws frame 0.
     let texture = try await StickerTexture.create(
       animId: animId, source: source, sourceKey: sourceKey, bucketW: bucketW, bucketH: bucketH,
       loop: loop, cacheDirectory: cacheDirectory, registry: registry,
@@ -93,6 +96,10 @@ public class WebmTexturePlugin: NSObject, FlutterPlugin, WebmTextureHostApi {
     // An id that was already disposed is ignored: Dart may race a dispose
     // with a visibility change.
     animations[animId]?.texture.setActive(active)
+  }
+
+  func setPriority(animId: Int64, priority: Int64) throws {
+    animations[animId]?.texture.setPriority(priority)
   }
 
   func seekToFrame(animId: Int64, frame: Int64) throws {
@@ -131,7 +138,7 @@ public class WebmTexturePlugin: NSObject, FlutterPlugin, WebmTextureHostApi {
   private func disposeNow(_ animId: Int64) {
     guard let entry = animations.removeValue(forKey: animId) else { return }
     // Unregister first so Flutter stops sampling, then free the decoder and
-    // buffers on the animation's queue once any in-flight frame finishes.
+    // buffers once any in-flight frame finishes (off the main thread).
     registry.unregisterTexture(entry.textureId)
     entry.texture.close()
   }

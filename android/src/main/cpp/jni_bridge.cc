@@ -2,6 +2,11 @@
 // into libwebm_texture.so next to the core, so Kotlin and dart:ffi share one
 // copy of it.
 //
+// Every animation plays on one process-wide scheduler (T3.3), created by the
+// first nativeCreate. Its threads are attached to the JVM for their lifetime
+// (ADR 0011: ImageReader would otherwise attach and detach them around every
+// posted frame).
+//
 // Thread affinity matches SurfacePlayer: nativeCreate on a background thread,
 // everything else on the platform main thread.
 #include <android/log.h>
@@ -40,21 +45,10 @@ class ErrorRelay {
     if (method_ == nullptr) env->ExceptionClear();
   }
 
-  // Must run after the player (and so its render thread) is gone.
+  // Must run after the player is gone, so no worker can still call Send.
   void Release(JNIEnv* env) {
     if (listener_ != nullptr) env->DeleteGlobalRef(listener_);
     listener_ = nullptr;
-  }
-
-  // Attaches the calling (render) thread to the JVM for its lifetime.
-  wt_android::ThreadHooks Hooks() const {
-    JavaVM* vm = vm_;
-    return {[vm] {
-              JNIEnv* env = nullptr;
-              JavaVMAttachArgs args{JNI_VERSION_1_6, "wt-anim", nullptr};
-              vm->AttachCurrentThread(&env, &args);
-            },
-            [vm] { vm->DetachCurrentThread(); }};
   }
 
   void Send(const std::string& code, const std::string& message) const {
@@ -82,6 +76,36 @@ class ErrorRelay {
   jobject listener_ = nullptr;
   jmethodID method_ = nullptr;
 };
+
+// Attaches each scheduler thread to the JVM under its own name.
+void AttachThread(void* vm, const char* name) {
+  JNIEnv* env = nullptr;
+  JavaVMAttachArgs args{JNI_VERSION_1_6, name, nullptr};
+  static_cast<JavaVM*>(vm)->AttachCurrentThread(&env, &args);
+}
+
+void DetachThread(void* vm) { static_cast<JavaVM*>(vm)->DetachCurrentThread(); }
+
+// The process-wide scheduler, or nullptr if it couldn't start. It lives as
+// long as the process. T3.4 sets its options from the device tier.
+wt_sched* SharedScheduler(JNIEnv* env) {
+  static wt_sched* const sched = [env] {
+    JavaVM* vm = nullptr;
+    if (env->GetJavaVM(&vm) != JNI_OK) return static_cast<wt_sched*>(nullptr);
+    wt_sched_hooks hooks{};
+    hooks.context = vm;
+    hooks.thread_start = &AttachThread;
+    hooks.thread_stop = &DetachThread;
+    wt_sched* s = nullptr;
+    const wt_status st = wt_sched_create(nullptr, &hooks, &s);
+    if (st != WT_OK) {
+      __android_log_print(ANDROID_LOG_ERROR, "WebmTexture",
+                          "wt_sched_create failed: %s", wt_status_string(st));
+    }
+    return s;
+  }();
+  return sched;
+}
 
 // What a jlong handle points at.
 struct Handle {
@@ -169,7 +193,8 @@ JNIEXPORT jint JNICALL Java_com_example_webm_1texture_WtNative_nativeEvictCache(
 }
 
 // Creates the decoder for bytes or path at width x height (0 x 0 for the
-// source size) and its render thread, looping or stopping on the last frame.
+// source size) and puts it on the shared scheduler, looping or stopping on
+// the last frame.
 // With a cache_dir and a source_key (and a non-zero size) frames are cached in
 // a file there, named by wt_cache_file_path; otherwise nothing is cached.
 // Writes {status, outWidth, outHeight, frameCount} into out and returns the
@@ -210,19 +235,25 @@ JNIEXPORT jlong JNICALL Java_com_example_webm_1texture_WtNative_nativeCreate(
     return 0;
   }
 
+  wt_sched* sched = SharedScheduler(env);
+  if (sched == nullptr) {
+    wt_anim_destroy(anim);
+    SetOut(env, out, WT_ERR_NO_MEMORY);
+    return 0;
+  }
   auto handle = std::make_unique<Handle>();
   handle->relay = std::make_unique<ErrorRelay>(env, listener);
   const ErrorRelay* relay = handle->relay.get();
   handle->player = SurfacePlayer::Create(
-      anim, out_w, out_h, info.frame_count, loop == JNI_TRUE,
+      sched, anim, out_w, out_h, loop == JNI_TRUE,
       [relay](const std::string& code, const std::string& message) {
         relay->Send(code, message);
       },
-      relay->Hooks());
+      &st);
   if (handle->player == nullptr) {
-    wt_anim_destroy(anim);
+    wt_anim_destroy(anim);  // Still ours when Create fails.
     handle->relay->Release(env);
-    SetOut(env, out, WT_ERR_INTERNAL);
+    SetOut(env, out, st != WT_OK ? st : WT_ERR_INTERNAL);
     return 0;
   }
   SetOut(env, out, WT_OK, out_w, out_h, info.frame_count);
@@ -251,6 +282,19 @@ JNIEXPORT void JNICALL Java_com_example_webm_1texture_WtNative_nativeSetActive(
   if (h != nullptr) h->player->SetActive(active == JNI_TRUE);
 }
 
+// The on-screen area of the animation's widgets in physical pixels, its rank
+// under the scheduler's max_concurrent limit (see SurfacePlayer::SetPriority).
+// Thread: platform main thread.
+JNIEXPORT void JNICALL
+Java_com_example_webm_1texture_WtNative_nativeSetPriority(JNIEnv*, jclass,
+                                                          jlong handle,
+                                                          jlong priority) {
+  Handle* h = FromJ(handle);
+  if (h != nullptr && priority >= 0) {
+    h->player->SetPriority(static_cast<uint64_t>(priority));
+  }
+}
+
 // Shows frame next (see SurfacePlayer::SeekTo). Returns a wt_status:
 // WT_ERR_INVALID_ARGUMENT for a frame outside the animation.
 // Thread: platform main thread.
@@ -261,8 +305,8 @@ JNIEXPORT jint JNICALL Java_com_example_webm_1texture_WtNative_nativeSeek(
   return h->player->SeekTo(static_cast<uint32_t>(frame));
 }
 
-// Stops the render thread, releases the window and the decoder. Waits for at
-// most one in-flight frame.
+// Takes the player off the scheduler, releases the window and the decoder.
+// Waits for at most one in-flight frame.
 // Thread: platform main thread.
 JNIEXPORT void JNICALL Java_com_example_webm_1texture_WtNative_nativeDestroy(
     JNIEnv* env, jclass, jlong handle) {
