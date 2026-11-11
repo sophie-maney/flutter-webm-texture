@@ -1,6 +1,6 @@
 # 0020: Atlas compositor: slot frames in RAM, one present per page per tick, a texture per page size
 
-- **Status:** Accepted (T4.2)
+- **Status:** Accepted (T4.2). T4.3 added `wt_atlas_shown_page` and `atlasShownTextures`, and page beats ([ADR 0021](0021-atlas-scope-and-content-rate.md)).
 - **Date:** 2026-11-11
 
 ## Context
