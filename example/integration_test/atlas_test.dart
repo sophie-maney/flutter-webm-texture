@@ -183,8 +183,9 @@ void main() {
     );
     expect(p.cpuBytes, greaterThanOrEqualTo(_count * _bucket * _bucket * 4));
     expect(p.presentFailures, 0);
-    // The clips run at 25-30 fps; allow a slow device half of that.
-    expect(presents(after) - presents(before), greaterThan(25));
+    // At most one present per scheduler tick: the clips' 25-30 fps, or the
+    // tier's cap (15 on low-tier emulators once the tier is applied).
+    expect(presents(after) - presents(before), greaterThan(10));
     // ignore: avoid_print
     print(
       'ATLAS_TEST ${jsonEncode({'animations': _count, 'pageTextures': after.textures, 'pluginTextures': after.pluginTextures, 'page': '${p.width}x${p.height}', 'buffers': p.buffers, 'bufferBytes': p.bufferBytes, 'cpuBytes': p.cpuBytes, 'presentsPerSecond': (presents(after) - presents(before)) / 2})}',
@@ -235,7 +236,7 @@ void main() {
     await elapse(tester, const Duration(seconds: 1));
     expect(
       presents(await api.atlasStats(atlasId)) - presents(again),
-      greaterThan(10),
+      greaterThan(5),
     );
 
     final gone = await api.disposeAtlas(atlasId);
