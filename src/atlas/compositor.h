@@ -103,6 +103,8 @@ class Atlas {
   wt_status GetPage(uint32_t page, wt_atlas_page_info* out) const;
   wt_status SetTarget(uint32_t page, const wt_atlas_target* target,
                       uint32_t height);
+  // As wt_atlas_shown_page.
+  int32_t ShownPage(const Player* player);
 
   Scheduler* scheduler() const { return sched_; }
   const wt_atlas_options& options() const { return options_; }

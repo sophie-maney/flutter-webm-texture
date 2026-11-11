@@ -12,10 +12,20 @@ std::vector<Nanos> Clamped(std::vector<Nanos> durations) {
   return durations;
 }
 
+Nanos Shortest(const std::vector<Nanos>& durations) {
+  Nanos m = kMinFrameTime;
+  if (!durations.empty()) {
+    m = *std::min_element(durations.begin(), durations.end());
+  }
+  return m;
+}
+
 }  // namespace
 
 Timeline::Timeline(std::vector<Nanos> durations, bool loop)
-    : durations_(Clamped(std::move(durations))), loop_(loop) {
+    : durations_(Clamped(std::move(durations))),
+      loop_(loop),
+      min_duration_(Shortest(durations_)) {
   remaining_ = durations_.empty() ? kMinFrameTime : durations_[0];
 }
 

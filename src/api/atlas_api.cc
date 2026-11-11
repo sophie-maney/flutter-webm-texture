@@ -74,4 +74,9 @@ wt_status wt_atlas_set_target(wt_atlas* atlas, uint32_t page,
   return Impl(atlas)->SetTarget(page, target, height);
 }
 
+int32_t wt_atlas_shown_page(wt_atlas* atlas, const wt_player* player) {
+  if (atlas == nullptr || player == nullptr) return -1;
+  return Impl(atlas)->ShownPage(reinterpret_cast<const wt::Player*>(player));
+}
+
 }  // extern "C"

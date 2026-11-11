@@ -102,6 +102,12 @@ internal class StickerAtlas(
         return retired
     }
 
+    /** The texture id that shows [anim]'s slot's frame, or -1 (`wt_atlas_shown_page`). */
+    fun shownTexture(anim: StickerTexture): Long {
+        val page = WtNative.nativeAtlasShownPage(handle, anim.nativeHandle)
+        return if (page < 0) -1 else pages[page]?.producer?.id() ?: -1
+    }
+
     /** Every page that has a texture. */
     fun pageMessages(): List<AtlasPageMessage> =
         pages.values.sortedBy { it.page }.map {

@@ -1,7 +1,13 @@
+// ignore_for_file: implementation_imports
 // T2.8: end-to-end checks of the example app on a device or simulator.
 //
 // - A screenshot golden of the checkerboard page, per platform, compared with
 //   a tolerance (emulator GPUs and font rasterisation differ slightly).
+// - T4.3: the Stress page in atlas mode (StickerAtlasScope) against the same
+//   page standalone, and against its own golden: no slot bleeds into its
+//   neighbour's cell.
+// - The middle of a scope taller than the screen animates (the latch boxes
+//   follow the part of the scope that shows).
 // - Playback advances on screen, holds when paused, and holds while the
 //   sticker is scrolled off screen or the app is backgrounded.
 //
@@ -23,10 +29,12 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
+import 'package:webm_texture/src/sticker_atlas_scope.dart';
 import 'package:webm_texture/webm_texture.dart';
 import 'package:webm_texture_example/checkerboard_page.dart';
 import 'package:webm_texture_example/corpus.dart';
 import 'package:webm_texture_example/main.dart';
+import 'package:webm_texture_example/stress_page.dart';
 
 import 'screenshots.dart';
 
@@ -243,6 +251,179 @@ void main() {
       lessThanOrEqualTo(_maxDiffFraction),
       reason: 'fraction of differing pixels vs the $_platform golden',
     );
+  });
+
+  testWidgets('stress page in atlas mode matches standalone and its golden', (
+    tester,
+  ) async {
+    // The top 4 x 4 cells of the grid, every sticker on its first frame.
+    final ticking = ValueNotifier(false);
+    addTearDown(ticking.dispose);
+    late Rect crop;
+    Future<(_Shot, List<int>)> shoot({required bool atlas}) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ValueListenableBuilder<bool>(
+            valueListenable: ticking,
+            builder: (_, on, child) => TickerMode(enabled: on, child: child!),
+            child: StressPage(
+              key: ValueKey(atlas),
+              initiallyAtlas: atlas,
+              columns: 4,
+            ),
+          ),
+        ),
+      );
+      final drawn = find.byType(atlas ? StickerAtlasSlot : Texture);
+      var last = -1;
+      for (var i = 0; i < 300; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+        final n = drawn.evaluate().length;
+        // Every visible cell draws, and nothing changed for a while.
+        if (n >= 16 && n == last && i > 20) break;
+        last = n;
+      }
+      expect(drawn, findsAtLeastNWidgets(16));
+      await _elapse(tester, const Duration(milliseconds: 700));
+      final (full, _) = await _screenshot();
+      final dpr = tester.view.devicePixelRatio;
+      final grid = tester.getRect(find.byKey(const Key('stressGrid')));
+      final w = (grid.width * dpr).floor() ~/ 2 * 2;
+      crop = Rect.fromLTWH(
+        (grid.left * dpr).roundToDouble(),
+        (grid.top * dpr).roundToDouble(),
+        w.toDouble(),
+        w.toDouble(),
+      );
+      final shot = _half(
+        _crop(full, crop.left.toInt(), crop.top.toInt(), w, w),
+      );
+      return (shot, await _encodePng(shot));
+    }
+
+    final (standalone, standalonePng) = await shoot(atlas: false);
+    final (atlas, atlasPng) = await shoot(atlas: true);
+
+    // Playing, the slots animate.
+    ticking.value = true;
+    await tester.pump(const Duration(milliseconds: 300));
+    final (a, _) = await _screenshot();
+    await _elapse(tester, const Duration(milliseconds: 400));
+    final (b, _) = await _screenshot();
+    expect(
+      _diff(a, b, crop),
+      greaterThan(0.001),
+      reason: 'playing atlas stickers should change',
+    );
+    await tester.pumpWidget(const SizedBox());
+
+    final vsStandalone = _diff(atlas, standalone);
+    if (vsStandalone > _maxDiffFraction) {
+      _printGolden('actual_stress_standalone.png', standalonePng);
+      _printGolden('actual_stress_atlas.png', atlasPng);
+    }
+    expect(
+      vsStandalone,
+      lessThanOrEqualTo(_maxDiffFraction),
+      reason: 'fraction of pixels differing between atlas and standalone',
+    );
+
+    const name = 'stress_atlas.png';
+    if (_updateGoldens) {
+      _printGolden(name, atlasPng);
+      return;
+    }
+    final golden = await _decode(
+      (await rootBundle.load('integration_test/goldens/$_platform/$name'))
+          .buffer
+          .asUint8List(),
+    );
+    final diff = _diff(atlas, golden);
+    if (diff > _maxDiffFraction) _printGolden('actual_$name', atlasPng);
+    expect(
+      diff,
+      lessThanOrEqualTo(_maxDiffFraction),
+      reason: 'fraction of differing pixels vs the $_platform golden',
+    );
+  });
+
+  testWidgets('a scope taller than the screen animates where it shows', (
+    tester,
+  ) async {
+    // A sticker pack in a list: a non-scrolling grid in a scope, scrolled so
+    // that only the scope's middle shows. Its corners and centre are off
+    // screen, where the engine paints nothing (ADR 0021, point 9).
+    final controller = ScrollController();
+    addTearDown(controller.dispose);
+    final view = tester.view.physicalSize / tester.view.devicePixelRatio;
+    const columns = 4;
+    final cell = view.width / columns;
+    // At least 4 screens tall, so that the window one screen down ends
+    // above the centre.
+    final rows = (view.height * 4 / cell).ceil() + 2;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ListView(
+            key: const Key('tallList'),
+            controller: controller,
+            children: [
+              StickerAtlasScope(
+                key: const Key('tallScope'),
+                child: GridView.count(
+                  crossAxisCount: columns,
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  children: [
+                    for (var i = 0; i < rows * columns; i++)
+                      WebmSticker(
+                        source: corpusSource(
+                          playableCorpus[i % playableCorpus.length],
+                        ),
+                        placeholder: const ColoredBox(color: Color(0x14000000)),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 300));
+    controller.jumpTo(view.height);
+    final slots = find.byType(StickerAtlasSlot);
+    var last = -1;
+    for (var i = 0; i < 300; i++) {
+      await tester.pump(const Duration(milliseconds: 50));
+      final n = slots.evaluate().length;
+      if (n >= columns * 2 && n == last && i > 20) break;
+      last = n;
+    }
+    expect(slots, findsAtLeastNWidgets(columns * 2));
+    final scope = tester.getRect(find.byKey(const Key('tallScope')));
+    expect(scope.top, lessThan(0));
+    expect(scope.center.dy, greaterThan(view.height));
+
+    final dpr = tester.view.devicePixelRatio;
+    final list = tester.getRect(find.byKey(const Key('tallList')));
+    // The middle half of the list: clear of the status bar.
+    final crop = Rect.fromLTRB(
+      list.left * dpr,
+      (list.top + list.height / 4) * dpr,
+      list.right * dpr,
+      (list.bottom - list.height / 4) * dpr,
+    );
+    await _elapse(tester, const Duration(milliseconds: 300));
+    final (a, _) = await _screenshot();
+    await _elapse(tester, const Duration(milliseconds: 400));
+    final (b, _) = await _screenshot();
+    expect(
+      _diff(a, b, crop),
+      greaterThan(0.001),
+      reason: 'playing atlas stickers should change',
+    );
+    await tester.pumpWidget(const SizedBox());
   });
 
   testWidgets('playback advances, pauses and resumes', (tester) async {

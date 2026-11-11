@@ -139,6 +139,9 @@ internal object WtNative {
     /** Moves the animation back to its own surface. Returns a `wt_status`. Main thread. */
     @JvmStatic external fun nativeAtlasDetach(atlas: Long, anim: Long): Int
 
+    /** The page whose current surface shows [anim]'s slot, or -1 (`wt_atlas_shown_page`). */
+    @JvmStatic external fun nativeAtlasShownPage(atlas: Long, anim: Long): Int
+
     /** Pages the atlas has created so far. Main thread. */
     @JvmStatic external fun nativeAtlasPageCount(atlas: Long): Int
 

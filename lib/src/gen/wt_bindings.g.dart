@@ -466,6 +466,33 @@ class WtBindings {
         )
       >();
 
+  /// The page whose current target shows player's slot: its index once a
+  /// present into the target last given by wt_atlas_set_target has shown a
+  /// frame of player in the slot, else -1. It is -1 before the slot's first
+  /// frame, after a new target until a present into it, and for a player that
+  /// isn't in atlas (or NULL arguments). Callers keep showing what they showed
+  /// before (a placeholder, an older texture) until then: until a present
+  /// wrote it, a slot's area of the target's buffers holds stale pixels.
+  /// Thread: as wt_atlas_attach (may wait while another thread attaches);
+  /// never waits for a frame or a present.
+  int wt_atlas_shown_page(
+    ffi.Pointer<wt_atlas> atlas,
+    ffi.Pointer<wt_player> player,
+  ) {
+    return _wt_atlas_shown_page(atlas, player);
+  }
+
+  late final _wt_atlas_shown_pagePtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Int32 Function(ffi.Pointer<wt_atlas>, ffi.Pointer<wt_player>)
+        >
+      >('wt_atlas_shown_page');
+  late final _wt_atlas_shown_page = _wt_atlas_shown_pagePtr
+      .asFunction<
+        int Function(ffi.Pointer<wt_atlas>, ffi.Pointer<wt_player>)
+      >();
+
   /// Deletes every cache file and temporary in dir. *out_removed (may be NULL)
   /// receives the cache files deleted. Animations that have a file open keep
   /// playing from it; a writer whose temporary was deleted gives up quietly.
@@ -984,7 +1011,7 @@ class WtBindings {
       .asFunction<ffi.Pointer<ffi.Char> Function(int)>();
 }
 
-const int WT_API_VERSION = 5;
+const int WT_API_VERSION = 6;
 
 const int WT_ATLAS_MAX_PAGES = 16;
 

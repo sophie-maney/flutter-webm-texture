@@ -562,6 +562,144 @@ TEST_F(AtlasTest, PresentsAtMostOncePerTick) {
   EXPECT_GE(target.presents(), static_cast<int>(elapsed * kFps / 2));
 }
 
+// ADR 0021: players of one page that start at different times still land
+// their frames on shared beats, so a page presents at the content rate, not
+// at every scheduler tick.
+TEST_F(AtlasTest, PagePresentsAtTheContentRate) {
+  constexpr uint32_t kFps = 60;
+  Start(Options(512, 512), kFps, 4);
+  // 30-fps WebM: frames of 33, 34 and 33 ms. Twelve players, activated 7 ms
+  // apart, so their own clocks spread over a whole frame.
+  std::vector<uint32_t> durations;
+  for (int i = 0; i < 30; ++i) durations.push_back(i % 3 == 1 ? 34 : 33);
+  std::vector<wt::Player*> ps;
+  for (uint32_t i = 0; i < 12; ++i) {
+    FakeSink& home = Home(24, 24);
+    auto log = std::make_shared<PatternSource::Log>();
+    logs_.push_back(log);
+    std::unique_ptr<wt::FrameSource> src =
+        std::make_unique<PatternSource>(60 + i, 24, 24, durations, log);
+    wt::Player* p = nullptr;
+    ASSERT_EQ(impl_->AddPlayer(&src, true, home.sink(), &p), WT_OK);
+    tags_.Set(p, 60 + i);
+    players_.push_back(p);
+    ps.push_back(p);
+    wt_atlas_slot slot;
+    ASSERT_EQ(Attach(p, &slot), WT_OK);
+  }
+  const wt_atlas_page_info info = Page(0);
+  FakeTarget& target = Target(512, info.wanted_height);
+  const wt_atlas_target t = target.target();
+  ASSERT_EQ(wt_atlas_set_target(atlas_, 0, &t, info.wanted_height), WT_OK);
+  for (wt::Player* p : ps) {
+    wt_player_set_active(reinterpret_cast<wt_player*>(p), true);
+    std::this_thread::sleep_for(milliseconds(7));
+  }
+  // Let the activations settle, then count.
+  std::this_thread::sleep_for(milliseconds(200));
+  const int presents = target.presents();
+  uint64_t drawn = 0;
+  for (const auto& log : logs_) drawn += log->draws;
+  const auto start = std::chrono::steady_clock::now();
+  std::this_thread::sleep_for(milliseconds(1500));
+  const double elapsed =
+      std::chrono::duration<double>(std::chrono::steady_clock::now() - start)
+          .count();
+  const int counted = target.presents() - presents;
+  uint64_t drawn_after = 0;
+  for (const auto& log : logs_) drawn_after += log->draws;
+  // At most the content rate (plus timer slack); without beats it is about
+  // the scheduler's 60.
+  EXPECT_LE(counted, static_cast<int>(elapsed * 30 * 1.1) + 3);
+  // Loaded CI machines wake late and skip frames; the point is the ceiling.
+  EXPECT_GE(counted, static_cast<int>(elapsed * 30 * 0.5));
+  // The players kept the content's pace: about 30 frames a second each.
+  EXPECT_GE(drawn_after - drawn,
+            static_cast<uint64_t>(elapsed * 30 * 0.5 * ps.size()));
+}
+
+// A page's beat is its fastest member's shortest frame: a 25-fps player
+// (40 ms) next to 30-fps ones lands on their beats, adding no presents.
+TEST_F(AtlasTest, MixedRatesShareTheFastestBeat) {
+  constexpr uint32_t kFps = 60;
+  Start(Options(512, 512), kFps, 4);
+  std::vector<wt::Player*> ps;
+  for (uint32_t i = 0; i < 8; ++i) {
+    ps.push_back(Add(80 + i, 24, 24, nullptr, 30, i % 2 == 0 ? 33 : 40));
+    wt_atlas_slot slot;
+    ASSERT_EQ(Attach(ps.back(), &slot), WT_OK);
+  }
+  const wt_atlas_page_info info = Page(0);
+  FakeTarget& target = Target(512, info.wanted_height);
+  const wt_atlas_target t = target.target();
+  ASSERT_EQ(wt_atlas_set_target(atlas_, 0, &t, info.wanted_height), WT_OK);
+  for (wt::Player* p : ps) {
+    wt_player_set_active(reinterpret_cast<wt_player*>(p), true);
+    std::this_thread::sleep_for(milliseconds(9));
+  }
+  std::this_thread::sleep_for(milliseconds(200));
+  const int presents = target.presents();
+  const auto start = std::chrono::steady_clock::now();
+  std::this_thread::sleep_for(milliseconds(1500));
+  const double elapsed =
+      std::chrono::duration<double>(std::chrono::steady_clock::now() - start)
+          .count();
+  const int counted = target.presents() - presents;
+  EXPECT_LE(counted, static_cast<int>(elapsed * 1000 / 33 * 1.1) + 3);
+  EXPECT_GE(counted, static_cast<int>(elapsed * 1000 / 33 * 0.5));
+}
+
+TEST_F(AtlasTest, ShownPageWaitsForAPresentIntoTheCurrentTarget) {
+  Start(Options(128, 128));
+  wt::Player* p = Add(50, 40, 40, nullptr, 4, 20);
+  const auto shown = [&](wt::Player* q) {
+    return wt_atlas_shown_page(atlas_, reinterpret_cast<wt_player*>(q));
+  };
+  EXPECT_EQ(wt_atlas_shown_page(nullptr, nullptr), -1);
+  EXPECT_EQ(shown(p), -1) << "not in the atlas";
+  wt_atlas_slot slot;
+  ASSERT_EQ(Attach(p, &slot), WT_OK);
+  std::this_thread::sleep_for(milliseconds(60));
+  EXPECT_EQ(shown(p), -1) << "the page has no target yet";
+
+  FakeTarget& a = Target(128, 48);
+  wt_atlas_target t = a.target();
+  ASSERT_EQ(wt_atlas_set_target(atlas_, 0, &t, 48), WT_OK);
+  ASSERT_TRUE(WaitFor([&] { return shown(p) == 0; }));
+  EXPECT_GE(a.presents(), 1);
+
+  // A new target shows nothing until a present into it went through.
+  FakeTarget& b = Target(128, 64);
+  b.set_answer(WT_NO_TARGET);
+  t = b.target();
+  ASSERT_EQ(wt_atlas_set_target(atlas_, 0, &t, 64), WT_OK);
+  a.Retire();
+  ASSERT_TRUE(WaitFor([&] { return b.acquires() >= 1; }));
+  std::this_thread::sleep_for(milliseconds(60));
+  EXPECT_EQ(shown(p), -1);
+  EXPECT_EQ(b.presents(), 0);
+  b.set_answer(WT_OK);
+  ASSERT_EQ(wt_atlas_set_target(atlas_, 0, &t, 64), WT_OK);
+  ASSERT_TRUE(WaitFor([&] { return shown(p) == 0; }));
+  EXPECT_GE(b.presents(), 1);
+
+  // A player on a second page (a 100-px slot doesn't fit under the first).
+  wt::Player* r = Add(52, 100, 100, nullptr, 4, 20);
+  ASSERT_EQ(Attach(r, &slot), WT_OK);
+  EXPECT_EQ(slot.page, 1u);
+  EXPECT_EQ(shown(r), -1);
+  const wt_atlas_page_info info = Page(1);
+  FakeTarget& c = Target(128, info.wanted_height);
+  t = c.target();
+  ASSERT_EQ(wt_atlas_set_target(atlas_, 1, &t, info.wanted_height), WT_OK);
+  ASSERT_TRUE(WaitFor([&] { return shown(r) == 1; }));
+  EXPECT_EQ(shown(p), 0);
+
+  ASSERT_EQ(Detach(p), WT_OK);
+  EXPECT_EQ(shown(p), -1) << "detached";
+  EXPECT_EQ(a.late_calls() + b.late_calls() + c.late_calls(), 0);
+}
+
 // The C ABI end to end on a real VP9 animation with alpha: the slot shows
 // exactly the frame wt_anim_next_frame decodes, in either pixel format.
 TEST(AtlasCAbiTest, RealAnimationMatchesDecodedFrames) {

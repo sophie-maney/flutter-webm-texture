@@ -9,6 +9,7 @@ import 'src/sticker_runtime.dart';
 import 'src/sticker_source.dart';
 import 'webm_texture_platform_interface.dart';
 
+export 'src/sticker_atlas_scope.dart' show StickerAtlasScope;
 export 'src/sticker_cache.dart' show CacheStats;
 export 'src/sticker_config.dart' show StickerConfig;
 export 'src/sticker_info.dart'

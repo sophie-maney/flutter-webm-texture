@@ -6,6 +6,90 @@ import 'gen/messages.g.dart';
 import 'sticker_bucket.dart';
 import 'sticker_source.dart';
 
+/// What a sticker in an atlas draws: [textureId] laid out at [pageWidth] x
+/// [pageHeight] physical pixels, of which the [width] x [height] rect at
+/// ([x], [y]) is the sticker's frame. A texture of the animation's own is a
+/// page of its own size with the frame at (0, 0).
+@immutable
+class StickerAtlasDrawing {
+  /// Creates a drawing of a slot of a shared page texture.
+  const StickerAtlasDrawing({
+    required this.textureId,
+    required this.pageWidth,
+    required this.pageHeight,
+    required this.x,
+    required this.y,
+    required this.width,
+    required this.height,
+  }) : shared = true;
+
+  /// A whole texture of [width] x [height], of one animation's own.
+  const StickerAtlasDrawing.whole(this.textureId, this.width, this.height)
+    : pageWidth = width,
+      pageHeight = height,
+      x = 0,
+      y = 0,
+      shared = false;
+
+  /// Whether [textureId] is an atlas page that many slots draw. Those are
+  /// drawn frozen, on the image the scope latched for the frame.
+  final bool shared;
+
+  final int textureId;
+  final int pageWidth;
+  final int pageHeight;
+  final int x;
+  final int y;
+  final int width;
+  final int height;
+
+  @override
+  bool operator ==(Object other) =>
+      other is StickerAtlasDrawing &&
+      other.textureId == textureId &&
+      other.pageWidth == pageWidth &&
+      other.pageHeight == pageHeight &&
+      other.x == x &&
+      other.y == y &&
+      other.width == width &&
+      other.height == height &&
+      other.shared == shared;
+
+  @override
+  int get hashCode => Object.hash(
+    textureId,
+    pageWidth,
+    pageHeight,
+    x,
+    y,
+    width,
+    height,
+    shared,
+  );
+
+  @override
+  String toString() =>
+      'StickerAtlasDrawing(#$textureId ${pageWidth}x$pageHeight, '
+      '${width}x$height at $x,$y)';
+}
+
+/// An atlas that animations of the registry can be shown through
+/// (`StickerAtlasScope`). The registry keys animations by atlas, so one
+/// animation is never shown standalone and in an atlas at once: a native
+/// player has one target.
+abstract class StickerAtlasHost {
+  /// The platform created [handle]'s animation for this atlas, with a texture
+  /// of its own of [bucket]'s size. Returns what its leases draw: null for
+  /// the placeholder.
+  ValueListenable<StickerAtlasDrawing?> join(
+    AnimationHandleMessage handle,
+    StickerBucket bucket,
+  );
+
+  /// The platform disposed animation [animId] (which frees its slot).
+  void leave(int animId);
+}
+
 /// One widget's claim on a shared animation. Give it back with [release].
 class StickerLease {
   StickerLease._(this._registry, this._entry);
@@ -20,7 +104,13 @@ class StickerLease {
   int get animId => _entry.handle.animId;
 
   /// The texture to show. Every lease on the same animation has the same id.
+  /// For an animation in an atlas, its own texture, which the atlas retires:
+  /// draw [atlasDrawing] instead.
   int get textureId => _entry.handle.textureId;
+
+  /// What to draw for an animation acquired for an atlas; null for a
+  /// standalone one.
+  ValueListenable<StickerAtlasDrawing?>? get atlasDrawing => _entry.drawing;
 
   /// The decode size of the animation.
   StickerBucket get bucket => _entry.bucket;
@@ -82,6 +172,12 @@ class _Entry {
   final StickerBucket bucket;
   late final Future<AnimationHandleMessage> created;
   late AnimationHandleMessage handle;
+
+  /// From [StickerAtlasHost.join], once created for an atlas.
+  ValueListenable<StickerAtlasDrawing?>? drawing;
+
+  /// Disposed on the platform (or about to be): never again.
+  bool disposed = false;
   int refs = 0;
   int activeLeases = 0;
 
@@ -95,7 +191,7 @@ class _Entry {
 
 @immutable
 class _EntryId {
-  const _EntryId(this.key, this.bucket, this.owner, this.loop);
+  const _EntryId(this.key, this.bucket, this.owner, this.loop, this.atlas);
 
   final String key;
   final StickerBucket bucket;
@@ -104,21 +200,32 @@ class _EntryId {
   /// Compared by identity; null for the shared animation.
   final Object? owner;
 
+  /// Compared by identity; null for a standalone animation.
+  final StickerAtlasHost? atlas;
+
   @override
   bool operator ==(Object other) =>
       other is _EntryId &&
       other.key == key &&
       other.bucket == bucket &&
       other.loop == loop &&
-      identical(other.owner, owner);
+      identical(other.owner, owner) &&
+      identical(other.atlas, atlas);
 
   @override
-  int get hashCode => Object.hash(key, bucket, loop, identityHashCode(owner));
+  int get hashCode => Object.hash(
+    key,
+    bucket,
+    loop,
+    identityHashCode(owner),
+    identityHashCode(atlas),
+  );
 }
 
 /// Shares animations between widgets.
 ///
-/// An animation is identified by (content key, [StickerBucket], owner, loop).
+/// An animation is identified by (content key, [StickerBucket], owner, loop,
+/// atlas).
 /// Asking for one that exists, even one waiting out its grace period, returns
 /// the same texture; the platform is only called for the first claim and the
 /// last release. It plays while any of its leases is active
@@ -136,6 +243,9 @@ class StickerRegistry {
   }) : _host = host ?? WebmTextureHostApi();
 
   final WebmTextureHostApi _host;
+
+  /// The platform API animations are created through.
+  WebmTextureHostApi get host => _host;
 
   /// Awaited before each platform creation: the tier's scheduler options must
   /// be in place before the first animation plays.
@@ -187,6 +297,10 @@ class StickerRegistry {
   /// [loop] false the animation stops on its last frame; it is never shared
   /// with a looping one.
   ///
+  /// With an [atlas], the animation is shown through it
+  /// ([StickerLease.atlasDrawing]) and shared only with leases for the same
+  /// atlas.
+  ///
   /// Concurrent calls for the same animation share one platform call. If it
   /// fails, every waiting call gets the error and nothing stays registered.
   Future<StickerLease> acquire({
@@ -195,9 +309,10 @@ class StickerRegistry {
     required StickerBucket bucket,
     Object? owner,
     bool loop = true,
+    StickerAtlasHost? atlas,
   }) async {
     if (_disposed) throw StateError('StickerRegistry is disposed');
-    final id = _EntryId(key, bucket, owner, loop);
+    final id = _EntryId(key, bucket, owner, loop, atlas);
     var entry = _entries[id];
     if (entry == null) {
       entry = _Entry(id, bucket);
@@ -218,7 +333,12 @@ class StickerRegistry {
       // A failed creation must not stay registered, whoever is waiting.
       unawaited(
         created.then(
-          (h) => e.handle = h,
+          (h) {
+            e.handle = h;
+            if (atlas != null && identical(_entries[id], e)) {
+              e.drawing = atlas.join(h, bucket);
+            }
+          },
           onError: (Object _) {
             if (identical(_entries[id], e)) _entries.remove(id);
             e.graceTimer?.cancel();
@@ -294,7 +414,7 @@ class StickerRegistry {
 
   void _release(_Entry entry) {
     if (--entry.refs > 0) return;
-    if (_disposed) return;
+    if (_disposed || entry.disposed) return;
     entry.graceTimer?.cancel();
     entry.graceTimer = Timer(gracePeriod, () {
       entry.graceTimer = null;
@@ -304,10 +424,33 @@ class StickerRegistry {
     });
   }
 
-  Future<void> _disposeOnPlatform(_Entry entry) => entry.created.then<void>(
-    (h) => _host.dispose(h.animId).catchError((Object _) {}),
-    onError: (Object _) {},
-  );
+  Future<void> _disposeOnPlatform(_Entry entry) {
+    if (entry.disposed) return Future.value();
+    entry.disposed = true;
+    return entry.created.then<void>((h) {
+      final done = _host.dispose(h.animId).catchError((Object _) {});
+      // Joined atlases hear about it after the call was sent: their next
+      // attach or detach resizes the page.
+      if (entry.drawing != null) entry.id.atlas?.leave(h.animId);
+      return done;
+    }, onError: (Object _) {});
+  }
+
+  /// Disposes every animation acquired for [atlas] now, ignoring leases and
+  /// grace periods (the atlas is going away). Leases still held become
+  /// stale.
+  void disposeAtlasEntries(StickerAtlasHost atlas) {
+    final gone = [
+      for (final e in _entries.values)
+        if (identical(e.id.atlas, atlas)) e,
+    ];
+    for (final entry in gone) {
+      _entries.remove(entry.id);
+      entry.graceTimer?.cancel();
+      entry.graceTimer = null;
+      unawaited(_disposeOnPlatform(entry));
+    }
+  }
 
   /// Disposes every animation now, ignoring leases and grace periods. Leases
   /// still held become stale; the registry can't be used afterwards.

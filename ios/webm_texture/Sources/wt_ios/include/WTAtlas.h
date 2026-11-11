@@ -94,6 +94,10 @@ NS_SWIFT_NAME(WTAtlas)
 /// wt_status.
 - (int32_t)detachPlayer:(WTPlayer *)player;
 
+/// The page whose current target shows `player`'s slot, or -1
+/// (wt_atlas_shown_page). Never waits for a frame.
+- (int32_t)shownPageForPlayer:(WTPlayer *)player;
+
 /// Pages created so far (0 after -close).
 @property(nonatomic, readonly) uint32_t pageCount;
 

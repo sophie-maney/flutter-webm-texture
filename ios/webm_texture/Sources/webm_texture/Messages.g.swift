@@ -968,6 +968,14 @@ protocol WebmTextureHostApi {
   /// Releases retired textures (see [AtlasLayoutMessage.retiredTextureIds]).
   /// Unknown ids are ignored.
   func releaseTextures(textureIds: [Int64]) throws
+  /// For each of [animIds], the page texture that shows its slot's frame,
+  /// or -1: before a present has written the slot's first frame into the
+  /// page's current texture (so right after [attachToAtlas], and for every
+  /// slot of a page that just got a new texture), and for an animation that
+  /// isn't in atlas [atlasId]. Until then the slot's area of the texture
+  /// holds stale pixels: keep showing the placeholder, or the texture shown
+  /// before (`wt_atlas_shown_page`).
+  func atlasShownTextures(atlasId: Int64, animIds: [Int64]) throws -> [Int64]
   /// The atlas's pages and memory.
   func atlasStats(atlasId: Int64) throws -> AtlasStatsMessage
   /// Frees the atlas. Animations still in it are left without a texture
@@ -1211,6 +1219,29 @@ class WebmTextureHostApiSetup {
       }
     } else {
       releaseTexturesChannel.setMessageHandler(nil)
+    }
+    /// For each of [animIds], the page texture that shows its slot's frame,
+    /// or -1: before a present has written the slot's first frame into the
+    /// page's current texture (so right after [attachToAtlas], and for every
+    /// slot of a page that just got a new texture), and for an animation that
+    /// isn't in atlas [atlasId]. Until then the slot's area of the texture
+    /// holds stale pixels: keep showing the placeholder, or the texture shown
+    /// before (`wt_atlas_shown_page`).
+    let atlasShownTexturesChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.webm_texture.WebmTextureHostApi.atlasShownTextures\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      atlasShownTexturesChannel.setMessageHandler { message, reply in
+        let args = message as! [Any?]
+        let atlasIdArg = args[0] as! Int64
+        let animIdsArg = args[1] as! [Int64]
+        do {
+          let result = try api.atlasShownTextures(atlasId: atlasIdArg, animIds: animIdsArg)
+          reply(wrapResult(result))
+        } catch {
+          reply(wrapError(error))
+        }
+      }
+    } else {
+      atlasShownTexturesChannel.setMessageHandler(nil)
     }
     /// The atlas's pages and memory.
     let atlasStatsChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.webm_texture.WebmTextureHostApi.atlasStats\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)

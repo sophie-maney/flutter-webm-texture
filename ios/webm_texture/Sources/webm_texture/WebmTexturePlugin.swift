@@ -60,7 +60,7 @@ public class WebmTexturePlugin: NSObject, FlutterPlugin, WebmTextureHostApi {
       wt_sched_get_stats, wt_player_create, wt_player_destroy, wt_player_set_active,
       wt_player_set_priority, wt_player_seek, wt_player_redraw, wt_atlas_options_init_default,
       wt_atlas_create, wt_atlas_destroy, wt_atlas_attach, wt_atlas_detach, wt_atlas_page_count,
-      wt_atlas_get_page, wt_atlas_set_target,
+      wt_atlas_get_page, wt_atlas_set_target, wt_atlas_shown_page,
     ]
     let channel = FlutterMethodChannel(name: "webm_texture", binaryMessenger: registrar.messenger())
     let instance = WebmTexturePlugin(registry: registrar.textures())
@@ -237,6 +237,14 @@ public class WebmTexturePlugin: NSObject, FlutterPlugin, WebmTextureHostApi {
 
   func releaseTextures(textureIds: [Int64]) throws {
     releaseRetired(textureIds)
+  }
+
+  func atlasShownTextures(atlasId: Int64, animIds: [Int64]) throws -> [Int64] {
+    guard let atlas = atlases[atlasId] else { return animIds.map { _ in -1 } }
+    return animIds.map { animId in
+      guard let entry = animations[animId], entry.atlas === atlas else { return -1 }
+      return atlas.shownTexture(entry.texture.player)
+    }
   }
 
   func atlasStats(atlasId: Int64) throws -> AtlasStatsMessage {

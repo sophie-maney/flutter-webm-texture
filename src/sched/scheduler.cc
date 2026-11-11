@@ -39,6 +39,15 @@ Nanos PeriodFor(uint32_t max_fps) {
   return Nanos(std::chrono::seconds(1)) / max_fps;
 }
 
+// The latest beat at or before t. Beats are multiples of `beat` since the
+// steady clock's epoch, so every group with the same beat shares them.
+TimePoint BeatAtOrBefore(TimePoint t, Nanos beat) {
+  const Nanos since = t.time_since_epoch();
+  Nanos past = since % beat;
+  if (past < Nanos::zero()) past += beat;
+  return t - past;
+}
+
 // Dispatch order: the players that run first, then by priority and recency.
 bool Better(const Player* a, uint64_t a_priority, uint64_t a_activated,
             const Player* b, uint64_t b_priority, uint64_t b_activated) {
@@ -232,11 +241,13 @@ void Scheduler::RemovePlayer(Player* p) {
   if (group != nullptr) group->target_->Leave(p);
   {
     std::lock_guard<std::mutex> lk(mu_);
-    if (p->group_ != nullptr) {
-      --p->group_->members_;
+    Group* left = p->group_;
+    if (left != nullptr) {
+      --left->members_;
       p->group_ = nullptr;
     }
     players_.erase(std::find(players_.begin(), players_.end(), p));
+    if (left != nullptr) UpdateBeat(left);
     // A frozen player may take its place.
     if (p->timeline_.running()) ranks_dirty_ = true;
   }
@@ -307,10 +318,13 @@ wt_status Scheduler::Retarget(Player* p, const wt_sink& sink, Group* group,
     p->retargeting_ = true;
     done_cv_.wait(lk, [p] { return !p->in_flight_; });
     if (previous != nullptr) *previous = p->sink_;
-    if (p->group_ != nullptr) --p->group_->members_;
+    Group* left = p->group_;
+    if (left != nullptr) --left->members_;
     p->sink_ = sink;
     p->group_ = group;
     if (group != nullptr) ++group->members_;
+    if (left != nullptr) UpdateBeat(left);
+    if (group != nullptr && group != left) UpdateBeat(group);
     p->retargeting_ = false;
     // As Redraw: the new target gets the frame that should be showing.
     p->parked_ = false;
@@ -521,7 +535,15 @@ TimePoint Scheduler::Round(TimePoint now) {
     }
     if (round_open) {
       FrameJob job;
-      if (t.PlanPlayback(now, early, stall, &job)) {
+      // A group member plays the frames whose nearest beat has come: those
+      // due before the current beat plus half a beat.
+      Nanos lead = early;
+      if (p->group_ != nullptr) {
+        const Nanos beat = BeatOf(p->group_);
+        lead =
+            BeatAtOrBefore(now + kRoundSlack, beat) + beat / 2 - now - Nanos(1);
+      }
+      if (t.PlanPlayback(now, lead, stall, &job)) {
         Dispatch(p, job);
         played = true;
         continue;
@@ -531,7 +553,7 @@ TimePoint Scheduler::Round(TimePoint now) {
         continue;
       }
     }
-    playback_wake = std::min(playback_wake, t.due() - early);
+    playback_wake = std::min(playback_wake, PlaybackWake(p));
   }
   if (played) {
     last_round_ = now;
@@ -563,6 +585,28 @@ void Scheduler::Dispatch(Player* p, const FrameJob& job) {
 
 void Scheduler::WakeClockBy(TimePoint when) {
   if (when < clock_wake_) clock_cv_.notify_one();
+}
+
+Nanos Scheduler::BeatOf(const Group* g) const {
+  return g->min_frame_ == Nanos::max() ? period_
+                                       : std::max(period_, g->min_frame_);
+}
+
+TimePoint Scheduler::PlaybackWake(const Player* p) const {
+  const TimePoint due = p->timeline_.due();
+  if (p->group_ == nullptr) return due - period_ / 2;
+  const Nanos beat = BeatOf(p->group_);
+  return BeatAtOrBefore(due + beat / 2, beat);
+}
+
+void Scheduler::UpdateBeat(Group* g) {
+  Nanos shortest = Nanos::max();
+  for (const Player* p : players_) {
+    if (p->group_ == g && p->timeline_.frame_count() > 1) {
+      shortest = std::min(shortest, p->timeline_.min_duration());
+    }
+  }
+  g->min_frame_ = shortest;
 }
 
 // --- Workers -----------------------------------------------------------------
@@ -698,7 +742,7 @@ void Scheduler::Finish(Player* p, const FrameJob& job, const JobResult& r,
   if (t.dirty()) {
     WakeClockBy(std::max(p->retry_at_, done));
   } else if (t.running() && t.animates()) {
-    WakeClockBy(std::max(p->retry_at_, t.due() - period_ / 2));
+    WakeClockBy(std::max(p->retry_at_, PlaybackWake(p)));
   }
 }
 

@@ -1063,6 +1063,16 @@ interface WebmTextureHostApi {
    * Unknown ids are ignored.
    */
   fun releaseTextures(textureIds: List<Long>)
+  /**
+   * For each of [animIds], the page texture that shows its slot's frame,
+   * or -1: before a present has written the slot's first frame into the
+   * page's current texture (so right after [attachToAtlas], and for every
+   * slot of a page that just got a new texture), and for an animation that
+   * isn't in atlas [atlasId]. Until then the slot's area of the texture
+   * holds stale pixels: keep showing the placeholder, or the texture shown
+   * before (`wt_atlas_shown_page`).
+   */
+  fun atlasShownTextures(atlasId: Long, animIds: List<Long>): List<Long>
   /** The atlas's pages and memory. */
   fun atlasStats(atlasId: Long): AtlasStatsMessage
   /**
@@ -1288,6 +1298,24 @@ interface WebmTextureHostApi {
             val wrapped: List<Any?> = try {
               api.releaseTextures(textureIdsArg)
               listOf(null)
+            } catch (exception: Throwable) {
+              MessagesPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.webm_texture.WebmTextureHostApi.atlasShownTextures$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val atlasIdArg = args[0] as Long
+            val animIdsArg = args[1] as List<Long>
+            val wrapped: List<Any?> = try {
+              listOf(api.atlasShownTextures(atlasIdArg, animIdsArg))
             } catch (exception: Throwable) {
               MessagesPigeonUtils.wrapError(exception)
             }

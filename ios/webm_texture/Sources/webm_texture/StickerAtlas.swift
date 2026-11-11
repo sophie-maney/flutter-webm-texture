@@ -141,6 +141,14 @@ final class StickerAtlas {
     return retired
   }
 
+  /// The texture that shows `player`'s slot's frame, or -1
+  /// (`wt_atlas_shown_page`).
+  func shownTexture(_ player: WTPlayer) -> Int64 {
+    let page = atlas.shownPage(for: player)
+    guard page >= 0, let surface = pages[Int(page)] else { return -1 }
+    return surface.textureId
+  }
+
   /// Every page that has a texture.
   func pageMessages() -> [AtlasPageMessage] {
     pages.keys.sorted().compactMap { page in

@@ -49,7 +49,7 @@ final _entries = [
   _Entry(
     'openStress',
     'Stress',
-    '200 standalone stickers in a grid',
+    '200 stickers in a grid, atlas or standalone',
     (_) => const StressPage(),
   ),
   _Entry(

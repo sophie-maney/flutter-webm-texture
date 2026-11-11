@@ -61,7 +61,8 @@
  * T3.1 added wt_anim_create_cached (WT_API_VERSION 2), T3.2 the cache
  * directory functions (WT_API_VERSION 3), T3.3 the scheduler (wt_sched,
  * wt_player and the WT_BUSY / WT_NO_TARGET codes, WT_API_VERSION 4), T4.2
- * the atlas compositor (wt_atlas, WT_API_VERSION 5).
+ * the atlas compositor (wt_atlas, WT_API_VERSION 5), T4.3
+ * wt_atlas_shown_page (WT_API_VERSION 6).
  */
 #ifndef WT_API_H_
 #define WT_API_H_
@@ -80,7 +81,7 @@ extern "C" {
  * Bumped whenever a type or a signature in this header changes, so the Dart
  * bindings can refuse a mismatched native library at load time.
  */
-#define WT_API_VERSION 5
+#define WT_API_VERSION 6
 
 /*
  * Result codes. 0 is success, positive values are non-error outcomes and
@@ -722,7 +723,10 @@ WT_API void wt_player_redraw(wt_player* player);
  *   whole page, writes every live slot (content plus a cleared gutter, the
  *   slot's whole outer rect) and shows it. Queued buffers hold stale frames,
  *   so nothing is drawn incrementally. A page presents at most once per
- *   clock period (max_fps), and never twice at once.
+ *   clock period (max_fps), and never twice at once. Its players show their
+ *   playback frames on the page's beat (its shortest frame, at least a clock
+ *   period; ADR 0021), so the page presents at the content rate however its
+ *   players' clocks are phased.
  * - A page is as tall as its slots need (wanted_height in wt_atlas_page_info,
  *   from the rows in use). Its buffers have a fixed size, so the glue gives a
  *   page a new target (and a new platform texture) when wanted_height
@@ -925,6 +929,19 @@ WT_API wt_status wt_atlas_get_page(wt_atlas* atlas, uint32_t page,
 WT_API wt_status wt_atlas_set_target(wt_atlas* atlas, uint32_t page,
                                      const wt_atlas_target* target,
                                      uint32_t height);
+
+/*
+ * The page whose current target shows player's slot: its index once a
+ * present into the target last given by wt_atlas_set_target has shown a
+ * frame of player in the slot, else -1. It is -1 before the slot's first
+ * frame, after a new target until a present into it, and for a player that
+ * isn't in atlas (or NULL arguments). Callers keep showing what they showed
+ * before (a placeholder, an older texture) until then: until a present
+ * wrote it, a slot's area of the target's buffers holds stale pixels.
+ * Thread: as wt_atlas_attach (may wait while another thread attaches);
+ * never waits for a frame or a present.
+ */
+WT_API int32_t wt_atlas_shown_page(wt_atlas* atlas, const wt_player* player);
 
 #ifdef __cplusplus
 } /* extern "C" */
