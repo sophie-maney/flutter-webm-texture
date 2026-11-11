@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
 import 'gen/wt_bindings.g.dart' as wt;
+import 'sticker_atlas_scope.dart';
 import 'sticker_bucket.dart';
 import 'sticker_info.dart';
 import 'sticker_registry.dart';
@@ -77,6 +80,10 @@ class WebmStickerController extends ChangeNotifier {
 /// or [controller]'s `isPlaying`), some of it is on screen, `TickerMode` is
 /// enabled, and the app is in the foreground. Otherwise it holds its current
 /// frame.
+///
+/// Below a [StickerAtlasScope] the sticker is drawn through the scope's
+/// atlas textures instead of a texture of its own, and only holds its
+/// animation while some of it is on screen.
 class WebmSticker extends StatefulWidget {
   /// Creates a sticker for [source].
   const WebmSticker({
@@ -161,6 +168,9 @@ class _WebmStickerState extends State<WebmSticker> {
   bool _tickerEnabled = true;
   double _devicePixelRatio = 1;
 
+  /// The nearest [StickerAtlasScope]'s atlas, or null for standalone.
+  StickerAtlasController? _atlas;
+
   Object? get _owner => _ownerFor(widget);
 
   Object? _ownerFor(WebmSticker w) =>
@@ -198,6 +208,18 @@ class _WebmStickerState extends State<WebmSticker> {
     _devicePixelRatio =
         MediaQuery.maybeDevicePixelRatioOf(context) ??
         View.of(context).devicePixelRatio;
+    final atlas = stickerAtlasOf(context);
+    if (!identical(atlas, _atlas)) {
+      // Moved into, out of or between scopes: another animation, since one
+      // animation is never shown standalone and in an atlas at once.
+      final first = _atlas == null && _lease == null && _pending == null;
+      _atlas = atlas;
+      if (!first) {
+        _generation++;
+        _pending = null;
+        if (atlas != null) _releaseLease();
+      }
+    }
     _updateActive();
   }
 
@@ -314,8 +336,20 @@ class _WebmStickerState extends State<WebmSticker> {
   }
 
   void _onVisibilityChanged(double fraction) {
+    final wasVisible = _visibleFraction > 0;
     _visibleFraction = fraction;
     _updateActive();
+    if (_atlas == null || wasVisible == fraction > 0) return;
+    // In a scope a sticker holds its slot only while it is on screen. This
+    // runs after a frame or while the render object detaches, so rebuild
+    // later.
+    if (fraction == 0) {
+      _generation++;
+      _releaseLease();
+    }
+    scheduleMicrotask(() {
+      if (mounted) setState(() {});
+    });
   }
 
   /// Acquires the animation at [bucket] for the current source and owner,
@@ -324,6 +358,9 @@ class _WebmStickerState extends State<WebmSticker> {
   void _ensureBucket(StickerBucket bucket) {
     final resolved = _resolved;
     if (resolved == null) return;
+    final atlas = _atlas;
+    // A slot only for a sticker on screen.
+    if (atlas != null && _visibleFraction == 0) return;
     final want = (_generation, bucket);
     if (_pending == want) return;
     if (_pending == null && _leaseFor == want) return;
@@ -336,6 +373,7 @@ class _WebmStickerState extends State<WebmSticker> {
           bucket: bucket,
           owner: _owner,
           loop: widget.loop,
+          atlas: atlas,
         )
         .then<void>(
           (lease) {
@@ -421,7 +459,18 @@ class _WebmStickerState extends State<WebmSticker> {
       );
     }
     final lease = _lease;
-    if (lease == null) return widget.placeholder ?? const SizedBox.expand();
+    final placeholder = widget.placeholder ?? const SizedBox.expand();
+    if (lease == null) return placeholder;
+    final drawing = lease.atlasDrawing;
+    if (drawing != null) {
+      // Until the slot's first frame reached its page.
+      return ValueListenableBuilder<StickerAtlasDrawing?>(
+        valueListenable: drawing,
+        builder: (_, d, _) => d == null
+            ? placeholder
+            : StickerAtlasSlot(drawing: d, fit: widget.fit),
+      );
+    }
     // The texture holds exactly bucket.width x bucket.height pixels, which
     // has the sticker's aspect ratio.
     return FittedBox(
