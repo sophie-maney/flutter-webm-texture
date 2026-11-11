@@ -216,7 +216,9 @@ TEST(SchedStressTest, FiveHundredAnimationsChurning) {
     EXPECT_EQ(live.sink->overlaps(), 0);
     EXPECT_EQ(live.sink->protocol_errors(), 0);
     EXPECT_EQ(live.sink->late_calls(), 0);
-    if (live.log != nullptr) EXPECT_EQ(live.log->exclusive.overlaps(), 0);
+    if (live.log != nullptr) {
+      EXPECT_EQ(live.log->exclusive.overlaps(), 0);
+    }
     shown += live.sink->shown_count();
   }
   EXPECT_GT(shown, 5000u);

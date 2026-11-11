@@ -347,17 +347,25 @@ TEST(SchedulerTest, DrawsTheFirstFrameThenWaitsToBeActivated) {
   f.Remove(a.get());
 }
 
+// Timers on loaded machines (and hosted CI runners) wake late; the
+// scheduler then skips frames to keep the content's time. So these tests
+// check where playback is, not how many frames it showed.
+
 TEST(SchedulerTest, PlaysAtTheContentRate) {
   Fixture f;
-  auto a = f.Add(Frames(50, 25));  // 40 fps.
+  auto a = f.Add(Frames(50, 25));  // 40 fps, 1.25 s.
   ASSERT_TRUE(a->sink->WaitShown(1, milliseconds(1000)));
+  const auto start = std::chrono::steady_clock::now();
   f.sched->SetActive(a->player, true);
   Sleep(500);
   f.sched->SetActive(a->player, false);
+  const auto elapsed = std::chrono::steady_clock::now() - start;
   const std::vector<uint32_t> shown = a->sink->shown();
-  // About 20 frames in 500 ms; generous bounds for loaded CI machines.
-  EXPECT_GE(shown.size(), 12u);
-  EXPECT_LE(shown.size(), 24u);
+  EXPECT_GE(shown.size(), 5u) << "it plays";
+  EXPECT_LE(shown.size(), 22u) << "never faster than the content";
+  // On the content clock: frame k is due k * 25 ms after starting.
+  const double expect = static_cast<double>(elapsed / milliseconds(25));
+  EXPECT_NEAR(static_cast<double>(shown.back()), expect, 4.0);
   // In order: each frame follows the last, or skips ahead to keep time.
   for (size_t i = 1; i < shown.size(); ++i) EXPECT_GT(shown[i], shown[i - 1]);
   EXPECT_EQ(a->sink->overlaps(), 0);
@@ -378,7 +386,7 @@ TEST(SchedulerTest, ContentFasterThanMaxFpsSkipsFrames) {
   const std::vector<uint32_t> shown = a->sink->shown();
   // At most 20 frames a second (plus the first), each about 5 frames on.
   EXPECT_LE(shown.size(), 23u);
-  EXPECT_GE(shown.size(), 12u);
+  EXPECT_GE(shown.size(), 8u);
   EXPECT_GT(f.Stats().frames_skipped, 50u);
   // Content time kept: the last frame is about elapsed / 10 ms.
   const double expect = static_cast<double>(elapsed / milliseconds(10));
@@ -438,11 +446,13 @@ TEST(SchedulerTest, MaxConcurrentPrefersPriorityThenRecency) {
   EXPECT_EQ(f.Stats().active, 4u);
   const size_t frozen1 = items[1]->sink->shown_count();
   const size_t frozen3 = items[3]->sink->shown_count();
+  const size_t playing0 = items[0]->sink->shown_count();
+  const size_t playing2 = items[2]->sink->shown_count();
   Sleep(200);
   EXPECT_EQ(items[1]->sink->shown_count(), frozen1) << "frozen on its frame";
   EXPECT_EQ(items[3]->sink->shown_count(), frozen3);
-  EXPECT_GT(items[0]->sink->shown_count(), 5u);
-  EXPECT_GT(items[2]->sink->shown_count(), 5u);
+  EXPECT_GE(items[0]->sink->shown_count(), playing0 + 2) << "plays";
+  EXPECT_GE(items[2]->sink->shown_count(), playing2 + 2) << "plays";
 
   // A freed slot goes to the next in line.
   f.Remove(items[0].get());
@@ -474,16 +484,30 @@ TEST(SchedulerTest, NonLoopingStopsOnTheLastFrameUntilASeek) {
   Fixture f;
   auto a = f.Add(Frames(5, 20), /*loop=*/false);
   f.sched->SetActive(a->player, true);
-  ASSERT_TRUE(a->sink->WaitShown(5, milliseconds(2000)));
+  const auto ends_on_last = [](const std::vector<uint32_t>& shown) {
+    return !shown.empty() && shown.back() == 4u;
+  };
+  ASSERT_TRUE(a->sink->WaitUntil(ends_on_last, milliseconds(2000)));
   Sleep(150);
-  EXPECT_EQ(a->sink->shown(), (std::vector<uint32_t>{0, 1, 2, 3, 4}));
+  std::vector<uint32_t> shown = a->sink->shown();
+  EXPECT_EQ(shown.front(), 0u);
+  EXPECT_EQ(shown.back(), 4u) << "held: nothing after the last frame";
+  EXPECT_LE(shown.size(), 5u);
+  for (size_t i = 1; i < shown.size(); ++i) EXPECT_GT(shown[i], shown[i - 1]);
   EXPECT_EQ(f.Stats().running, 0u) << "an ended player gives its slot up";
+
+  const size_t before = shown.size();
   ASSERT_EQ(f.sched->Seek(a->player, 0), WT_OK);
-  ASSERT_TRUE(a->sink->WaitShown(10, milliseconds(2000)));
+  ASSERT_TRUE(a->sink->WaitUntil(
+      [&](const std::vector<uint32_t>& v) {
+        return v.size() > before + 1 && v.back() == 4u;
+      },
+      milliseconds(2000)));
   Sleep(100);
-  const std::vector<uint32_t> shown = a->sink->shown();
-  EXPECT_EQ(shown.size(), 10u);
-  EXPECT_EQ(shown.back(), 4u);
+  shown = a->sink->shown();
+  EXPECT_EQ(shown[before], 0u) << "the seek showed frame 0";
+  EXPECT_EQ(shown.back(), 4u) << "and it played to the end again";
+  EXPECT_LE(shown.size(), before + 5);
   f.Remove(a.get());
 }
 
@@ -582,8 +606,7 @@ TEST(SchedulerTest, ReportsTheFirstDecodeErrorOnly) {
   EXPECT_EQ(a->sink->first_error(), WT_ERR_DECODE);
   const std::vector<uint32_t> shown = a->sink->shown();
   EXPECT_EQ(std::count(shown.begin(), shown.end(), 2u), 0);
-  EXPECT_GE(std::count(shown.begin(), shown.end(), 3u), 1) << "plays on";
-  EXPECT_GE(shown.size(), 8u);
+  EXPECT_GE(shown.size(), 6u) << "plays on past it";
   f.Remove(a.get());
 }
 

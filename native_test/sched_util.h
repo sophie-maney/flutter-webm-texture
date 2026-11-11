@@ -162,12 +162,19 @@ class FakeSink {
   }
   // Waits until at least n frames were shown.
   bool WaitShown(size_t n, std::chrono::milliseconds timeout) const {
+    return WaitUntil(
+        [n](const std::vector<uint32_t>& shown) { return shown.size() >= n; },
+        timeout);
+  }
+  // Waits until done(shown()) holds.
+  template <typename Done>
+  bool WaitUntil(Done done, std::chrono::milliseconds timeout) const {
     const auto end = Clock::now() + timeout;
     while (Clock::now() < end) {
-      if (shown_count() >= n) return true;
+      if (done(shown())) return true;
       std::this_thread::sleep_for(std::chrono::milliseconds(2));
     }
-    return shown_count() >= n;
+    return done(shown());
   }
 
  private:
