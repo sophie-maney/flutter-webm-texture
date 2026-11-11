@@ -47,6 +47,7 @@ endif()
 # --- Core -------------------------------------------------------------------
 set(WT_CORE_SOURCES
   api/anim.cc
+  api/sched_api.cc
   api/wt_api.cc
   cache/crc32.cc
   cache/sha256.cc
@@ -57,6 +58,8 @@ set(WT_CORE_SOURCES
   demux/sniff.cc
   demux/source.cc
   demux/webm.cc
+  sched/scheduler.cc
+  sched/timeline.cc
 )
 
 # Settings shared by the static core and the shared library built from it.

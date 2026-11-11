@@ -155,7 +155,9 @@ class _WebmStickerState extends State<WebmSticker> {
   /// A seek that the next lease still has to apply.
   int? _pendingSeek;
 
-  bool _visible = false;
+  /// The on-screen fraction of the box, in quarters (StickerVisibility).
+  double _visibleFraction = 0;
+  Size _box = Size.zero;
   bool _tickerEnabled = true;
   double _devicePixelRatio = 1;
 
@@ -167,7 +169,19 @@ class _WebmStickerState extends State<WebmSticker> {
   bool get _playing => widget.controller?.isPlaying ?? widget.autoplay;
 
   bool get _shouldAnimate =>
-      _playing && _visible && _tickerEnabled && _appRunning.value;
+      _playing && _visibleFraction > 0 && _tickerEnabled && _appRunning.value;
+
+  /// The on-screen area in physical pixels: the animation's rank under the
+  /// native scheduler's `maxConcurrent` limit.
+  int get _visibleArea {
+    final area =
+        _visibleFraction *
+        _box.width *
+        _box.height *
+        _devicePixelRatio *
+        _devicePixelRatio;
+    return area.isFinite ? area.round() : 0;
+  }
 
   @override
   void initState() {
@@ -292,10 +306,15 @@ class _WebmStickerState extends State<WebmSticker> {
     _pending = null;
   }
 
-  void _updateActive() => _lease?.setActive(_shouldAnimate);
+  void _updateActive() {
+    final lease = _lease;
+    if (lease == null) return;
+    lease.setVisibleArea(_visibleArea);
+    lease.setActive(_shouldAnimate);
+  }
 
-  void _onVisibilityChanged(bool visible) {
-    _visible = visible;
+  void _onVisibilityChanged(double fraction) {
+    _visibleFraction = fraction;
     _updateActive();
   }
 
@@ -365,6 +384,12 @@ class _WebmStickerState extends State<WebmSticker> {
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
       final box = _boxSize(constraints);
+      if (box != _box) {
+        _box = box;
+        // Safe during layout: it marks nothing dirty, and the platform
+        // message is sent asynchronously.
+        _lease?.setVisibleArea(_visibleArea);
+      }
       return SizedBox.fromSize(
         size: box,
         child: StickerVisibility(

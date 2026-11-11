@@ -1,61 +1,42 @@
 #include "surface_player.h"
 
 #include <android/log.h>
-#include <pthread.h>
 
-#include <algorithm>
 #include <utility>
 
 #define WT_LOG(prio, ...) __android_log_print(prio, "WebmTexture", __VA_ARGS__)
 
 namespace wt_android {
-namespace {
-
-// DrawNext found no window to draw into.
-constexpr wt_status kNoWindow = 1000;
-
-// A frame shorter than this (including 0 ms) is shown for this long, so a
-// broken duration can't spin the render thread.
-constexpr std::chrono::milliseconds kMinFrameTime{10};
-
-// How long to wait before retrying a window that failed to lock.
-constexpr std::chrono::milliseconds kLockRetry{100};
-
-}  // namespace
 
 std::unique_ptr<SurfacePlayer> SurfacePlayer::Create(
-    wt_anim* anim, uint32_t width, uint32_t height, uint32_t frame_count,
-    bool loop, ErrorCallback on_error, ThreadHooks hooks) {
-  if (anim == nullptr || width == 0 || height == 0 || frame_count == 0) {
+    wt_sched* sched, wt_anim* anim, uint32_t width, uint32_t height, bool loop,
+    ErrorCallback on_error, wt_status* out_status) {
+  *out_status = WT_ERR_INVALID_ARGUMENT;
+  if (sched == nullptr || anim == nullptr || width == 0 || height == 0) {
     return nullptr;
   }
-  return std::unique_ptr<SurfacePlayer>(
-      new SurfacePlayer(anim, width, height, frame_count, loop,
-                        std::move(on_error), std::move(hooks)));
+  std::unique_ptr<SurfacePlayer> player(
+      new SurfacePlayer(width, height, std::move(on_error)));
+  wt_sink sink{};
+  sink.context = player.get();
+  sink.acquire = &SurfacePlayer::Acquire;
+  sink.release = &SurfacePlayer::Release;
+  sink.error = &SurfacePlayer::Error;
+  // From here the workers may call the sink, which only needs the members
+  // set above: there is no window yet, so the first frame waits for one.
+  *out_status = wt_player_create(sched, anim, loop, &sink, &player->player_);
+  if (*out_status != WT_OK) return nullptr;
+  return player;
 }
 
-SurfacePlayer::SurfacePlayer(wt_anim* anim, uint32_t width, uint32_t height,
-                             uint32_t frame_count, bool loop,
-                             ErrorCallback on_error, ThreadHooks hooks)
-    : anim_(anim),
-      width_(width),
-      height_(height),
-      frame_count_(frame_count),
-      loop_(loop),
-      on_error_(std::move(on_error)),
-      hooks_(std::move(hooks)) {
-  thread_ = std::thread([this] { Run(); });
-}
+SurfacePlayer::SurfacePlayer(uint32_t width, uint32_t height,
+                             ErrorCallback on_error)
+    : width_(width), height_(height), on_error_(std::move(on_error)) {}
 
 SurfacePlayer::~SurfacePlayer() {
-  {
-    std::lock_guard<std::mutex> lk(mu_);
-    quit_ = true;
-  }
-  cv_.notify_one();
-  thread_.join();
+  // Waits for a frame in flight; no sink callback runs after this.
+  wt_player_destroy(player_);
   if (window_ != nullptr) ANativeWindow_release(window_);
-  wt_anim_destroy(anim_);
 }
 
 wt_status SurfacePlayer::SetWindow(ANativeWindow* window) {
@@ -80,180 +61,84 @@ wt_status SurfacePlayer::SetWindow(ANativeWindow* window) {
     window_ = window;
   }
   if (old != nullptr) ANativeWindow_release(old);
-  {
-    std::lock_guard<std::mutex> lk(mu_);
-    has_window_ = window != nullptr;
-    redraw_ = has_window_;
-  }
-  cv_.notify_one();
+  // A new window gets the current frame; without one the scheduler parks
+  // the player at its next attempt (WT_NO_TARGET).
+  if (window != nullptr) wt_player_redraw(player_);
   return status;
 }
 
 void SurfacePlayer::SetActive(bool active) {
-  {
-    std::lock_guard<std::mutex> lk(mu_);
-    if (active == active_) return;
-    active_ = active;
-    // Resume where the shown frame's time ran out (now, if it already has).
-    if (active) next_due_ = shown_at_ + shown_for_;
-  }
-  cv_.notify_one();
+  wt_player_set_active(player_, active);
+}
+
+void SurfacePlayer::SetPriority(uint64_t priority) {
+  wt_player_set_priority(player_, priority);
 }
 
 wt_status SurfacePlayer::SeekTo(uint32_t frame) {
-  if (frame >= frame_count_) return WT_ERR_INVALID_ARGUMENT;
-  {
-    std::lock_guard<std::mutex> lk(mu_);
-    seek_pending_ = true;
-    seek_frame_ = frame;
+  return wt_player_seek(player_, frame);
+}
+
+wt_status SurfacePlayer::Acquire(void* context, wt_buffer* out) {
+  auto* self = static_cast<SurfacePlayer*>(context);
+  // Unlocked in Release, or below when no buffer is handed out.
+  self->window_mu_.lock();
+  if (self->window_ == nullptr) {
+    self->window_mu_.unlock();
+    return WT_NO_TARGET;
   }
-  cv_.notify_one();
-  return WT_OK;
-}
-
-void SurfacePlayer::Run() {
-  pthread_setname_np(pthread_self(), "wt-anim");
-  if (hooks_.on_start) hooks_.on_start();
-  Loop();
-  if (hooks_.on_exit) hooks_.on_exit();
-}
-
-void SurfacePlayer::Loop() {
-  std::unique_lock<std::mutex> lk(mu_);
-  for (;;) {
-    if (quit_) return;
-    // A non-looping player that drew its last frame holds it.
-    const bool ended = !loop_ && cursor_ >= frame_count_;
-    const bool can_tick = active_ && has_window_ && frame_count_ > 1 && !ended;
-    const bool due = can_tick && Clock::now() >= next_due_;
-    if (!redraw_ && !seek_pending_ && !due) {
-      if (can_tick) {
-        cv_.wait_until(lk, next_due_);
-      } else {
-        cv_.wait(lk);
-      }
-      continue;
-    }
-    const bool redraw = redraw_;
-    const bool seek = seek_pending_;
-    const uint32_t seek_frame = seek_frame_;
-    const bool active = active_;
-    redraw_ = false;
-    seek_pending_ = false;
-    lk.unlock();
-
-    bool sought = false;
-    if (seek) {
-      sought = Seek(seek_frame);
-    } else if (redraw && drawn_any_ && (!active || ended)) {
-      // A new window while paused (or ended) gets the frame that was already
-      // showing. While playing, the next frame is as good and costs no seek.
-      Seek(shown_index_);
-    }
-    const Clock::time_point start = Clock::now();
-    wt_frame_info frame{};
-    const wt_status st = DrawNext(&frame);
-
-    lk.lock();
-    if (st == kNoWindow) {
-      // Draw the requested frame once a window arrives.
-      if (sought) {
-        drawn_any_ = true;
-        shown_index_ = seek_frame;
-      }
-      continue;
-    }
-    Clock::duration hold = std::max<Clock::duration>(
-        std::chrono::milliseconds(frame.duration_ms), kMinFrameTime);
-    if (st == WT_OK) {
-      drawn_any_ = true;
-      shown_index_ = frame.index;
-      shown_at_ = start;
-      shown_for_ = hold;
-    } else {
-      hold = st == WT_ERR_IO ? kLockRetry : kMinFrameTime;
-    }
-    // Stay on the content clock while on time; after a stall (or a redraw or
-    // seek), restart it from this frame rather than rushing to catch up.
-    const bool on_time = due && !redraw && !seek && next_due_ + hold >= start;
-    next_due_ = (on_time ? next_due_ : start) + hold;
-  }
-}
-
-bool SurfacePlayer::Seek(uint32_t frame) {
-  const wt_status st = wt_anim_seek(anim_, frame);
-  if (st < 0) {
-    ReportOnce(&reported_decode_, wt_status_string(st), "seek failed");
-    return false;
-  }
-  cursor_ = frame;
-  return true;
-}
-
-wt_status SurfacePlayer::DrawNext(wt_frame_info* frame) {
-  std::lock_guard<std::mutex> lk(window_mu_);
-  if (window_ == nullptr) return kNoWindow;
-  // Wrap before locking the buffer: a locked buffer is always posted, so it
-  // must always receive a frame. Loop never draws an ended non-looping
-  // player; if it did, repeating the last frame beats posting garbage.
-  if (cursor_ >= frame_count_) Seek(loop_ ? 0 : frame_count_ - 1);
-
   ANativeWindow_Buffer buf;
-  const int rc = ANativeWindow_lock(window_, &buf, nullptr);
+  const int rc = ANativeWindow_lock(self->window_, &buf, nullptr);
   if (rc != 0) {
-    ReportOnce(&reported_surface_, "SURFACE_LOST",
-               "ANativeWindow_lock failed: " + std::to_string(rc));
-    return WT_ERR_IO;
+    self->ReportSurfaceOnce("ANativeWindow_lock failed: " + std::to_string(rc));
+    self->window_mu_.unlock();
+    return WT_ERR_IO;  // The scheduler retries in about 100 ms.
   }
-  wt_status st;
   if (buf.format != WINDOW_FORMAT_RGBA_8888 ||
-      buf.width != static_cast<int32_t>(width_) ||
-      buf.height != static_cast<int32_t>(height_) || buf.stride < buf.width ||
-      buf.bits == nullptr) {
-    ReportOnce(&reported_surface_, "SURFACE_LOST",
-               "unexpected buffer: format " + std::to_string(buf.format) +
-                   ", " + std::to_string(buf.width) + "x" +
-                   std::to_string(buf.height) + ", stride " +
-                   std::to_string(buf.stride));
-    st = WT_ERR_INTERNAL;
-  } else {
-    const uint32_t stride = static_cast<uint32_t>(buf.stride) * 4;
-    const size_t size = static_cast<size_t>(stride) * (height_ - 1) +
-                        static_cast<size_t>(width_) * 4;
-    auto* dst = static_cast<uint8_t*>(buf.bits);
-    st = wt_anim_next_frame(anim_, dst, size, stride, WT_PIXEL_FORMAT_RGBA8888,
-                            frame);
-    if (st == WT_END) {
-      // cursor_ fell out of step with the core; the guard above applies.
-      cursor_ = frame_count_;
-      if (Seek(loop_ ? 0 : frame_count_ - 1)) {
-        st = wt_anim_next_frame(anim_, dst, size, stride,
-                                WT_PIXEL_FORMAT_RGBA8888, frame);
-      }
-      if (st == WT_END) st = WT_ERR_INTERNAL;
-    }
-    // Every result but a rejected buffer (which the checks above rule out)
-    // advances the core's cursor.
-    if (st != WT_ERR_INVALID_ARGUMENT) cursor_++;
-    if (st == WT_OK) {
-      reported_surface_ = false;
-    } else {
-      // The core advanced past the broken frame; keep playing.
-      ReportOnce(&reported_decode_, wt_status_string(st),
-                 "frame decode failed");
-    }
+      buf.width != static_cast<int32_t>(self->width_) ||
+      buf.height != static_cast<int32_t>(self->height_) ||
+      buf.stride < buf.width || buf.bits == nullptr) {
+    self->ReportSurfaceOnce(
+        "unexpected buffer: format " + std::to_string(buf.format) + ", " +
+        std::to_string(buf.width) + "x" + std::to_string(buf.height) +
+        ", stride " + std::to_string(buf.stride));
+    // A locked buffer must always be posted; there is no way to cancel it.
+    ANativeWindow_unlockAndPost(self->window_);
+    self->window_mu_.unlock();
+    return WT_ERR_INTERNAL;
   }
-  // A locked buffer must always be posted; there is no way to cancel it.
-  ANativeWindow_unlockAndPost(window_);
-  return st;
+  const uint32_t stride = static_cast<uint32_t>(buf.stride) * 4;
+  out->pixels = static_cast<uint8_t*>(buf.bits);
+  out->size = static_cast<size_t>(stride) * (self->height_ - 1) +
+              static_cast<size_t>(self->width_) * 4;
+  out->stride = stride;
+  out->format = WT_PIXEL_FORMAT_RGBA8888;
+  return WT_OK;  // window_mu_ stays locked until Release.
 }
 
-void SurfacePlayer::ReportOnce(bool* reported, const std::string& code,
-                               const std::string& message) {
-  if (*reported) return;
-  *reported = true;
-  WT_LOG(ANDROID_LOG_WARN, "%s: %s", code.c_str(), message.c_str());
-  if (on_error_) on_error_(code, message);
+void SurfacePlayer::Release(void* context, wt_status status,
+                            const wt_frame_info* /*frame*/) {
+  auto* self = static_cast<SurfacePlayer*>(context);
+  // Posted even after a failed decode: a locked buffer can't be cancelled.
+  // The core reports that failure through Error.
+  ANativeWindow_unlockAndPost(self->window_);
+  if (status == WT_OK) self->reported_surface_ = false;
+  self->window_mu_.unlock();
+}
+
+void SurfacePlayer::Error(void* context, wt_status status) {
+  auto* self = static_cast<SurfacePlayer*>(context);
+  WT_LOG(ANDROID_LOG_WARN, "%s: frame decode failed", wt_status_string(status));
+  if (self->on_error_) {
+    self->on_error_(wt_status_string(status), "frame decode failed");
+  }
+}
+
+void SurfacePlayer::ReportSurfaceOnce(const std::string& message) {
+  if (reported_surface_) return;
+  reported_surface_ = true;
+  WT_LOG(ANDROID_LOG_WARN, "SURFACE_LOST: %s", message.c_str());
+  if (on_error_) on_error_("SURFACE_LOST", message);
 }
 
 }  // namespace wt_android

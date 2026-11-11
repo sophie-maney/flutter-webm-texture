@@ -14,8 +14,29 @@
 #if defined(__SANITIZE_ADDRESS__)
 #define WT_HAS_ASAN 1
 #endif
+#if defined(__has_feature)
+#if __has_feature(thread_sanitizer)
+#define WT_HAS_TSAN 1
+#endif
+#endif
+#if defined(__SANITIZE_THREAD__)
+#define WT_HAS_TSAN 1
+#endif
 
 namespace {
+
+#if defined(WT_TSAN)
+
+// A WT_TSAN build (the scheduler's race check) must really be instrumented.
+TEST(SanitizerTest, TsanIsCompiledIn) {
+#if defined(WT_HAS_TSAN)
+  SUCCEED();
+#else
+  FAIL() << "WT_TSAN is set but TSan is not compiled in";
+#endif
+}
+
+#endif  // WT_TSAN
 
 #if defined(WT_SANITIZE)
 

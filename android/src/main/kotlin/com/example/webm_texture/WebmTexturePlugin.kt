@@ -19,8 +19,9 @@ private const val CACHE_DIR_NAME = "webm_texture"
 
 /**
  * The Android side of the Pigeon API ([ADR 0010](docs/decisions/0010-pigeon-api-shape.md)).
- * Each animation is a [StickerTexture]: a `SurfaceProducer` filled by a native
- * render thread. Host API calls arrive on the platform main thread.
+ * Each animation is a [StickerTexture]: a `SurfaceProducer` filled by the
+ * native scheduler's workers. Host API calls arrive on the platform main
+ * thread.
  */
 class WebmTexturePlugin :
     FlutterPlugin,
@@ -116,6 +117,10 @@ class WebmTexturePlugin :
 
     override fun setActive(animId: Long, active: Boolean) {
         animations[animId]?.setActive(active)
+    }
+
+    override fun setPriority(animId: Long, priority: Long) {
+        animations[animId]?.setPriority(priority)
     }
 
     override fun seekToFrame(animId: Long, frame: Long) {

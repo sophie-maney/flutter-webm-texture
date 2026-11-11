@@ -24,12 +24,13 @@ internal object WtNative {
 
     /**
      * Creates the decoder for [bytes] or [path] at [width] x [height] (0 x 0
-     * for the source size) and its render thread. With [loop] false,
+     * for the source size) and puts it on the process-wide scheduler, which
+     * draws its first frame once it has a surface. With [loop] false,
      * playback stops on the last frame. With a [cacheDir] and a [sourceKey]
      * (and a non-zero size) the frames are cached in a file named after the
      * key and size there; the directory must exist. Fills [out] (see `OUT_*`)
      * and returns the handle, or 0 on failure. [listener] receives
-     * `onNativeError(code, message)` on the render thread.
+     * `onNativeError(code, message)` on a scheduler worker thread.
      *
      * Background thread only: it reads and probes the source.
      */
@@ -64,20 +65,30 @@ internal object WtNative {
     @JvmStatic external fun nativeSetActive(handle: Long, active: Boolean)
 
     /**
+     * The on-screen area, in physical pixels, of the widgets playing the
+     * animation: its rank under the scheduler's `maxConcurrent` limit. Main
+     * thread.
+     */
+    @JvmStatic external fun nativeSetPriority(handle: Long, priority: Long)
+
+    /**
      * Shows [frame] next, playing or paused. Returns a `wt_status`
      * (`WT_ERR_INVALID_ARGUMENT` outside the animation's frames). Main thread.
      */
     @JvmStatic external fun nativeSeek(handle: Long, frame: Int): Int
 
-    /** Stops the render thread and frees everything. Main thread. */
+    /**
+     * Takes the animation off the scheduler and frees everything; waits for a
+     * frame in flight. Main thread.
+     */
     @JvmStatic external fun nativeDestroy(handle: Long)
 
     /** The core's name for a `wt_status`, such as `WT_ERR_LIMIT`. */
     @JvmStatic external fun nativeStatusName(status: Int): String
 }
 
-/** Receives failures from a native render thread. */
+/** Receives failures from the native scheduler's worker threads. */
 internal interface NativeErrorListener {
-    /** Called on the render thread; must not block or call back into it. */
+    /** Called on a worker thread; must not block or call back into the player. */
     fun onNativeError(code: String, message: String)
 }

@@ -309,20 +309,14 @@ wt_status Anim::DecodeAt(uint32_t index) {
   return WT_OK;
 }
 
-wt_status Anim::NextFrame(uint8_t* dst, size_t dst_size, uint32_t stride,
-                          wt_pixel_format format, wt_frame_info* out_frame) {
-  if (out_frame != nullptr) std::memset(out_frame, 0, sizeof(*out_frame));
-  if (cursor_ >= info_.frame_count) return WT_END;
-  if (CheckPixelBuffer(width(), height(), dst_size, stride) != WT_OK) {
-    return WT_ERR_INVALID_ARGUMENT;
-  }
-
+wt_status Anim::Advance(bool need_pixels, wt_frame_info* out_frame) {
   const uint32_t index = cursor_++;
   wt_status s = WT_ERR_INTERNAL;
   if (reader_ != nullptr) {
-    s = reader_->ReadFrame(index, &frame_);
+    // Every cached frame is complete on its own, so a skip reads nothing.
+    s = need_pixels ? reader_->ReadFrame(index, &frame_) : WT_OK;
     if (s == WT_OK) {
-      have_frame_ = true;
+      have_frame_ = need_pixels || have_frame_;
     } else {
       // A damaged frame: delete the file and decode from here on. frame_
       // holds a partial frame, so it can't stand in for a hidden packet.
@@ -333,15 +327,34 @@ wt_status Anim::NextFrame(uint8_t* dst, size_t dst_size, uint32_t stride,
   }
   if (reader_ == nullptr) s = DecodeAt(index);
   if (s != WT_OK) return s;
-
-  s = YuvaToPremultiplied(frame_.view(), dst, dst_size, stride, format);
-  if (s != WT_OK) return s;
   if (out_frame != nullptr) {
     out_frame->index = index;
     out_frame->pts_ms = FramePtsMs(index);
     out_frame->duration_ms = FrameDurationMs(index);
   }
   return WT_OK;
+}
+
+wt_status Anim::NextFrame(uint8_t* dst, size_t dst_size, uint32_t stride,
+                          wt_pixel_format format, wt_frame_info* out_frame) {
+  if (out_frame != nullptr) std::memset(out_frame, 0, sizeof(*out_frame));
+  if (cursor_ >= info_.frame_count) return WT_END;
+  if (CheckPixelBuffer(width(), height(), dst_size, stride) != WT_OK) {
+    return WT_ERR_INVALID_ARGUMENT;
+  }
+  wt_frame_info frame{};
+  wt_status s = Advance(/*need_pixels=*/true, &frame);
+  if (s != WT_OK) return s;
+  s = YuvaToPremultiplied(frame_.view(), dst, dst_size, stride, format);
+  if (s != WT_OK) return s;
+  if (out_frame != nullptr) *out_frame = frame;
+  return WT_OK;
+}
+
+wt_status Anim::SkipFrame(wt_frame_info* out_frame) {
+  if (out_frame != nullptr) std::memset(out_frame, 0, sizeof(*out_frame));
+  if (cursor_ >= info_.frame_count) return WT_END;
+  return Advance(/*need_pixels=*/false, out_frame);
 }
 
 }  // namespace wt

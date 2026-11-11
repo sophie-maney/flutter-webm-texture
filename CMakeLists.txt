@@ -5,6 +5,10 @@
 #   cmake --build build/host -j
 #   ctest --test-dir build/host --output-on-failure
 #
+# Thread check of the scheduler (TSan; can't be combined with WT_SANITIZE):
+#   cmake -S . -B build/tsan -DWT_HOST_TESTS=ON -DWT_TSAN=ON
+#   cmake --build build/tsan -j && ctest --test-dir build/tsan -R 'Sched|Timeline' --output-on-failure
+#
 # The plugin itself doesn't use this file: Android adds src/ from
 # android/CMakeLists.txt, and iOS builds the sources through SwiftPM.
 cmake_minimum_required(VERSION 3.22)
@@ -12,6 +16,7 @@ project(webm_texture_core LANGUAGES C CXX)
 
 option(WT_HOST_TESTS "Build the GoogleTest suite in native_test/" OFF)
 option(WT_SANITIZE "Build everything with ASan + UBSan" OFF)
+option(WT_TSAN "Build everything with ThreadSanitizer (not with WT_SANITIZE)" OFF)
 option(WT_FUZZ "Build the libFuzzer targets in fuzz/ (clang only; implies ASan + UBSan)" OFF)
 option(WT_BUILD_SHARED "Build libwebm_texture (shared) so Dart tests can load it" OFF)
 option(WT_WERROR "Treat warnings in our own code as errors" OFF)
@@ -47,6 +52,15 @@ if(WT_SANITIZE)
   add_compile_options(${_wt_san} -fno-omit-frame-pointer -g)
   add_link_options(${_wt_san})
   add_compile_definitions(WT_SANITIZE=1)
+endif()
+
+if(WT_TSAN)
+  if(WT_SANITIZE)
+    message(FATAL_ERROR "WT_TSAN and WT_SANITIZE (ASan) can't be combined")
+  endif()
+  add_compile_options(-fsanitize=thread -fno-omit-frame-pointer -g)
+  add_link_options(-fsanitize=thread)
+  add_compile_definitions(WT_TSAN=1)
 endif()
 
 add_subdirectory(src)

@@ -407,6 +407,130 @@ class WtBindings {
   late final _wt_limits_init_default = _wt_limits_init_defaultPtr
       .asFunction<void Function(ffi.Pointer<wt_limits>)>();
 
+  /// Adds anim to sched as a new player, inactive, with priority 0. It draws its
+  /// first frame as soon as the sink gives it a buffer, then holds it until
+  /// wt_player_set_active. With loop false, playback stops on the last frame and
+  /// holds it until wt_player_seek.
+  ///
+  /// On success the player owns anim (wt_player_destroy destroys it), and the
+  /// caller must not use anim again; on failure the caller keeps it. anim should
+  /// not have drawn frames yet: the player starts by seeking it to frame 0.
+  /// sink is copied; its acquire and release must be set.
+  /// Thread: any thread.
+  int wt_player_create(
+    ffi.Pointer<wt_sched> sched,
+    ffi.Pointer<wt_anim> anim,
+    bool loop,
+    ffi.Pointer<wt_sink> sink,
+    ffi.Pointer<ffi.Pointer<wt_player>> out_player,
+  ) {
+    return _wt_player_create(sched, anim, loop, sink, out_player);
+  }
+
+  late final _wt_player_createPtr =
+      _lookup<
+        ffi.NativeFunction<
+          wt_status Function(
+            ffi.Pointer<wt_sched>,
+            ffi.Pointer<wt_anim>,
+            ffi.Bool,
+            ffi.Pointer<wt_sink>,
+            ffi.Pointer<ffi.Pointer<wt_player>>,
+          )
+        >
+      >('wt_player_create');
+  late final _wt_player_create = _wt_player_createPtr
+      .asFunction<
+        int Function(
+          ffi.Pointer<wt_sched>,
+          ffi.Pointer<wt_anim>,
+          bool,
+          ffi.Pointer<wt_sink>,
+          ffi.Pointer<ffi.Pointer<wt_player>>,
+        )
+      >();
+
+  /// Removes player from its scheduler and destroys it and its animation. Waits
+  /// for a frame in flight, so no sink callback runs once this returns and the
+  /// sink's context may be freed. NULL does nothing.
+  /// Thread: any thread but the scheduler's own (not from a sink callback), and
+  /// not concurrently with another call on player.
+  void wt_player_destroy(ffi.Pointer<wt_player> player) {
+    return _wt_player_destroy(player);
+  }
+
+  late final _wt_player_destroyPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Pointer<wt_player>)>>(
+        'wt_player_destroy',
+      );
+  late final _wt_player_destroy = _wt_player_destroyPtr
+      .asFunction<void Function(ffi.Pointer<wt_player>)>();
+
+  /// The sink has a new target (say, a new surface): draws the frame that should
+  /// be showing into it, and lets a player that got WT_NO_TARGET draw again. A
+  /// playing player draws its next frame instead, which costs no seek.
+  /// Thread: any thread; never blocks on a frame.
+  void wt_player_redraw(ffi.Pointer<wt_player> player) {
+    return _wt_player_redraw(player);
+  }
+
+  late final _wt_player_redrawPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Pointer<wt_player>)>>(
+        'wt_player_redraw',
+      );
+  late final _wt_player_redraw = _wt_player_redrawPtr
+      .asFunction<void Function(ffi.Pointer<wt_player>)>();
+
+  /// Shows frame_index (0-based) as soon as a worker is free, playing or not; a
+  /// playing player carries on from there, and a non-looping one that ended
+  /// plays again. Returns WT_ERR_INVALID_ARGUMENT when frame_index is past the
+  /// last frame.
+  /// Thread: any thread; never blocks on a frame.
+  int wt_player_seek(ffi.Pointer<wt_player> player, int frame_index) {
+    return _wt_player_seek(player, frame_index);
+  }
+
+  late final _wt_player_seekPtr =
+      _lookup<
+        ffi.NativeFunction<
+          wt_status Function(ffi.Pointer<wt_player>, ffi.Uint32)
+        >
+      >('wt_player_seek');
+  late final _wt_player_seek = _wt_player_seekPtr
+      .asFunction<int Function(ffi.Pointer<wt_player>, int)>();
+
+  /// Starts or stops playback. A stopped player holds its frame and, when
+  /// started again, gives it the rest of its duration.
+  /// Thread: any thread; never blocks on a frame.
+  void wt_player_set_active(ffi.Pointer<wt_player> player, bool active) {
+    return _wt_player_set_active(player, active);
+  }
+
+  late final _wt_player_set_activePtr =
+      _lookup<
+        ffi.NativeFunction<ffi.Void Function(ffi.Pointer<wt_player>, ffi.Bool)>
+      >('wt_player_set_active');
+  late final _wt_player_set_active = _wt_player_set_activePtr
+      .asFunction<void Function(ffi.Pointer<wt_player>, bool)>();
+
+  /// Ranks the player for options.max_concurrent: active players with a higher
+  /// priority play first, and among equals the most recently activated. The
+  /// glue passes the area, in physical pixels, that the player's widgets show
+  /// on screen.
+  /// Thread: any thread; never blocks on a frame.
+  void wt_player_set_priority(ffi.Pointer<wt_player> player, int priority) {
+    return _wt_player_set_priority(player, priority);
+  }
+
+  late final _wt_player_set_priorityPtr =
+      _lookup<
+        ffi.NativeFunction<
+          ffi.Void Function(ffi.Pointer<wt_player>, ffi.Uint64)
+        >
+      >('wt_player_set_priority');
+  late final _wt_player_set_priority = _wt_player_set_priorityPtr
+      .asFunction<void Function(ffi.Pointer<wt_player>, int)>();
+
   /// Reads the container headers and frame index of source and fills *out_info.
   /// Decodes no pixels. Returns WT_ERR_INVALID_DATA, WT_ERR_UNSUPPORTED,
   /// WT_ERR_TRUNCATED or WT_ERR_LIMIT for input the core won't play; *out_info is
@@ -434,6 +558,115 @@ class WtBindings {
       >('wt_probe');
   late final _wt_probe = _wt_probePtr
       .asFunction<int Function(ffi.Pointer<wt_source>, ffi.Pointer<wt_info>)>();
+
+  /// Creates a scheduler and starts its threads (the clock and
+  /// options->worker_count workers, all idle until a player needs them).
+  /// options: NULL for the defaults. hooks: may be NULL; copied.
+  /// Returns WT_ERR_INVALID_ARGUMENT for an option out of range and
+  /// WT_ERR_NO_MEMORY when a thread can't be started.
+  /// Thread: any thread.
+  int wt_sched_create(
+    ffi.Pointer<wt_sched_options> options,
+    ffi.Pointer<wt_sched_hooks> hooks,
+    ffi.Pointer<ffi.Pointer<wt_sched>> out_sched,
+  ) {
+    return _wt_sched_create(options, hooks, out_sched);
+  }
+
+  late final _wt_sched_createPtr =
+      _lookup<
+        ffi.NativeFunction<
+          wt_status Function(
+            ffi.Pointer<wt_sched_options>,
+            ffi.Pointer<wt_sched_hooks>,
+            ffi.Pointer<ffi.Pointer<wt_sched>>,
+          )
+        >
+      >('wt_sched_create');
+  late final _wt_sched_create = _wt_sched_createPtr
+      .asFunction<
+        int Function(
+          ffi.Pointer<wt_sched_options>,
+          ffi.Pointer<wt_sched_hooks>,
+          ffi.Pointer<ffi.Pointer<wt_sched>>,
+        )
+      >();
+
+  /// Stops the scheduler's threads, waiting for frames in flight, then destroys
+  /// every player still on it (their handles become invalid). NULL does nothing.
+  /// Thread: any thread but the scheduler's own (not from a sink callback).
+  void wt_sched_destroy(ffi.Pointer<wt_sched> sched) {
+    return _wt_sched_destroy(sched);
+  }
+
+  late final _wt_sched_destroyPtr =
+      _lookup<ffi.NativeFunction<ffi.Void Function(ffi.Pointer<wt_sched>)>>(
+        'wt_sched_destroy',
+      );
+  late final _wt_sched_destroy = _wt_sched_destroyPtr
+      .asFunction<void Function(ffi.Pointer<wt_sched>)>();
+
+  /// Fills *out_stats with the scheduler's counters.
+  /// Thread: any thread.
+  int wt_sched_get_stats(
+    ffi.Pointer<wt_sched> sched,
+    ffi.Pointer<wt_sched_stats> out_stats,
+  ) {
+    return _wt_sched_get_stats(sched, out_stats);
+  }
+
+  late final _wt_sched_get_statsPtr =
+      _lookup<
+        ffi.NativeFunction<
+          wt_status Function(ffi.Pointer<wt_sched>, ffi.Pointer<wt_sched_stats>)
+        >
+      >('wt_sched_get_stats');
+  late final _wt_sched_get_stats = _wt_sched_get_statsPtr
+      .asFunction<
+        int Function(ffi.Pointer<wt_sched>, ffi.Pointer<wt_sched_stats>)
+      >();
+
+  /// Fills *out with the defaults listed in wt_sched_options. Does nothing when
+  /// out is NULL.
+  /// Thread: any thread.
+  void wt_sched_options_init_default(ffi.Pointer<wt_sched_options> out) {
+    return _wt_sched_options_init_default(out);
+  }
+
+  late final _wt_sched_options_init_defaultPtr =
+      _lookup<
+        ffi.NativeFunction<ffi.Void Function(ffi.Pointer<wt_sched_options>)>
+      >('wt_sched_options_init_default');
+  late final _wt_sched_options_init_default = _wt_sched_options_init_defaultPtr
+      .asFunction<void Function(ffi.Pointer<wt_sched_options>)>();
+
+  /// Applies new options to a running scheduler. Changes to max_fps and
+  /// max_concurrent take effect on the next round; fewer workers wait for their
+  /// frame in flight to finish.
+  /// Returns WT_ERR_INVALID_ARGUMENT for an option out of range (nothing
+  /// changes) and WT_ERR_NO_MEMORY when a new worker can't be started (the
+  /// others still apply; see wt_sched_get_stats).
+  /// Thread: any thread but the scheduler's own.
+  int wt_sched_set_options(
+    ffi.Pointer<wt_sched> sched,
+    ffi.Pointer<wt_sched_options> options,
+  ) {
+    return _wt_sched_set_options(sched, options);
+  }
+
+  late final _wt_sched_set_optionsPtr =
+      _lookup<
+        ffi.NativeFunction<
+          wt_status Function(
+            ffi.Pointer<wt_sched>,
+            ffi.Pointer<wt_sched_options>,
+          )
+        >
+      >('wt_sched_set_options');
+  late final _wt_sched_set_options = _wt_sched_set_optionsPtr
+      .asFunction<
+        int Function(ffi.Pointer<wt_sched>, ffi.Pointer<wt_sched_options>)
+      >();
 
   /// Creates a source that maps the file at path (UTF-8) read-only.
   ///
@@ -537,7 +770,9 @@ class WtBindings {
       .asFunction<ffi.Pointer<ffi.Char> Function(int)>();
 }
 
-const int WT_API_VERSION = 3;
+const int WT_API_VERSION = 4;
+
+const int WT_BUSY = 2;
 
 const int WT_CODEC_GIF = 4;
 
@@ -579,14 +814,49 @@ const int WT_FORMAT_WEBM = 1;
 
 const int WT_FORMAT_WEBP = 2;
 
+const int WT_NO_TARGET = 3;
+
 const int WT_OK = 0;
 
 const int WT_PIXEL_FORMAT_BGRA8888 = 2;
 
 const int WT_PIXEL_FORMAT_RGBA8888 = 1;
 
+const int WT_SCHED_MAX_WORKERS = 8;
+
 /// A playback cursor that decodes one source at one output size. Opaque.
 final class wt_anim extends ffi.Opaque {}
+
+/// A destination for one frame, filled by wt_sink.acquire.
+final class wt_buffer extends ffi.Struct {
+  /// The first row.
+  external ffi.Pointer<ffi.Uint8> pixels;
+
+  /// Bytes the core may write from pixels; at least
+  /// stride * (height - 1) + width * 4 for the player's output size.
+  @ffi.Size()
+  external int size;
+
+  /// Bytes from one row to the next; >= width * 4.
+  @ffi.Uint32()
+  external int stride;
+
+  /// A WT_PIXEL_FORMAT_* value.
+  @wt_pixel_format()
+  external int format;
+
+  static ffi.Pointer<wt_buffer> $allocate(
+    ffi.Allocator $allocator, {
+    required ffi.Pointer<ffi.Uint8> pixels,
+    required int size,
+    required int stride,
+    required int format,
+  }) => $allocator<wt_buffer>()
+    ..ref.pixels = pixels
+    ..ref.size = size
+    ..ref.stride = stride
+    ..ref.format = format;
+}
 
 /// What wt_cache_get_stats, wt_cache_evict and wt_cache_clear report.
 final class wt_cache_stats extends ffi.Struct {
@@ -751,6 +1021,223 @@ final class wt_limits extends ffi.Struct {
 /// Output pixel layouts, named by byte order in memory. Both are premultiplied.
 typedef wt_pixel_format = ffi.Int32;
 typedef Dartwt_pixel_format = int;
+
+final class wt_player extends ffi.Opaque {}
+
+/// Scheduler and player handles. Opaque.
+final class wt_sched extends ffi.Opaque {}
+
+/// Optional hooks run by every scheduler thread (the clock and each worker)
+/// when it starts and just before it exits; e.g. the Android glue attaches the
+/// thread to the JVM for its lifetime. Either function may be NULL. name is
+/// the thread's name ("wt-clock", "wt-worker-0", ...), static.
+final class wt_sched_hooks extends ffi.Struct {
+  external ffi.Pointer<ffi.Void> context;
+
+  external ffi.Pointer<
+    ffi.NativeFunction<
+      ffi.Void Function(
+        ffi.Pointer<ffi.Void> context,
+        ffi.Pointer<ffi.Char> name,
+      )
+    >
+  >
+  thread_start;
+
+  external ffi.Pointer<
+    ffi.NativeFunction<ffi.Void Function(ffi.Pointer<ffi.Void> context)>
+  >
+  thread_stop;
+
+  static ffi.Pointer<wt_sched_hooks> $allocate(
+    ffi.Allocator $allocator, {
+    required ffi.Pointer<ffi.Void> context,
+    required ffi.Pointer<
+      ffi.NativeFunction<
+        ffi.Void Function(
+          ffi.Pointer<ffi.Void> context,
+          ffi.Pointer<ffi.Char> name,
+        )
+      >
+    >
+    thread_start,
+    required ffi.Pointer<
+      ffi.NativeFunction<ffi.Void Function(ffi.Pointer<ffi.Void> context)>
+    >
+    thread_stop,
+  }) => $allocator<wt_sched_hooks>()
+    ..ref.context = context
+    ..ref.thread_start = thread_start
+    ..ref.thread_stop = thread_stop;
+}
+
+/// Tunables of a scheduler; device tiers (PLAN.md, "Tiers") set them. Start
+/// from wt_sched_options_init_default. Zero is invalid for worker_count and
+/// max_fps.
+final class wt_sched_options extends ffi.Struct {
+  /// Threads that decode frames, 1..WT_SCHED_MAX_WORKERS. Default: half the
+  /// CPU cores, between 1 and 4.
+  @ffi.Uint32()
+  external int worker_count;
+
+  /// Most clock rounds a second, 1..240, and so the most frames a second any
+  /// player shows. Content faster than this skips frames to keep its timing.
+  /// Default 60.
+  @ffi.Uint32()
+  external int max_fps;
+
+  /// Most players that play at once; 0 means no limit. Default 0.
+  @ffi.Uint32()
+  external int max_concurrent;
+
+  static ffi.Pointer<wt_sched_options> $allocate(
+    ffi.Allocator $allocator, {
+    required int worker_count,
+    required int max_fps,
+    required int max_concurrent,
+  }) => $allocator<wt_sched_options>()
+    ..ref.worker_count = worker_count
+    ..ref.max_fps = max_fps
+    ..ref.max_concurrent = max_concurrent;
+}
+
+/// What wt_sched_get_stats reports.
+final class wt_sched_stats extends ffi.Struct {
+  /// Players alive.
+  @ffi.Uint32()
+  external int players;
+
+  /// Players set active.
+  @ffi.Uint32()
+  external int active;
+
+  /// Active players that are playing: within max_concurrent, with more than
+  /// one frame, and not a non-looping player that ended.
+  @ffi.Uint32()
+  external int running;
+
+  /// Worker threads running.
+  @ffi.Uint32()
+  external int workers;
+
+  /// Clock rounds that queued at least one playback frame.
+  @ffi.Uint64()
+  external int ticks;
+
+  /// Times the clock thread woke up, for whatever reason.
+  @ffi.Uint64()
+  external int wakeups;
+
+  /// Frames drawn into a sink buffer successfully.
+  @ffi.Uint64()
+  external int frames_drawn;
+
+  /// Playback frames decoded but never shown, to keep the content's timing.
+  @ffi.Uint64()
+  external int frames_skipped;
+
+  static ffi.Pointer<wt_sched_stats> $allocate(
+    ffi.Allocator $allocator, {
+    required int players,
+    required int active,
+    required int running,
+    required int workers,
+    required int ticks,
+    required int wakeups,
+    required int frames_drawn,
+    required int frames_skipped,
+  }) => $allocator<wt_sched_stats>()
+    ..ref.players = players
+    ..ref.active = active
+    ..ref.running = running
+    ..ref.workers = workers
+    ..ref.ticks = ticks
+    ..ref.wakeups = wakeups
+    ..ref.frames_drawn = frames_drawn
+    ..ref.frames_skipped = frames_skipped;
+}
+
+/// How a player gets its frames on screen. The scheduler calls these on its
+/// worker threads, never two at once for the same player (one frame in flight),
+/// and never after wt_player_destroy returns. They must not call wt_player_* or
+/// wt_sched_* functions on their own scheduler.
+final class wt_sink extends ffi.Struct {
+  external ffi.Pointer<ffi.Void> context;
+
+  /// Provides a buffer of the player's output size for the next frame. Return
+  /// WT_OK after filling *out; release is then called exactly once, on the
+  /// same thread. Any other status skips this attempt, and nothing else is
+  /// called: WT_BUSY retries on the next tick, WT_NO_TARGET waits for
+  /// wt_player_redraw, and a negative status retries about 100 ms later.
+  /// Required.
+  external ffi.Pointer<
+    ffi.NativeFunction<
+      wt_status Function(
+        ffi.Pointer<ffi.Void> context,
+        ffi.Pointer<wt_buffer> out,
+      )
+    >
+  >
+  acquire;
+
+  /// Ends the attempt that acquire started. status is WT_OK when the buffer
+  /// holds frame->index, ready to show; otherwise the buffer may hold a
+  /// partial frame and the previous frame should stay on screen. Required.
+  external ffi.Pointer<
+    ffi.NativeFunction<
+      ffi.Void Function(
+        ffi.Pointer<ffi.Void> context,
+        wt_status status,
+        ffi.Pointer<wt_frame_info> frame,
+      )
+    >
+  >
+  release;
+
+  /// A frame failed to decode (status < 0). Playback carries on with the next
+  /// one. Called for the first failure of a player only, so a broken file
+  /// can't flood the app. May be NULL.
+  external ffi.Pointer<
+    ffi.NativeFunction<
+      ffi.Void Function(ffi.Pointer<ffi.Void> context, wt_status status)
+    >
+  >
+  error;
+
+  static ffi.Pointer<wt_sink> $allocate(
+    ffi.Allocator $allocator, {
+    required ffi.Pointer<ffi.Void> context,
+    required ffi.Pointer<
+      ffi.NativeFunction<
+        wt_status Function(
+          ffi.Pointer<ffi.Void> context,
+          ffi.Pointer<wt_buffer> out,
+        )
+      >
+    >
+    acquire,
+    required ffi.Pointer<
+      ffi.NativeFunction<
+        ffi.Void Function(
+          ffi.Pointer<ffi.Void> context,
+          wt_status status,
+          ffi.Pointer<wt_frame_info> frame,
+        )
+      >
+    >
+    release,
+    required ffi.Pointer<
+      ffi.NativeFunction<
+        ffi.Void Function(ffi.Pointer<ffi.Void> context, wt_status status)
+      >
+    >
+    error,
+  }) => $allocator<wt_sink>()
+    ..ref.context = context
+    ..ref.acquire = acquire
+    ..ref.release = release
+    ..ref.error = error;
+}
 
 /// Encoded sticker bytes, from memory or a file. Opaque.
 final class wt_source extends ffi.Opaque {}

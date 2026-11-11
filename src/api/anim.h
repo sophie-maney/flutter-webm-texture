@@ -82,6 +82,10 @@ class Anim {
   Anim& operator=(const Anim&) = delete;
 
   const wt_info& info() const { return info_; }
+  // How long frame `index` (< frame_count) is shown, in ms; at least 1.
+  uint32_t frame_duration_ms(uint32_t index) const {
+    return FrameDurationMs(index);
+  }
   CacheMode cache_mode() const;
   uint32_t width() const { return frame_.width(); }
   uint32_t height() const { return frame_.height(); }
@@ -95,6 +99,15 @@ class Anim {
   wt_status NextFrame(uint8_t* dst, size_t dst_size, uint32_t stride,
                       wt_pixel_format format, wt_frame_info* out_frame);
 
+  // Moves the cursor past one frame without writing pixels: what NextFrame
+  // does minus the conversion into a buffer. While decoding, the frame is
+  // still decoded (later frames depend on it) and streamed to the cache
+  // writer, so a pass with skipped frames still writes the cache; read from
+  // the cache, a skip costs nothing. Returns WT_END after the last frame,
+  // and like NextFrame advances the cursor on errors. The scheduler skips
+  // frames that are already late (sched/timeline.h).
+  wt_status SkipFrame(wt_frame_info* out_frame);
+
  private:
   Anim() = default;
 
@@ -106,6 +119,10 @@ class Anim {
   // Decodes frame `index` into frame_, catching up from a seek first, and
   // streams it to the cache writer when one is open.
   wt_status DecodeAt(uint32_t index);
+  // Takes the frame at the cursor and advances it: reads it from the cache
+  // into frame_ when need_pixels (otherwise a cache hit reads nothing), or
+  // decodes it (DecodeAt). Fills *out_frame on success when non-null.
+  wt_status Advance(bool need_pixels, wt_frame_info* out_frame);
   // Creates the decoder if there is none (the cache made it unnecessary so
   // far), ready to decode up to frame `target`.
   wt_status EnsureDecoder(uint32_t target);

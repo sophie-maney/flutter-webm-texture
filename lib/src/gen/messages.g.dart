@@ -483,6 +483,31 @@ class WebmTextureHostApi {
     );
   }
 
+  /// Ranks the animation for the native scheduler's `maxConcurrent` limit
+  /// (ADR 0017): [priority] is the area, in physical pixels, that the
+  /// widgets playing it show on screen. When more animations are active than
+  /// the limit allows, the largest visible areas play, then the most recently
+  /// activated; the rest hold their frame. Starts at 0. An unknown or
+  /// disposed [animId] is ignored.
+  Future<void> setPriority(int animId, int priority) async {
+    final pigeonVar_channelName =
+        'dev.flutter.pigeon.webm_texture.WebmTextureHostApi.setPriority$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(
+      <Object?>[animId, priority],
+    );
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+    _extractReplyValueOrThrow(
+      pigeonVar_replyList,
+      pigeonVar_channelName,
+      isNullValid: true,
+    );
+  }
+
   /// Shows [frame] (0-based) right away, whether or not the animation is
   /// active; an active one carries on from there. Seeking a non-looping
   /// animation that has ended lets it play again.

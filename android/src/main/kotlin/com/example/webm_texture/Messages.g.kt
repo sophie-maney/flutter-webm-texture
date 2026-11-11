@@ -546,6 +546,15 @@ interface WebmTextureHostApi {
   /** Starts or stops playback. Inactive animations keep their current frame. */
   fun setActive(animId: Long, active: Boolean)
   /**
+   * Ranks the animation for the native scheduler's `maxConcurrent` limit
+   * (ADR 0017): [priority] is the area, in physical pixels, that the
+   * widgets playing it show on screen. When more animations are active than
+   * the limit allows, the largest visible areas play, then the most recently
+   * activated; the rest hold their frame. Starts at 0. An unknown or
+   * disposed [animId] is ignored.
+   */
+  fun setPriority(animId: Long, priority: Long)
+  /**
    * Shows [frame] (0-based) right away, whether or not the animation is
    * active; an active one carries on from there. Seeking a non-looping
    * animation that has ended lets it play again.
@@ -613,6 +622,25 @@ interface WebmTextureHostApi {
             val activeArg = args[1] as Boolean
             val wrapped: List<Any?> = try {
               api.setActive(animIdArg, activeArg)
+              listOf(null)
+            } catch (exception: Throwable) {
+              MessagesPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.webm_texture.WebmTextureHostApi.setPriority$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val animIdArg = args[0] as Long
+            val priorityArg = args[1] as Long
+            val wrapped: List<Any?> = try {
+              api.setPriority(animIdArg, priorityArg)
               listOf(null)
             } catch (exception: Throwable) {
               MessagesPigeonUtils.wrapError(exception)

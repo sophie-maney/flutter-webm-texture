@@ -8,9 +8,9 @@ private const val TAG = "WebmTexture"
 /**
  * One animation shown through one `SurfaceProducer` (T2.2).
  *
- * The native player (decoder plus render thread) is created first, off the
- * main thread; [attach] then gives it the producer's surface. Every method
- * here runs on the platform main thread.
+ * The native player (a decoder on the process-wide scheduler, T3.3) is
+ * created first, off the main thread; [attach] then gives it the producer's
+ * surface. Every method here runs on the platform main thread.
  *
  * Lifecycle rules from spike B ([ADR 0005](docs/decisions/0005-no-ui-image-fallback.md)):
  * the producer uses `SurfaceLifecycle.resetInBackground`; [onSurfaceCleanup]
@@ -63,6 +63,11 @@ internal class StickerTexture(
         if (handle != 0L) WtNative.nativeSetActive(handle, active)
     }
 
+    /** Ranks the animation under the scheduler's `maxConcurrent` limit. */
+    fun setPriority(priority: Long) {
+        if (handle != 0L) WtNative.nativeSetPriority(handle, priority.coerceAtLeast(0))
+    }
+
     /** Shows [frame] next; returns a `wt_status`. */
     fun seekToFrame(frame: Int): Int =
         if (handle != 0L) WtNative.nativeSeek(handle, frame) else WtNative.WT_OK
@@ -71,7 +76,7 @@ internal class StickerTexture(
     fun dispose() {
         producer?.setCallback(null)
         if (handle != 0L) {
-            // Joins the render thread and releases the window, so nothing
+            // Waits for a frame in flight and releases the window, so nothing
             // writes to the surface once the producer is released below.
             WtNative.nativeDestroy(handle)
             handle = 0L

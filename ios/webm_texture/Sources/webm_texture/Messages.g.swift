@@ -503,6 +503,13 @@ protocol WebmTextureHostApi {
   func createAnimation(sourceKey: String, source: AnimationSourceMessage, bucketW: Int64, bucketH: Int64, loop: Bool) async throws -> AnimationHandleMessage
   /// Starts or stops playback. Inactive animations keep their current frame.
   func setActive(animId: Int64, active: Bool) throws
+  /// Ranks the animation for the native scheduler's `maxConcurrent` limit
+  /// (ADR 0017): [priority] is the area, in physical pixels, that the
+  /// widgets playing it show on screen. When more animations are active than
+  /// the limit allows, the largest visible areas play, then the most recently
+  /// activated; the rest hold their frame. Starts at 0. An unknown or
+  /// disposed [animId] is ignored.
+  func setPriority(animId: Int64, priority: Int64) throws
   /// Shows [frame] (0-based) right away, whether or not the animation is
   /// active; an active one carries on from there. Seeking a non-looping
   /// animation that has ended lets it play again.
@@ -580,6 +587,28 @@ class WebmTextureHostApiSetup {
       }
     } else {
       setActiveChannel.setMessageHandler(nil)
+    }
+    /// Ranks the animation for the native scheduler's `maxConcurrent` limit
+    /// (ADR 0017): [priority] is the area, in physical pixels, that the
+    /// widgets playing it show on screen. When more animations are active than
+    /// the limit allows, the largest visible areas play, then the most recently
+    /// activated; the rest hold their frame. Starts at 0. An unknown or
+    /// disposed [animId] is ignored.
+    let setPriorityChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.webm_texture.WebmTextureHostApi.setPriority\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      setPriorityChannel.setMessageHandler { message, reply in
+        let args = message as! [Any?]
+        let animIdArg = args[0] as! Int64
+        let priorityArg = args[1] as! Int64
+        do {
+          try api.setPriority(animId: animIdArg, priority: priorityArg)
+          reply(wrapResult(nil))
+        } catch {
+          reply(wrapError(error))
+        }
+      }
+    } else {
+      setPriorityChannel.setMessageHandler(nil)
     }
     /// Shows [frame] (0-based) right away, whether or not the animation is
     /// active; an active one carries on from there. Seeking a non-looping

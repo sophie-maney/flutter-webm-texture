@@ -278,7 +278,7 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 
 **Accept:** unit tests for budget enforcement and concurrent access (two animations writing).
 
-### [ ] T3.3 Scheduler
+### [x] T3.3 Scheduler
 **Model** Opus 5.5 · `xhigh` · **Depends** T3.1, T2.2, T2.3 · **Track** B
 - Replace the per-animation threads with one clock thread and N workers (N from the tier). Each animation has at most one frame in flight; late frames are dropped. The `maxConcurrent` limit is applied by priority (visible area, then recency), and the rest freeze on their current frame.
 - The clock pauses entirely when nothing is active.

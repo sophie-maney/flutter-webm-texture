@@ -2,18 +2,21 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 
-/// Reports whether [child] shows any pixels on screen.
+/// Reports how much of [child] shows on screen.
 ///
 /// The check runs after every frame's paint, through [RenderStickerVisibility].
-/// [onChanged] is called from that post-frame callback, never during build,
-/// and only when the answer flips. Until the first check the child counts as
-/// not visible.
+/// [onChanged] receives the visible fraction of the child's area, rounded up
+/// to a quarter (0.25, 0.5, 0.75 or 1), or 0 when none of it is on screen.
+/// It is called from that post-frame callback, never during build, and only
+/// when the value changes, so a scroll reports each sticker at most four
+/// times on its way in. Until the first check the child counts as not
+/// visible.
 class StickerVisibility extends SingleChildRenderObjectWidget {
   /// Creates a detector around [child].
   const StickerVisibility({super.key, required this.onChanged, super.child});
 
-  /// Called with the new visibility.
-  final ValueChanged<bool> onChanged;
+  /// Called with the new visible fraction.
+  final ValueChanged<double> onChanged;
 
   @override
   RenderStickerVisibility createRenderObject(BuildContext context) =>
@@ -46,13 +49,16 @@ class RenderStickerVisibility extends RenderProxyBox {
   RenderStickerVisibility({required this.onChanged, RenderBox? child})
     : super(child);
 
-  /// Called with the new visibility.
-  ValueChanged<bool> onChanged;
+  /// Called with the new visible fraction (see [StickerVisibility]).
+  ValueChanged<double> onChanged;
 
-  bool _visible = false;
+  double _fraction = 0;
 
-  /// Visibility as of the last check.
-  bool get visible => _visible;
+  /// Whether any of the child was on screen at the last check.
+  bool get visible => _fraction > 0;
+
+  /// The visible fraction as of the last check, in quarters.
+  double get visibleFraction => _fraction;
 
   @override
   void attach(PipelineOwner owner) {
@@ -64,16 +70,31 @@ class RenderStickerVisibility extends RenderProxyBox {
   void detach() {
     _VisibilityTracker.instance.remove(this);
     super.detach();
-    _set(false);
+    _set(0);
   }
 
-  void _set(bool visible) {
-    if (visible == _visible) return;
-    _visible = visible;
-    onChanged(visible);
+  void _set(double fraction) {
+    if (fraction == _fraction) return;
+    _fraction = fraction;
+    onChanged(fraction);
   }
 
-  void _check() => _set(attached && visibleRect(this) != null);
+  void _check() {
+    final rect = attached ? visibleRect(this) : null;
+    _set(
+      rect == null
+          ? 0
+          : quarters(rect.width * rect.height, size.width * size.height),
+    );
+  }
+
+  /// [visible] / [total] rounded up to a quarter, at least 0.25 when any of
+  /// it is visible.
+  @visibleForTesting
+  static double quarters(double visible, double total) {
+    if (!(total > 0) || !(visible > 0)) return 0;
+    return ((visible / total) * 4).ceil().clamp(1, 4) / 4;
+  }
 
   /// The part of [box] that is on screen, in [box]'s coordinates, or null
   /// when none of it is.
