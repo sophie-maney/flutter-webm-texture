@@ -413,6 +413,399 @@ struct AnimationErrorMessage: Hashable, CustomStringConvertible {
   }
 }
 
+/// Layout of an atlas's pages ([WebmTextureHostApi.createAtlas]; see
+/// `wt_atlas_options` in `wt_api.h`).
+///
+/// Generated class from Pigeon that represents data sent in messages.
+struct AtlasOptionsMessage: Hashable, CustomStringConvertible {
+  /// Page width in physical pixels, 16..2048 (rounded down to 16).
+  var width: Int64
+  /// The tallest a page may grow, 16..2048 (rounded down to 16).
+  var maxHeight: Int64
+  /// The most pages (platform textures) the atlas may use, 1..16.
+  var maxPages: Int64
+
+
+  // swift-format-ignore: AlwaysUseLowerCamelCase
+  static func fromList(_ pigeonVar_list: [Any?]) -> AtlasOptionsMessage? {
+    let width = pigeonVar_list[0] as! Int64
+    let maxHeight = pigeonVar_list[1] as! Int64
+    let maxPages = pigeonVar_list[2] as! Int64
+
+    return AtlasOptionsMessage(
+      width: width,
+      maxHeight: maxHeight,
+      maxPages: maxPages
+    )
+  }
+  func toList() -> [Any?] {
+    return [
+      width,
+      maxHeight,
+      maxPages,
+    ]
+  }
+  static func == (lhs: AtlasOptionsMessage, rhs: AtlasOptionsMessage) -> Bool {
+    if Swift.type(of: lhs) != Swift.type(of: rhs) {
+      return false
+    }
+    return MessagesPigeonInternal.deepEquals(lhs.width, rhs.width) && MessagesPigeonInternal.deepEquals(lhs.maxHeight, rhs.maxHeight) && MessagesPigeonInternal.deepEquals(lhs.maxPages, rhs.maxPages)
+  }
+
+  func hash(into hasher: inout Hasher) {
+    hasher.combine("AtlasOptionsMessage")
+    MessagesPigeonInternal.deepHash(value: width, hasher: &hasher)
+    MessagesPigeonInternal.deepHash(value: maxHeight, hasher: &hasher)
+    MessagesPigeonInternal.deepHash(value: maxPages, hasher: &hasher)
+  }
+
+  public var description: String {
+    return "AtlasOptionsMessage(width: \(String(describing: width)), maxHeight: \(String(describing: maxHeight)), maxPages: \(String(describing: maxPages)))"
+  }
+}
+
+/// Where an animation attached to an atlas is drawn, in its page's pixels
+/// (origin top left). Each slot has a transparent gutter of at least 2 px
+/// around this rect.
+///
+/// Generated class from Pigeon that represents data sent in messages.
+struct AtlasSlotMessage: Hashable, CustomStringConvertible {
+  var animId: Int64
+  /// The page; draw [AtlasPageMessage.textureId] of this page. -1 when
+  /// [error] is set.
+  var pageId: Int64
+  /// The animation's frame, at its bucket size.
+  var x: Int64
+  var y: Int64
+  var width: Int64
+  var height: Int64
+  /// Null on success. Otherwise a `wt_status` name, such as `WT_ERR_LIMIT`
+  /// (every page is full) or `WT_ERR_INVALID_ARGUMENT` (unknown animation,
+  /// already in an atlas, or too big for a page): the animation keeps its
+  /// own texture.
+  var error: String? = nil
+
+
+  // swift-format-ignore: AlwaysUseLowerCamelCase
+  static func fromList(_ pigeonVar_list: [Any?]) -> AtlasSlotMessage? {
+    let animId = pigeonVar_list[0] as! Int64
+    let pageId = pigeonVar_list[1] as! Int64
+    let x = pigeonVar_list[2] as! Int64
+    let y = pigeonVar_list[3] as! Int64
+    let width = pigeonVar_list[4] as! Int64
+    let height = pigeonVar_list[5] as! Int64
+    let error: String? = nilOrValue(pigeonVar_list[6])
+
+    return AtlasSlotMessage(
+      animId: animId,
+      pageId: pageId,
+      x: x,
+      y: y,
+      width: width,
+      height: height,
+      error: error
+    )
+  }
+  func toList() -> [Any?] {
+    return [
+      animId,
+      pageId,
+      x,
+      y,
+      width,
+      height,
+      error,
+    ]
+  }
+  static func == (lhs: AtlasSlotMessage, rhs: AtlasSlotMessage) -> Bool {
+    if Swift.type(of: lhs) != Swift.type(of: rhs) {
+      return false
+    }
+    return MessagesPigeonInternal.deepEquals(lhs.animId, rhs.animId) && MessagesPigeonInternal.deepEquals(lhs.pageId, rhs.pageId) && MessagesPigeonInternal.deepEquals(lhs.x, rhs.x) && MessagesPigeonInternal.deepEquals(lhs.y, rhs.y) && MessagesPigeonInternal.deepEquals(lhs.width, rhs.width) && MessagesPigeonInternal.deepEquals(lhs.height, rhs.height) && MessagesPigeonInternal.deepEquals(lhs.error, rhs.error)
+  }
+
+  func hash(into hasher: inout Hasher) {
+    hasher.combine("AtlasSlotMessage")
+    MessagesPigeonInternal.deepHash(value: animId, hasher: &hasher)
+    MessagesPigeonInternal.deepHash(value: pageId, hasher: &hasher)
+    MessagesPigeonInternal.deepHash(value: x, hasher: &hasher)
+    MessagesPigeonInternal.deepHash(value: y, hasher: &hasher)
+    MessagesPigeonInternal.deepHash(value: width, hasher: &hasher)
+    MessagesPigeonInternal.deepHash(value: height, hasher: &hasher)
+    MessagesPigeonInternal.deepHash(value: error, hasher: &hasher)
+  }
+
+  public var description: String {
+    return "AtlasSlotMessage(animId: \(String(describing: animId)), pageId: \(String(describing: pageId)), x: \(String(describing: x)), y: \(String(describing: y)), width: \(String(describing: width)), height: \(String(describing: height)), error: \(String(describing: error)))"
+  }
+}
+
+/// An atlas page as Dart should draw it: a `Texture(textureId)` laid out at
+/// [width] x [height] physical pixels, clipped to a slot.
+///
+/// Generated class from Pigeon that represents data sent in messages.
+struct AtlasPageMessage: Hashable, CustomStringConvertible {
+  var atlasId: Int64
+  var pageId: Int64
+  var textureId: Int64
+  var width: Int64
+  var height: Int64
+
+
+  // swift-format-ignore: AlwaysUseLowerCamelCase
+  static func fromList(_ pigeonVar_list: [Any?]) -> AtlasPageMessage? {
+    let atlasId = pigeonVar_list[0] as! Int64
+    let pageId = pigeonVar_list[1] as! Int64
+    let textureId = pigeonVar_list[2] as! Int64
+    let width = pigeonVar_list[3] as! Int64
+    let height = pigeonVar_list[4] as! Int64
+
+    return AtlasPageMessage(
+      atlasId: atlasId,
+      pageId: pageId,
+      textureId: textureId,
+      width: width,
+      height: height
+    )
+  }
+  func toList() -> [Any?] {
+    return [
+      atlasId,
+      pageId,
+      textureId,
+      width,
+      height,
+    ]
+  }
+  static func == (lhs: AtlasPageMessage, rhs: AtlasPageMessage) -> Bool {
+    if Swift.type(of: lhs) != Swift.type(of: rhs) {
+      return false
+    }
+    return MessagesPigeonInternal.deepEquals(lhs.atlasId, rhs.atlasId) && MessagesPigeonInternal.deepEquals(lhs.pageId, rhs.pageId) && MessagesPigeonInternal.deepEquals(lhs.textureId, rhs.textureId) && MessagesPigeonInternal.deepEquals(lhs.width, rhs.width) && MessagesPigeonInternal.deepEquals(lhs.height, rhs.height)
+  }
+
+  func hash(into hasher: inout Hasher) {
+    hasher.combine("AtlasPageMessage")
+    MessagesPigeonInternal.deepHash(value: atlasId, hasher: &hasher)
+    MessagesPigeonInternal.deepHash(value: pageId, hasher: &hasher)
+    MessagesPigeonInternal.deepHash(value: textureId, hasher: &hasher)
+    MessagesPigeonInternal.deepHash(value: width, hasher: &hasher)
+    MessagesPigeonInternal.deepHash(value: height, hasher: &hasher)
+  }
+
+  public var description: String {
+    return "AtlasPageMessage(atlasId: \(String(describing: atlasId)), pageId: \(String(describing: pageId)), textureId: \(String(describing: textureId)), width: \(String(describing: width)), height: \(String(describing: height)))"
+  }
+}
+
+/// What a call that moves animations into or out of an atlas changed.
+///
+/// Generated class from Pigeon that represents data sent in messages.
+struct AtlasLayoutMessage: Hashable, CustomStringConvertible {
+  /// [WebmTextureHostApi.attachToAtlas]: one per animation, in order.
+  var slots: [AtlasSlotMessage]
+  /// [WebmTextureHostApi.detachFromAtlas]: each animation's new texture of
+  /// its own, in order (textureId -1 for an unknown animation).
+  var handles: [AnimationHandleMessage]
+  /// Every page of the atlases involved that has a texture, after the call.
+  /// A page whose size changed has a new texture id: slots on it are drawn
+  /// with the new id and size from now on.
+  var pages: [AtlasPageMessage]
+  /// Textures this call replaced (a page's previous size, an animation's own
+  /// texture when it entered the atlas). They hold their last frame until
+  /// Dart calls [WebmTextureHostApi.releaseTextures], which it does once no
+  /// widget draws them any more.
+  var retiredTextureIds: [Int64]
+
+
+  // swift-format-ignore: AlwaysUseLowerCamelCase
+  static func fromList(_ pigeonVar_list: [Any?]) -> AtlasLayoutMessage? {
+    let slots = pigeonVar_list[0] as! [AtlasSlotMessage]
+    let handles = pigeonVar_list[1] as! [AnimationHandleMessage]
+    let pages = pigeonVar_list[2] as! [AtlasPageMessage]
+    let retiredTextureIds = pigeonVar_list[3] as! [Int64]
+
+    return AtlasLayoutMessage(
+      slots: slots,
+      handles: handles,
+      pages: pages,
+      retiredTextureIds: retiredTextureIds
+    )
+  }
+  func toList() -> [Any?] {
+    return [
+      slots,
+      handles,
+      pages,
+      retiredTextureIds,
+    ]
+  }
+  static func == (lhs: AtlasLayoutMessage, rhs: AtlasLayoutMessage) -> Bool {
+    if Swift.type(of: lhs) != Swift.type(of: rhs) {
+      return false
+    }
+    return MessagesPigeonInternal.deepEquals(lhs.slots, rhs.slots) && MessagesPigeonInternal.deepEquals(lhs.handles, rhs.handles) && MessagesPigeonInternal.deepEquals(lhs.pages, rhs.pages) && MessagesPigeonInternal.deepEquals(lhs.retiredTextureIds, rhs.retiredTextureIds)
+  }
+
+  func hash(into hasher: inout Hasher) {
+    hasher.combine("AtlasLayoutMessage")
+    MessagesPigeonInternal.deepHash(value: slots, hasher: &hasher)
+    MessagesPigeonInternal.deepHash(value: handles, hasher: &hasher)
+    MessagesPigeonInternal.deepHash(value: pages, hasher: &hasher)
+    MessagesPigeonInternal.deepHash(value: retiredTextureIds, hasher: &hasher)
+  }
+
+  public var description: String {
+    return "AtlasLayoutMessage(slots: \(String(describing: slots)), handles: \(String(describing: handles)), pages: \(String(describing: pages)), retiredTextureIds: \(String(describing: retiredTextureIds)))"
+  }
+}
+
+/// One atlas page's state and memory ([WebmTextureHostApi.atlasStats]).
+///
+/// Generated class from Pigeon that represents data sent in messages.
+struct AtlasPageStatsMessage: Hashable, CustomStringConvertible {
+  var pageId: Int64
+  /// -1 when the page has no texture (it is empty).
+  var textureId: Int64
+  var width: Int64
+  /// The texture's height; 0 without one.
+  var height: Int64
+  /// Rows the slots use.
+  var usedHeight: Int64
+  var liveSlots: Int64
+  /// Distinct platform buffers the page's queue handed out (gralloc buffers
+  /// on Android, IOSurfaces on iOS).
+  var buffers: Int64
+  /// [buffers] x row stride x [height]: the page's graphics memory.
+  var bufferBytes: Int64
+  /// The slots' latest frames and spare decode buffers, in RAM.
+  var cpuBytes: Int64
+  /// Frames shown (one per scheduler tick at most) and failed attempts.
+  var presents: Int64
+  var presentFailures: Int64
+
+
+  // swift-format-ignore: AlwaysUseLowerCamelCase
+  static func fromList(_ pigeonVar_list: [Any?]) -> AtlasPageStatsMessage? {
+    let pageId = pigeonVar_list[0] as! Int64
+    let textureId = pigeonVar_list[1] as! Int64
+    let width = pigeonVar_list[2] as! Int64
+    let height = pigeonVar_list[3] as! Int64
+    let usedHeight = pigeonVar_list[4] as! Int64
+    let liveSlots = pigeonVar_list[5] as! Int64
+    let buffers = pigeonVar_list[6] as! Int64
+    let bufferBytes = pigeonVar_list[7] as! Int64
+    let cpuBytes = pigeonVar_list[8] as! Int64
+    let presents = pigeonVar_list[9] as! Int64
+    let presentFailures = pigeonVar_list[10] as! Int64
+
+    return AtlasPageStatsMessage(
+      pageId: pageId,
+      textureId: textureId,
+      width: width,
+      height: height,
+      usedHeight: usedHeight,
+      liveSlots: liveSlots,
+      buffers: buffers,
+      bufferBytes: bufferBytes,
+      cpuBytes: cpuBytes,
+      presents: presents,
+      presentFailures: presentFailures
+    )
+  }
+  func toList() -> [Any?] {
+    return [
+      pageId,
+      textureId,
+      width,
+      height,
+      usedHeight,
+      liveSlots,
+      buffers,
+      bufferBytes,
+      cpuBytes,
+      presents,
+      presentFailures,
+    ]
+  }
+  static func == (lhs: AtlasPageStatsMessage, rhs: AtlasPageStatsMessage) -> Bool {
+    if Swift.type(of: lhs) != Swift.type(of: rhs) {
+      return false
+    }
+    return MessagesPigeonInternal.deepEquals(lhs.pageId, rhs.pageId) && MessagesPigeonInternal.deepEquals(lhs.textureId, rhs.textureId) && MessagesPigeonInternal.deepEquals(lhs.width, rhs.width) && MessagesPigeonInternal.deepEquals(lhs.height, rhs.height) && MessagesPigeonInternal.deepEquals(lhs.usedHeight, rhs.usedHeight) && MessagesPigeonInternal.deepEquals(lhs.liveSlots, rhs.liveSlots) && MessagesPigeonInternal.deepEquals(lhs.buffers, rhs.buffers) && MessagesPigeonInternal.deepEquals(lhs.bufferBytes, rhs.bufferBytes) && MessagesPigeonInternal.deepEquals(lhs.cpuBytes, rhs.cpuBytes) && MessagesPigeonInternal.deepEquals(lhs.presents, rhs.presents) && MessagesPigeonInternal.deepEquals(lhs.presentFailures, rhs.presentFailures)
+  }
+
+  func hash(into hasher: inout Hasher) {
+    hasher.combine("AtlasPageStatsMessage")
+    MessagesPigeonInternal.deepHash(value: pageId, hasher: &hasher)
+    MessagesPigeonInternal.deepHash(value: textureId, hasher: &hasher)
+    MessagesPigeonInternal.deepHash(value: width, hasher: &hasher)
+    MessagesPigeonInternal.deepHash(value: height, hasher: &hasher)
+    MessagesPigeonInternal.deepHash(value: usedHeight, hasher: &hasher)
+    MessagesPigeonInternal.deepHash(value: liveSlots, hasher: &hasher)
+    MessagesPigeonInternal.deepHash(value: buffers, hasher: &hasher)
+    MessagesPigeonInternal.deepHash(value: bufferBytes, hasher: &hasher)
+    MessagesPigeonInternal.deepHash(value: cpuBytes, hasher: &hasher)
+    MessagesPigeonInternal.deepHash(value: presents, hasher: &hasher)
+    MessagesPigeonInternal.deepHash(value: presentFailures, hasher: &hasher)
+  }
+
+  public var description: String {
+    return "AtlasPageStatsMessage(pageId: \(String(describing: pageId)), textureId: \(String(describing: textureId)), width: \(String(describing: width)), height: \(String(describing: height)), usedHeight: \(String(describing: usedHeight)), liveSlots: \(String(describing: liveSlots)), buffers: \(String(describing: buffers)), bufferBytes: \(String(describing: bufferBytes)), cpuBytes: \(String(describing: cpuBytes)), presents: \(String(describing: presents)), presentFailures: \(String(describing: presentFailures)))"
+  }
+}
+
+/// [WebmTextureHostApi.atlasStats].
+///
+/// Generated class from Pigeon that represents data sent in messages.
+struct AtlasStatsMessage: Hashable, CustomStringConvertible {
+  var pages: [AtlasPageStatsMessage]
+  /// Platform textures the plugin holds for this atlas: its pages' current
+  /// textures.
+  var textures: Int64
+  /// Platform textures the plugin holds in all: animations' own, every
+  /// atlas page's, and retired ones not released yet.
+  var pluginTextures: Int64
+
+
+  // swift-format-ignore: AlwaysUseLowerCamelCase
+  static func fromList(_ pigeonVar_list: [Any?]) -> AtlasStatsMessage? {
+    let pages = pigeonVar_list[0] as! [AtlasPageStatsMessage]
+    let textures = pigeonVar_list[1] as! Int64
+    let pluginTextures = pigeonVar_list[2] as! Int64
+
+    return AtlasStatsMessage(
+      pages: pages,
+      textures: textures,
+      pluginTextures: pluginTextures
+    )
+  }
+  func toList() -> [Any?] {
+    return [
+      pages,
+      textures,
+      pluginTextures,
+    ]
+  }
+  static func == (lhs: AtlasStatsMessage, rhs: AtlasStatsMessage) -> Bool {
+    if Swift.type(of: lhs) != Swift.type(of: rhs) {
+      return false
+    }
+    return MessagesPigeonInternal.deepEquals(lhs.pages, rhs.pages) && MessagesPigeonInternal.deepEquals(lhs.textures, rhs.textures) && MessagesPigeonInternal.deepEquals(lhs.pluginTextures, rhs.pluginTextures)
+  }
+
+  func hash(into hasher: inout Hasher) {
+    hasher.combine("AtlasStatsMessage")
+    MessagesPigeonInternal.deepHash(value: pages, hasher: &hasher)
+    MessagesPigeonInternal.deepHash(value: textures, hasher: &hasher)
+    MessagesPigeonInternal.deepHash(value: pluginTextures, hasher: &hasher)
+  }
+
+  public var description: String {
+    return "AtlasStatsMessage(pages: \(String(describing: pages)), textures: \(String(describing: textures)), pluginTextures: \(String(describing: pluginTextures)))"
+  }
+}
+
 private class MessagesPigeonCodecReader: FlutterStandardReader {
   override func readValue(ofType type: UInt8) -> Any? {
     switch type {
@@ -436,6 +829,18 @@ private class MessagesPigeonCodecReader: FlutterStandardReader {
       return DeviceSignalsMessage.fromList(self.readValue() as! [Any?])
     case 134:
       return AnimationErrorMessage.fromList(self.readValue() as! [Any?])
+    case 135:
+      return AtlasOptionsMessage.fromList(self.readValue() as! [Any?])
+    case 136:
+      return AtlasSlotMessage.fromList(self.readValue() as! [Any?])
+    case 137:
+      return AtlasPageMessage.fromList(self.readValue() as! [Any?])
+    case 138:
+      return AtlasLayoutMessage.fromList(self.readValue() as! [Any?])
+    case 139:
+      return AtlasPageStatsMessage.fromList(self.readValue() as! [Any?])
+    case 140:
+      return AtlasStatsMessage.fromList(self.readValue() as! [Any?])
     default:
       return super.readValue(ofType: type)
     }
@@ -461,6 +866,24 @@ private class MessagesPigeonCodecWriter: FlutterStandardWriter {
       super.writeValue(value.toList())
     } else if let value = value as? AnimationErrorMessage {
       super.writeByte(134)
+      super.writeValue(value.toList())
+    } else if let value = value as? AtlasOptionsMessage {
+      super.writeByte(135)
+      super.writeValue(value.toList())
+    } else if let value = value as? AtlasSlotMessage {
+      super.writeByte(136)
+      super.writeValue(value.toList())
+    } else if let value = value as? AtlasPageMessage {
+      super.writeByte(137)
+      super.writeValue(value.toList())
+    } else if let value = value as? AtlasLayoutMessage {
+      super.writeByte(138)
+      super.writeValue(value.toList())
+    } else if let value = value as? AtlasPageStatsMessage {
+      super.writeByte(139)
+      super.writeValue(value.toList())
+    } else if let value = value as? AtlasStatsMessage {
+      super.writeByte(140)
       super.writeValue(value.toList())
     } else {
       super.writeValue(value)
@@ -518,6 +941,8 @@ protocol WebmTextureHostApi {
   /// animation's frames. An unknown or disposed [animId] is ignored.
   func seekToFrame(animId: Int64, frame: Int64) throws
   /// Releases the animation, its texture and its decoder. Safe to call twice.
+  /// An animation in an atlas leaves it; its page keeps its size until the
+  /// atlas's next attach or detach.
   func dispose(animId: Int64) throws
   /// Reads the current device signals.
   func deviceSignals() throws -> DeviceSignalsMessage
@@ -527,6 +952,28 @@ protocol WebmTextureHostApi {
   /// Changes reach running animations on the next scheduler round. Throws
   /// `WT_ERR_INVALID_ARGUMENT` for a value out of range.
   func setSchedulerOptions(workerCount: Int64, maxFps: Int64, maxConcurrent: Int64) throws
+  /// Creates an empty atlas (ADR 0020): a set of pages, each one platform
+  /// texture that many animations draw into. No texture exists until an
+  /// animation is attached.
+  func createAtlas(options: AtlasOptionsMessage) throws -> Int64
+  /// Moves animations into atlas [atlasId], each into a slot of its bucket
+  /// size on a page with room (adding a page when needed), and retires their
+  /// own textures. An animation keeps playing, pausing, seeking and
+  /// reporting errors as before. Pages that grew get a new texture.
+  func attachToAtlas(atlasId: Int64, animIds: [Int64]) throws -> AtlasLayoutMessage
+  /// Moves animations out of the atlas they are in, onto a new texture of
+  /// their own (also for an animation whose atlas was disposed). Pages that
+  /// shrank get a new texture; a page left empty has none.
+  func detachFromAtlas(animIds: [Int64]) throws -> AtlasLayoutMessage
+  /// Releases retired textures (see [AtlasLayoutMessage.retiredTextureIds]).
+  /// Unknown ids are ignored.
+  func releaseTextures(textureIds: [Int64]) throws
+  /// The atlas's pages and memory.
+  func atlasStats(atlasId: Int64) throws -> AtlasStatsMessage
+  /// Frees the atlas. Animations still in it are left without a texture
+  /// until [detachFromAtlas] (or [dispose]). Its page textures are retired,
+  /// as listed in the result.
+  func disposeAtlas(atlasId: Int64) throws -> AtlasLayoutMessage
   /// Sets the directory for the frame cache and returns the one in use, an
   /// absolute path. With a null [directory] nothing changes: the result is
   /// the current one, which starts as `webm_texture` under the app's cache
@@ -639,6 +1086,8 @@ class WebmTextureHostApiSetup {
       seekToFrameChannel.setMessageHandler(nil)
     }
     /// Releases the animation, its texture and its decoder. Safe to call twice.
+    /// An animation in an atlas leaves it; its page keeps its size until the
+    /// atlas's next attach or detach.
     let disposeChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.webm_texture.WebmTextureHostApi.dispose\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
     if let api = api {
       disposeChannel.setMessageHandler { message, reply in
@@ -689,6 +1138,113 @@ class WebmTextureHostApiSetup {
       }
     } else {
       setSchedulerOptionsChannel.setMessageHandler(nil)
+    }
+    /// Creates an empty atlas (ADR 0020): a set of pages, each one platform
+    /// texture that many animations draw into. No texture exists until an
+    /// animation is attached.
+    let createAtlasChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.webm_texture.WebmTextureHostApi.createAtlas\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      createAtlasChannel.setMessageHandler { message, reply in
+        let args = message as! [Any?]
+        let optionsArg = args[0] as! AtlasOptionsMessage
+        do {
+          let result = try api.createAtlas(options: optionsArg)
+          reply(wrapResult(result))
+        } catch {
+          reply(wrapError(error))
+        }
+      }
+    } else {
+      createAtlasChannel.setMessageHandler(nil)
+    }
+    /// Moves animations into atlas [atlasId], each into a slot of its bucket
+    /// size on a page with room (adding a page when needed), and retires their
+    /// own textures. An animation keeps playing, pausing, seeking and
+    /// reporting errors as before. Pages that grew get a new texture.
+    let attachToAtlasChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.webm_texture.WebmTextureHostApi.attachToAtlas\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      attachToAtlasChannel.setMessageHandler { message, reply in
+        let args = message as! [Any?]
+        let atlasIdArg = args[0] as! Int64
+        let animIdsArg = args[1] as! [Int64]
+        do {
+          let result = try api.attachToAtlas(atlasId: atlasIdArg, animIds: animIdsArg)
+          reply(wrapResult(result))
+        } catch {
+          reply(wrapError(error))
+        }
+      }
+    } else {
+      attachToAtlasChannel.setMessageHandler(nil)
+    }
+    /// Moves animations out of the atlas they are in, onto a new texture of
+    /// their own (also for an animation whose atlas was disposed). Pages that
+    /// shrank get a new texture; a page left empty has none.
+    let detachFromAtlasChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.webm_texture.WebmTextureHostApi.detachFromAtlas\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      detachFromAtlasChannel.setMessageHandler { message, reply in
+        let args = message as! [Any?]
+        let animIdsArg = args[0] as! [Int64]
+        do {
+          let result = try api.detachFromAtlas(animIds: animIdsArg)
+          reply(wrapResult(result))
+        } catch {
+          reply(wrapError(error))
+        }
+      }
+    } else {
+      detachFromAtlasChannel.setMessageHandler(nil)
+    }
+    /// Releases retired textures (see [AtlasLayoutMessage.retiredTextureIds]).
+    /// Unknown ids are ignored.
+    let releaseTexturesChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.webm_texture.WebmTextureHostApi.releaseTextures\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      releaseTexturesChannel.setMessageHandler { message, reply in
+        let args = message as! [Any?]
+        let textureIdsArg = args[0] as! [Int64]
+        do {
+          try api.releaseTextures(textureIds: textureIdsArg)
+          reply(wrapResult(nil))
+        } catch {
+          reply(wrapError(error))
+        }
+      }
+    } else {
+      releaseTexturesChannel.setMessageHandler(nil)
+    }
+    /// The atlas's pages and memory.
+    let atlasStatsChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.webm_texture.WebmTextureHostApi.atlasStats\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      atlasStatsChannel.setMessageHandler { message, reply in
+        let args = message as! [Any?]
+        let atlasIdArg = args[0] as! Int64
+        do {
+          let result = try api.atlasStats(atlasId: atlasIdArg)
+          reply(wrapResult(result))
+        } catch {
+          reply(wrapError(error))
+        }
+      }
+    } else {
+      atlasStatsChannel.setMessageHandler(nil)
+    }
+    /// Frees the atlas. Animations still in it are left without a texture
+    /// until [detachFromAtlas] (or [dispose]). Its page textures are retired,
+    /// as listed in the result.
+    let disposeAtlasChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.webm_texture.WebmTextureHostApi.disposeAtlas\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      disposeAtlasChannel.setMessageHandler { message, reply in
+        let args = message as! [Any?]
+        let atlasIdArg = args[0] as! Int64
+        do {
+          let result = try api.disposeAtlas(atlasId: atlasIdArg)
+          reply(wrapResult(result))
+        } catch {
+          reply(wrapError(error))
+        }
+      }
+    } else {
+      disposeAtlasChannel.setMessageHandler(nil)
     }
     /// Sets the directory for the frame cache and returns the one in use, an
     /// absolute path. With a null [directory] nothing changes: the result is

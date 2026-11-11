@@ -6,7 +6,9 @@ import Foundation
 import wt_ios
 
 /// One playing sticker: a `FlutterTexture` over a `WTPlayer`, which the
-/// core's process-wide scheduler (T3.3) feeds.
+/// core's process-wide scheduler (T3.3) feeds. While the animation draws
+/// into an atlas (T4.2) it has no texture id of its own (`detachTexture`);
+/// leaving the atlas registers it again under a new id.
 ///
 /// Threads:
 /// - The scheduler's workers decode into fresh pool buffers and call
@@ -23,7 +25,8 @@ final class StickerTexture: NSObject, FlutterTexture {
   let height: Int
   let frameCount: Int
 
-  private let player: WTPlayer
+  /// The shim, for `WTAtlas`; everything else goes through this class.
+  let player: WTPlayer
   private weak var registry: FlutterTextureRegistry?
 
   private let lock = NSLock()
@@ -121,15 +124,32 @@ final class StickerTexture: NSObject, FlutterTexture {
 
   // MARK: Main-thread entry points
 
-  /// Main thread, once, right after `registry.register(self)`. A frame that
-  /// was ready before the id was known is announced here.
+  /// Main thread, right after `registry.register(self)`: at creation, and
+  /// again when the animation leaves an atlas. A frame that was ready before
+  /// the id was known is announced here.
   func attach(textureId: Int64) {
     lock.lock()
     self.textureId = textureId
     lock.unlock()
+    // Draws the current frame if the player waited without a target.
+    player.setHasTarget(true)
     // Set the id first: a frame landing now is announced by frameReady,
     // one that landed before is seen here.
     if player.hasFrame { registry?.textureFrameAvailable(textureId) }
+  }
+
+  /// Main thread: the animation now draws into an atlas. The old id stays
+  /// registered (showing the last frame) until the plugin releases it.
+  func detachTexture() {
+    lock.lock()
+    textureId = nil
+    lock.unlock()
+    player.setHasTarget(false)
+  }
+
+  /// Frees the player's own buffers once no texture id shows them.
+  func dropFrames() {
+    player.dropFrames()
   }
 
   /// Starts or pauses playback. A paused animation keeps showing its

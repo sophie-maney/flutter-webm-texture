@@ -14,9 +14,30 @@ public class WebmTexturePlugin: NSObject, FlutterPlugin, WebmTextureHostApi {
   private let errors = ErrorStream()
   private let signals = SignalStream()
 
+  /// An animation and where it is shown: its own texture, or an atlas.
+  private final class Animation {
+    let texture: StickerTexture
+    /// Its own texture id; nil while it draws into an atlas, or after its
+    /// atlas was disposed.
+    var textureId: Int64?
+    var atlas: StickerAtlas?
+    init(texture: StickerTexture, textureId: Int64) {
+      self.texture = texture
+      self.textureId = textureId
+    }
+  }
+
   // Main thread only.
-  private var animations: [Int64: (texture: StickerTexture, textureId: Int64)] = [:]
+  private var animations: [Int64: Animation] = [:]
   private var lastAnimId: Int64 = 0
+  private var atlases: [Int64: StickerAtlas] = [:]
+  private var lastAtlasId: Int64 = 0
+  /// Textures Dart may still draw for a frame or two after they were
+  /// replaced, oldest first, until `releaseTextures`.
+  private var retired: [(id: Int64, texture: RetiredTexture)] = []
+  /// Retired textures kept at most; older ones are released even if Dart
+  /// never asks.
+  private static let maxRetired = 64
   private var detached = false
   /// Where the frame cache lives; created when the first animation needs it.
   private var cacheDirectory: String
@@ -37,7 +58,9 @@ public class WebmTexturePlugin: NSObject, FlutterPlugin, WebmTextureHostApi {
       wt_cache_file_path, wt_cache_get_stats, wt_cache_evict, wt_cache_clear,
       wt_sched_options_init_default, wt_sched_create, wt_sched_destroy, wt_sched_set_options,
       wt_sched_get_stats, wt_player_create, wt_player_destroy, wt_player_set_active,
-      wt_player_set_priority, wt_player_seek, wt_player_redraw,
+      wt_player_set_priority, wt_player_seek, wt_player_redraw, wt_atlas_options_init_default,
+      wt_atlas_create, wt_atlas_destroy, wt_atlas_attach, wt_atlas_detach, wt_atlas_page_count,
+      wt_atlas_get_page, wt_atlas_set_target,
     ]
     let channel = FlutterMethodChannel(name: "webm_texture", binaryMessenger: registrar.messenger())
     let instance = WebmTexturePlugin(registry: registrar.textures())
@@ -58,7 +81,10 @@ public class WebmTexturePlugin: NSObject, FlutterPlugin, WebmTextureHostApi {
 
   public func detachFromEngine(for registrar: FlutterPluginRegistrar) {
     detached = true
+    for (_, atlas) in atlases { _ = atlas.dispose(retire: retire) }
+    atlases.removeAll()
     for animId in Array(animations.keys) { disposeNow(animId) }
+    releaseRetired(retired.map(\.id))
     WebmTextureHostApiSetup.setUp(binaryMessenger: registrar.messenger(), api: nil)
   }
 
@@ -90,7 +116,7 @@ public class WebmTexturePlugin: NSObject, FlutterPlugin, WebmTextureHostApi {
       // The engine expects texture registration on the platform thread.
       let textureId = registry.register(texture)
       texture.attach(textureId: textureId)
-      animations[animId] = (texture, textureId)
+      animations[animId] = Animation(texture: texture, textureId: textureId)
       return AnimationHandleMessage(animId: animId, textureId: textureId)
     }
   }
@@ -117,6 +143,121 @@ public class WebmTexturePlugin: NSObject, FlutterPlugin, WebmTextureHostApi {
 
   func dispose(animId: Int64) throws {
     disposeNow(animId)
+  }
+
+  func createAtlas(options: AtlasOptionsMessage) throws -> Int64 {
+    guard (16...2048).contains(options.width), (16...2048).contains(options.maxHeight),
+      (1...16).contains(options.maxPages)
+    else {
+      throw PigeonError(
+        code: "WT_ERR_INVALID_ARGUMENT", message: "atlas options out of range: \(options)",
+        details: nil)
+    }
+    let atlas: WTAtlas
+    do {
+      atlas = try WTAtlas(
+        width: UInt32(options.width), maxHeight: UInt32(options.maxHeight),
+        maxPages: UInt32(options.maxPages))
+    } catch let error as NSError {
+      throw PigeonError(
+        code: error.userInfo[WTStatusNameKey] as? String ?? "WT_ERR_?",
+        message: "can't create the atlas", details: nil)
+    }
+    lastAtlasId += 1
+    atlases[lastAtlasId] = StickerAtlas(atlasId: lastAtlasId, atlas: atlas)
+    return lastAtlasId
+  }
+
+  func attachToAtlas(atlasId: Int64, animIds: [Int64]) throws -> AtlasLayoutMessage {
+    guard let atlas = atlases[atlasId] else {
+      throw PigeonError(
+        code: "WT_ERR_INVALID_ARGUMENT", message: "unknown atlas \(atlasId)", details: nil)
+    }
+    var retiredIds: [Int64] = []
+    let slots = animIds.map { animId -> AtlasSlotMessage in
+      var status = Int32(WT_ERR_INVALID_ARGUMENT)
+      var slot = WTAtlasSlot()
+      if let entry = animations[animId], entry.atlas == nil {
+        status = atlas.atlas.attach(entry.texture.player, slot: &slot)
+        if status == WT_OK {
+          entry.atlas = atlas
+          atlas.members.insert(animId)
+          // Its frames go to the slot now; its own texture keeps the last
+          // one until Dart has switched.
+          if let id = entry.textureId {
+            entry.textureId = nil
+            entry.texture.detachTexture()
+            retire(id, .standalone(entry.texture))
+            retiredIds.append(id)
+          }
+        }
+      }
+      guard status == WT_OK else {
+        return AtlasSlotMessage(
+          animId: animId, pageId: -1, x: 0, y: 0, width: 0, height: 0,
+          error: WTPlayer.name(forStatus: status))
+      }
+      return AtlasSlotMessage(
+        animId: animId, pageId: Int64(slot.page), x: Int64(slot.x), y: Int64(slot.y),
+        width: Int64(slot.width), height: Int64(slot.height))
+    }
+    retiredIds += atlas.sync(registry: registry, retire: retire)
+    return AtlasLayoutMessage(
+      slots: slots, handles: [], pages: atlas.pageMessages(), retiredTextureIds: retiredIds)
+  }
+
+  func detachFromAtlas(animIds: [Int64]) throws -> AtlasLayoutMessage {
+    var touched: [StickerAtlas] = []
+    let handles = animIds.map { animId -> AnimationHandleMessage in
+      guard let entry = animations[animId] else {
+        return AnimationHandleMessage(animId: animId, textureId: -1)
+      }
+      if let atlas = entry.atlas, atlas.atlas.detach(entry.texture.player) == WT_OK {
+        atlas.members.remove(animId)
+        entry.atlas = nil
+        if !touched.contains(where: { $0 === atlas }) { touched.append(atlas) }
+      }
+      if entry.atlas == nil && entry.textureId == nil {
+        // Back on a texture of its own, which gets the current frame.
+        let textureId = registry.register(entry.texture)
+        entry.texture.attach(textureId: textureId)
+        entry.textureId = textureId
+      }
+      return AnimationHandleMessage(animId: animId, textureId: entry.textureId ?? -1)
+    }
+    var retiredIds: [Int64] = []
+    var pages: [AtlasPageMessage] = []
+    for atlas in touched {
+      retiredIds += atlas.sync(registry: registry, retire: retire)
+      pages += atlas.pageMessages()
+    }
+    return AtlasLayoutMessage(
+      slots: [], handles: handles, pages: pages, retiredTextureIds: retiredIds)
+  }
+
+  func releaseTextures(textureIds: [Int64]) throws {
+    releaseRetired(textureIds)
+  }
+
+  func atlasStats(atlasId: Int64) throws -> AtlasStatsMessage {
+    guard let atlas = atlases[atlasId] else {
+      throw PigeonError(
+        code: "WT_ERR_INVALID_ARGUMENT", message: "unknown atlas \(atlasId)", details: nil)
+    }
+    let own = animations.values.filter { $0.textureId != nil }.count
+    let pages = atlases.values.reduce(0) { $0 + $1.textureCount }
+    return AtlasStatsMessage(
+      pages: atlas.stats(), textures: Int64(atlas.textureCount),
+      pluginTextures: Int64(own + pages + retired.count))
+  }
+
+  func disposeAtlas(atlasId: Int64) throws -> AtlasLayoutMessage {
+    guard let atlas = atlases.removeValue(forKey: atlasId) else {
+      return AtlasLayoutMessage(slots: [], handles: [], pages: [], retiredTextureIds: [])
+    }
+    for animId in atlas.members { animations[animId]?.atlas = nil }
+    return AtlasLayoutMessage(
+      slots: [], handles: [], pages: [], retiredTextureIds: atlas.dispose(retire: retire))
   }
 
   func configureCache(directory: String?) throws -> String {
@@ -152,10 +293,39 @@ public class WebmTexturePlugin: NSObject, FlutterPlugin, WebmTextureHostApi {
 
   private func disposeNow(_ animId: Int64) {
     guard let entry = animations.removeValue(forKey: animId) else { return }
+    if let atlas = entry.atlas {
+      // Leave the atlas here, on the main thread, so the player's close on a
+      // background queue can't overlap the atlas being disposed.
+      _ = atlas.atlas.detach(entry.texture.player)
+      atlas.members.remove(animId)
+    }
     // Unregister first so Flutter stops sampling, then free the decoder and
     // buffers once any in-flight frame finishes (off the main thread).
-    registry.unregisterTexture(entry.textureId)
+    if let id = entry.textureId { registry.unregisterTexture(id) }
     entry.texture.close()
+  }
+
+  /// Keeps `texture` (no longer drawn into) until Dart releases `id`.
+  private func retire(_ id: Int64, _ texture: RetiredTexture) {
+    retired.append((id, texture))
+    while retired.count > Self.maxRetired {
+      releaseRetired([retired[0].id])
+    }
+  }
+
+  private func releaseRetired(_ ids: [Int64]) {
+    for id in ids {
+      guard let index = retired.firstIndex(where: { $0.id == id }) else { continue }
+      let entry = retired.remove(at: index)
+      registry.unregisterTexture(id)
+      if case .standalone(let texture) = entry.texture,
+        let owner = animations.values.first(where: { $0.texture === texture }),
+        owner.textureId == nil
+      {
+        // Nothing shows its own buffers any more.
+        texture.dropFrames()
+      }
+    }
   }
 
   private func emitError(animId: Int64, code: String, message: String) {

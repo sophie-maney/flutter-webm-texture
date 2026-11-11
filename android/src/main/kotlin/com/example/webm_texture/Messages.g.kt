@@ -453,6 +453,412 @@ data class AnimationErrorMessage (
     return "AnimationErrorMessage(animId=$animId, code=$code, message=$message)"
   }
 }
+
+/**
+ * Layout of an atlas's pages ([WebmTextureHostApi.createAtlas]; see
+ * `wt_atlas_options` in `wt_api.h`).
+ *
+ * Generated class from Pigeon that represents data sent in messages.
+ */
+data class AtlasOptionsMessage (
+  /** Page width in physical pixels, 16..2048 (rounded down to 16). */
+  val width: Long,
+  /** The tallest a page may grow, 16..2048 (rounded down to 16). */
+  val maxHeight: Long,
+  /** The most pages (platform textures) the atlas may use, 1..16. */
+  val maxPages: Long
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): AtlasOptionsMessage {
+      val width = pigeonVar_list[0] as Long
+      val maxHeight = pigeonVar_list[1] as Long
+      val maxPages = pigeonVar_list[2] as Long
+      return AtlasOptionsMessage(width, maxHeight, maxPages)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      width,
+      maxHeight,
+      maxPages,
+    )
+  }
+  override fun equals(other: Any?): Boolean {
+    if (other == null || other.javaClass != javaClass) {
+      return false
+    }
+    if (this === other) {
+      return true
+    }
+    val other = other as AtlasOptionsMessage
+    return MessagesPigeonUtils.deepEquals(this.width, other.width) && MessagesPigeonUtils.deepEquals(this.maxHeight, other.maxHeight) && MessagesPigeonUtils.deepEquals(this.maxPages, other.maxPages)
+  }
+
+  override fun hashCode(): Int {
+    var result = javaClass.hashCode()
+    result = 31 * result + MessagesPigeonUtils.deepHash(this.width)
+    result = 31 * result + MessagesPigeonUtils.deepHash(this.maxHeight)
+    result = 31 * result + MessagesPigeonUtils.deepHash(this.maxPages)
+    return result
+  }
+  override fun toString(): String {
+    return "AtlasOptionsMessage(width=$width, maxHeight=$maxHeight, maxPages=$maxPages)"
+  }
+}
+
+/**
+ * Where an animation attached to an atlas is drawn, in its page's pixels
+ * (origin top left). Each slot has a transparent gutter of at least 2 px
+ * around this rect.
+ *
+ * Generated class from Pigeon that represents data sent in messages.
+ */
+data class AtlasSlotMessage (
+  val animId: Long,
+  /**
+   * The page; draw [AtlasPageMessage.textureId] of this page. -1 when
+   * [error] is set.
+   */
+  val pageId: Long,
+  /** The animation's frame, at its bucket size. */
+  val x: Long,
+  val y: Long,
+  val width: Long,
+  val height: Long,
+  /**
+   * Null on success. Otherwise a `wt_status` name, such as `WT_ERR_LIMIT`
+   * (every page is full) or `WT_ERR_INVALID_ARGUMENT` (unknown animation,
+   * already in an atlas, or too big for a page): the animation keeps its
+   * own texture.
+   */
+  val error: String? = null
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): AtlasSlotMessage {
+      val animId = pigeonVar_list[0] as Long
+      val pageId = pigeonVar_list[1] as Long
+      val x = pigeonVar_list[2] as Long
+      val y = pigeonVar_list[3] as Long
+      val width = pigeonVar_list[4] as Long
+      val height = pigeonVar_list[5] as Long
+      val error = pigeonVar_list[6] as String?
+      return AtlasSlotMessage(animId, pageId, x, y, width, height, error)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      animId,
+      pageId,
+      x,
+      y,
+      width,
+      height,
+      error,
+    )
+  }
+  override fun equals(other: Any?): Boolean {
+    if (other == null || other.javaClass != javaClass) {
+      return false
+    }
+    if (this === other) {
+      return true
+    }
+    val other = other as AtlasSlotMessage
+    return MessagesPigeonUtils.deepEquals(this.animId, other.animId) && MessagesPigeonUtils.deepEquals(this.pageId, other.pageId) && MessagesPigeonUtils.deepEquals(this.x, other.x) && MessagesPigeonUtils.deepEquals(this.y, other.y) && MessagesPigeonUtils.deepEquals(this.width, other.width) && MessagesPigeonUtils.deepEquals(this.height, other.height) && MessagesPigeonUtils.deepEquals(this.error, other.error)
+  }
+
+  override fun hashCode(): Int {
+    var result = javaClass.hashCode()
+    result = 31 * result + MessagesPigeonUtils.deepHash(this.animId)
+    result = 31 * result + MessagesPigeonUtils.deepHash(this.pageId)
+    result = 31 * result + MessagesPigeonUtils.deepHash(this.x)
+    result = 31 * result + MessagesPigeonUtils.deepHash(this.y)
+    result = 31 * result + MessagesPigeonUtils.deepHash(this.width)
+    result = 31 * result + MessagesPigeonUtils.deepHash(this.height)
+    result = 31 * result + MessagesPigeonUtils.deepHash(this.error)
+    return result
+  }
+  override fun toString(): String {
+    return "AtlasSlotMessage(animId=$animId, pageId=$pageId, x=$x, y=$y, width=$width, height=$height, error=$error)"
+  }
+}
+
+/**
+ * An atlas page as Dart should draw it: a `Texture(textureId)` laid out at
+ * [width] x [height] physical pixels, clipped to a slot.
+ *
+ * Generated class from Pigeon that represents data sent in messages.
+ */
+data class AtlasPageMessage (
+  val atlasId: Long,
+  val pageId: Long,
+  val textureId: Long,
+  val width: Long,
+  val height: Long
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): AtlasPageMessage {
+      val atlasId = pigeonVar_list[0] as Long
+      val pageId = pigeonVar_list[1] as Long
+      val textureId = pigeonVar_list[2] as Long
+      val width = pigeonVar_list[3] as Long
+      val height = pigeonVar_list[4] as Long
+      return AtlasPageMessage(atlasId, pageId, textureId, width, height)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      atlasId,
+      pageId,
+      textureId,
+      width,
+      height,
+    )
+  }
+  override fun equals(other: Any?): Boolean {
+    if (other == null || other.javaClass != javaClass) {
+      return false
+    }
+    if (this === other) {
+      return true
+    }
+    val other = other as AtlasPageMessage
+    return MessagesPigeonUtils.deepEquals(this.atlasId, other.atlasId) && MessagesPigeonUtils.deepEquals(this.pageId, other.pageId) && MessagesPigeonUtils.deepEquals(this.textureId, other.textureId) && MessagesPigeonUtils.deepEquals(this.width, other.width) && MessagesPigeonUtils.deepEquals(this.height, other.height)
+  }
+
+  override fun hashCode(): Int {
+    var result = javaClass.hashCode()
+    result = 31 * result + MessagesPigeonUtils.deepHash(this.atlasId)
+    result = 31 * result + MessagesPigeonUtils.deepHash(this.pageId)
+    result = 31 * result + MessagesPigeonUtils.deepHash(this.textureId)
+    result = 31 * result + MessagesPigeonUtils.deepHash(this.width)
+    result = 31 * result + MessagesPigeonUtils.deepHash(this.height)
+    return result
+  }
+  override fun toString(): String {
+    return "AtlasPageMessage(atlasId=$atlasId, pageId=$pageId, textureId=$textureId, width=$width, height=$height)"
+  }
+}
+
+/**
+ * What a call that moves animations into or out of an atlas changed.
+ *
+ * Generated class from Pigeon that represents data sent in messages.
+ */
+data class AtlasLayoutMessage (
+  /** [WebmTextureHostApi.attachToAtlas]: one per animation, in order. */
+  val slots: List<AtlasSlotMessage>,
+  /**
+   * [WebmTextureHostApi.detachFromAtlas]: each animation's new texture of
+   * its own, in order (textureId -1 for an unknown animation).
+   */
+  val handles: List<AnimationHandleMessage>,
+  /**
+   * Every page of the atlases involved that has a texture, after the call.
+   * A page whose size changed has a new texture id: slots on it are drawn
+   * with the new id and size from now on.
+   */
+  val pages: List<AtlasPageMessage>,
+  /**
+   * Textures this call replaced (a page's previous size, an animation's own
+   * texture when it entered the atlas). They hold their last frame until
+   * Dart calls [WebmTextureHostApi.releaseTextures], which it does once no
+   * widget draws them any more.
+   */
+  val retiredTextureIds: List<Long>
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): AtlasLayoutMessage {
+      val slots = pigeonVar_list[0] as List<AtlasSlotMessage>
+      val handles = pigeonVar_list[1] as List<AnimationHandleMessage>
+      val pages = pigeonVar_list[2] as List<AtlasPageMessage>
+      val retiredTextureIds = pigeonVar_list[3] as List<Long>
+      return AtlasLayoutMessage(slots, handles, pages, retiredTextureIds)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      slots,
+      handles,
+      pages,
+      retiredTextureIds,
+    )
+  }
+  override fun equals(other: Any?): Boolean {
+    if (other == null || other.javaClass != javaClass) {
+      return false
+    }
+    if (this === other) {
+      return true
+    }
+    val other = other as AtlasLayoutMessage
+    return MessagesPigeonUtils.deepEquals(this.slots, other.slots) && MessagesPigeonUtils.deepEquals(this.handles, other.handles) && MessagesPigeonUtils.deepEquals(this.pages, other.pages) && MessagesPigeonUtils.deepEquals(this.retiredTextureIds, other.retiredTextureIds)
+  }
+
+  override fun hashCode(): Int {
+    var result = javaClass.hashCode()
+    result = 31 * result + MessagesPigeonUtils.deepHash(this.slots)
+    result = 31 * result + MessagesPigeonUtils.deepHash(this.handles)
+    result = 31 * result + MessagesPigeonUtils.deepHash(this.pages)
+    result = 31 * result + MessagesPigeonUtils.deepHash(this.retiredTextureIds)
+    return result
+  }
+  override fun toString(): String {
+    return "AtlasLayoutMessage(slots=$slots, handles=$handles, pages=$pages, retiredTextureIds=$retiredTextureIds)"
+  }
+}
+
+/**
+ * One atlas page's state and memory ([WebmTextureHostApi.atlasStats]).
+ *
+ * Generated class from Pigeon that represents data sent in messages.
+ */
+data class AtlasPageStatsMessage (
+  val pageId: Long,
+  /** -1 when the page has no texture (it is empty). */
+  val textureId: Long,
+  val width: Long,
+  /** The texture's height; 0 without one. */
+  val height: Long,
+  /** Rows the slots use. */
+  val usedHeight: Long,
+  val liveSlots: Long,
+  /**
+   * Distinct platform buffers the page's queue handed out (gralloc buffers
+   * on Android, IOSurfaces on iOS).
+   */
+  val buffers: Long,
+  /** [buffers] x row stride x [height]: the page's graphics memory. */
+  val bufferBytes: Long,
+  /** The slots' latest frames and spare decode buffers, in RAM. */
+  val cpuBytes: Long,
+  /** Frames shown (one per scheduler tick at most) and failed attempts. */
+  val presents: Long,
+  val presentFailures: Long
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): AtlasPageStatsMessage {
+      val pageId = pigeonVar_list[0] as Long
+      val textureId = pigeonVar_list[1] as Long
+      val width = pigeonVar_list[2] as Long
+      val height = pigeonVar_list[3] as Long
+      val usedHeight = pigeonVar_list[4] as Long
+      val liveSlots = pigeonVar_list[5] as Long
+      val buffers = pigeonVar_list[6] as Long
+      val bufferBytes = pigeonVar_list[7] as Long
+      val cpuBytes = pigeonVar_list[8] as Long
+      val presents = pigeonVar_list[9] as Long
+      val presentFailures = pigeonVar_list[10] as Long
+      return AtlasPageStatsMessage(pageId, textureId, width, height, usedHeight, liveSlots, buffers, bufferBytes, cpuBytes, presents, presentFailures)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      pageId,
+      textureId,
+      width,
+      height,
+      usedHeight,
+      liveSlots,
+      buffers,
+      bufferBytes,
+      cpuBytes,
+      presents,
+      presentFailures,
+    )
+  }
+  override fun equals(other: Any?): Boolean {
+    if (other == null || other.javaClass != javaClass) {
+      return false
+    }
+    if (this === other) {
+      return true
+    }
+    val other = other as AtlasPageStatsMessage
+    return MessagesPigeonUtils.deepEquals(this.pageId, other.pageId) && MessagesPigeonUtils.deepEquals(this.textureId, other.textureId) && MessagesPigeonUtils.deepEquals(this.width, other.width) && MessagesPigeonUtils.deepEquals(this.height, other.height) && MessagesPigeonUtils.deepEquals(this.usedHeight, other.usedHeight) && MessagesPigeonUtils.deepEquals(this.liveSlots, other.liveSlots) && MessagesPigeonUtils.deepEquals(this.buffers, other.buffers) && MessagesPigeonUtils.deepEquals(this.bufferBytes, other.bufferBytes) && MessagesPigeonUtils.deepEquals(this.cpuBytes, other.cpuBytes) && MessagesPigeonUtils.deepEquals(this.presents, other.presents) && MessagesPigeonUtils.deepEquals(this.presentFailures, other.presentFailures)
+  }
+
+  override fun hashCode(): Int {
+    var result = javaClass.hashCode()
+    result = 31 * result + MessagesPigeonUtils.deepHash(this.pageId)
+    result = 31 * result + MessagesPigeonUtils.deepHash(this.textureId)
+    result = 31 * result + MessagesPigeonUtils.deepHash(this.width)
+    result = 31 * result + MessagesPigeonUtils.deepHash(this.height)
+    result = 31 * result + MessagesPigeonUtils.deepHash(this.usedHeight)
+    result = 31 * result + MessagesPigeonUtils.deepHash(this.liveSlots)
+    result = 31 * result + MessagesPigeonUtils.deepHash(this.buffers)
+    result = 31 * result + MessagesPigeonUtils.deepHash(this.bufferBytes)
+    result = 31 * result + MessagesPigeonUtils.deepHash(this.cpuBytes)
+    result = 31 * result + MessagesPigeonUtils.deepHash(this.presents)
+    result = 31 * result + MessagesPigeonUtils.deepHash(this.presentFailures)
+    return result
+  }
+  override fun toString(): String {
+    return "AtlasPageStatsMessage(pageId=$pageId, textureId=$textureId, width=$width, height=$height, usedHeight=$usedHeight, liveSlots=$liveSlots, buffers=$buffers, bufferBytes=$bufferBytes, cpuBytes=$cpuBytes, presents=$presents, presentFailures=$presentFailures)"
+  }
+}
+
+/**
+ * [WebmTextureHostApi.atlasStats].
+ *
+ * Generated class from Pigeon that represents data sent in messages.
+ */
+data class AtlasStatsMessage (
+  val pages: List<AtlasPageStatsMessage>,
+  /**
+   * Platform textures the plugin holds for this atlas: its pages' current
+   * textures.
+   */
+  val textures: Long,
+  /**
+   * Platform textures the plugin holds in all: animations' own, every
+   * atlas page's, and retired ones not released yet.
+   */
+  val pluginTextures: Long
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): AtlasStatsMessage {
+      val pages = pigeonVar_list[0] as List<AtlasPageStatsMessage>
+      val textures = pigeonVar_list[1] as Long
+      val pluginTextures = pigeonVar_list[2] as Long
+      return AtlasStatsMessage(pages, textures, pluginTextures)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      pages,
+      textures,
+      pluginTextures,
+    )
+  }
+  override fun equals(other: Any?): Boolean {
+    if (other == null || other.javaClass != javaClass) {
+      return false
+    }
+    if (this === other) {
+      return true
+    }
+    val other = other as AtlasStatsMessage
+    return MessagesPigeonUtils.deepEquals(this.pages, other.pages) && MessagesPigeonUtils.deepEquals(this.textures, other.textures) && MessagesPigeonUtils.deepEquals(this.pluginTextures, other.pluginTextures)
+  }
+
+  override fun hashCode(): Int {
+    var result = javaClass.hashCode()
+    result = 31 * result + MessagesPigeonUtils.deepHash(this.pages)
+    result = 31 * result + MessagesPigeonUtils.deepHash(this.textures)
+    result = 31 * result + MessagesPigeonUtils.deepHash(this.pluginTextures)
+    return result
+  }
+  override fun toString(): String {
+    return "AtlasStatsMessage(pages=$pages, textures=$textures, pluginTextures=$pluginTextures)"
+  }
+}
 private open class MessagesPigeonCodec : StandardMessageCodec() {
   override fun readValueOfType(type: Byte, buffer: ByteBuffer): Any? {
     return when (type) {
@@ -486,6 +892,36 @@ private open class MessagesPigeonCodec : StandardMessageCodec() {
           AnimationErrorMessage.fromList(it)
         }
       }
+      135.toByte() -> {
+        (readValue(buffer) as? List<Any?>)?.let {
+          AtlasOptionsMessage.fromList(it)
+        }
+      }
+      136.toByte() -> {
+        (readValue(buffer) as? List<Any?>)?.let {
+          AtlasSlotMessage.fromList(it)
+        }
+      }
+      137.toByte() -> {
+        (readValue(buffer) as? List<Any?>)?.let {
+          AtlasPageMessage.fromList(it)
+        }
+      }
+      138.toByte() -> {
+        (readValue(buffer) as? List<Any?>)?.let {
+          AtlasLayoutMessage.fromList(it)
+        }
+      }
+      139.toByte() -> {
+        (readValue(buffer) as? List<Any?>)?.let {
+          AtlasPageStatsMessage.fromList(it)
+        }
+      }
+      140.toByte() -> {
+        (readValue(buffer) as? List<Any?>)?.let {
+          AtlasStatsMessage.fromList(it)
+        }
+      }
       else -> super.readValueOfType(type, buffer)
     }
   }
@@ -513,6 +949,30 @@ private open class MessagesPigeonCodec : StandardMessageCodec() {
       }
       is AnimationErrorMessage -> {
         stream.write(134)
+        writeValue(stream, value.toList())
+      }
+      is AtlasOptionsMessage -> {
+        stream.write(135)
+        writeValue(stream, value.toList())
+      }
+      is AtlasSlotMessage -> {
+        stream.write(136)
+        writeValue(stream, value.toList())
+      }
+      is AtlasPageMessage -> {
+        stream.write(137)
+        writeValue(stream, value.toList())
+      }
+      is AtlasLayoutMessage -> {
+        stream.write(138)
+        writeValue(stream, value.toList())
+      }
+      is AtlasPageStatsMessage -> {
+        stream.write(139)
+        writeValue(stream, value.toList())
+      }
+      is AtlasStatsMessage -> {
+        stream.write(140)
         writeValue(stream, value.toList())
       }
       else -> super.writeValue(stream, value)
@@ -563,7 +1023,11 @@ interface WebmTextureHostApi {
    * animation's frames. An unknown or disposed [animId] is ignored.
    */
   fun seekToFrame(animId: Long, frame: Long)
-  /** Releases the animation, its texture and its decoder. Safe to call twice. */
+  /**
+   * Releases the animation, its texture and its decoder. Safe to call twice.
+   * An animation in an atlas leaves it; its page keeps its size until the
+   * atlas's next attach or detach.
+   */
   fun dispose(animId: Long)
   /** Reads the current device signals. */
   fun deviceSignals(): DeviceSignalsMessage
@@ -575,6 +1039,38 @@ interface WebmTextureHostApi {
    * `WT_ERR_INVALID_ARGUMENT` for a value out of range.
    */
   fun setSchedulerOptions(workerCount: Long, maxFps: Long, maxConcurrent: Long)
+  /**
+   * Creates an empty atlas (ADR 0020): a set of pages, each one platform
+   * texture that many animations draw into. No texture exists until an
+   * animation is attached.
+   */
+  fun createAtlas(options: AtlasOptionsMessage): Long
+  /**
+   * Moves animations into atlas [atlasId], each into a slot of its bucket
+   * size on a page with room (adding a page when needed), and retires their
+   * own textures. An animation keeps playing, pausing, seeking and
+   * reporting errors as before. Pages that grew get a new texture.
+   */
+  fun attachToAtlas(atlasId: Long, animIds: List<Long>): AtlasLayoutMessage
+  /**
+   * Moves animations out of the atlas they are in, onto a new texture of
+   * their own (also for an animation whose atlas was disposed). Pages that
+   * shrank get a new texture; a page left empty has none.
+   */
+  fun detachFromAtlas(animIds: List<Long>): AtlasLayoutMessage
+  /**
+   * Releases retired textures (see [AtlasLayoutMessage.retiredTextureIds]).
+   * Unknown ids are ignored.
+   */
+  fun releaseTextures(textureIds: List<Long>)
+  /** The atlas's pages and memory. */
+  fun atlasStats(atlasId: Long): AtlasStatsMessage
+  /**
+   * Frees the atlas. Animations still in it are left without a texture
+   * until [detachFromAtlas] (or [dispose]). Its page textures are retired,
+   * as listed in the result.
+   */
+  fun disposeAtlas(atlasId: Long): AtlasLayoutMessage
   /**
    * Sets the directory for the frame cache and returns the one in use, an
    * absolute path. With a null [directory] nothing changes: the result is
@@ -722,6 +1218,110 @@ interface WebmTextureHostApi {
             val wrapped: List<Any?> = try {
               api.setSchedulerOptions(workerCountArg, maxFpsArg, maxConcurrentArg)
               listOf(null)
+            } catch (exception: Throwable) {
+              MessagesPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.webm_texture.WebmTextureHostApi.createAtlas$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val optionsArg = args[0] as AtlasOptionsMessage
+            val wrapped: List<Any?> = try {
+              listOf(api.createAtlas(optionsArg))
+            } catch (exception: Throwable) {
+              MessagesPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.webm_texture.WebmTextureHostApi.attachToAtlas$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val atlasIdArg = args[0] as Long
+            val animIdsArg = args[1] as List<Long>
+            val wrapped: List<Any?> = try {
+              listOf(api.attachToAtlas(atlasIdArg, animIdsArg))
+            } catch (exception: Throwable) {
+              MessagesPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.webm_texture.WebmTextureHostApi.detachFromAtlas$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val animIdsArg = args[0] as List<Long>
+            val wrapped: List<Any?> = try {
+              listOf(api.detachFromAtlas(animIdsArg))
+            } catch (exception: Throwable) {
+              MessagesPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.webm_texture.WebmTextureHostApi.releaseTextures$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val textureIdsArg = args[0] as List<Long>
+            val wrapped: List<Any?> = try {
+              api.releaseTextures(textureIdsArg)
+              listOf(null)
+            } catch (exception: Throwable) {
+              MessagesPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.webm_texture.WebmTextureHostApi.atlasStats$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val atlasIdArg = args[0] as Long
+            val wrapped: List<Any?> = try {
+              listOf(api.atlasStats(atlasIdArg))
+            } catch (exception: Throwable) {
+              MessagesPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.webm_texture.WebmTextureHostApi.disposeAtlas$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val atlasIdArg = args[0] as Long
+            val wrapped: List<Any?> = try {
+              listOf(api.disposeAtlas(atlasIdArg))
             } catch (exception: Throwable) {
               MessagesPigeonUtils.wrapError(exception)
             }

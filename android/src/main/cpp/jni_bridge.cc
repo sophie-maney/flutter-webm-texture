@@ -9,19 +9,64 @@
 //
 // Thread affinity matches SurfacePlayer: nativeCreate on a background thread,
 // everything else on the platform main thread.
+//
+// Atlases (T4.2, ADR 0020): nativeAtlas* wrap wt_atlas_*, and each page's
+// SurfaceProducer surface becomes an AtlasWindow, its wt_atlas_target.
 #include <android/log.h>
 #include <android/native_window_jni.h>
 #include <jni.h>
 
 #include <memory>
 #include <string>
+#include <vector>
 
+#include "atlas_window.h"
 #include "surface_player.h"
 #include "wt_api.h"
 
 namespace {
 
+using wt_android::AtlasWindow;
 using wt_android::SurfacePlayer;
+
+// Out-array layout of nativeAtlasAttach.
+enum : jsize {
+  kSlotPage = 0,
+  kSlotX = 1,
+  kSlotY = 2,
+  kSlotWidth = 3,
+  kSlotHeight = 4,
+  kSlotLength = 5,
+};
+
+// Out-array layout of nativeAtlasPageInfo (wt_atlas_page_info).
+enum : jsize {
+  kPageWidth = 0,
+  kPageUsedHeight = 1,
+  kPageWantedHeight = 2,
+  kPageHeight = 3,
+  kPageHasTarget = 4,
+  kPageLiveSlots = 5,
+  kPageBuffers = 6,
+  kPageStride = 7,
+  kPageBufferBytes = 8,
+  kPageCpuBytes = 9,
+  kPagePresents = 10,
+  kPageFailures = 11,
+  kPageLength = 12,
+};
+
+// What an atlas jlong handle points at: the core's atlas and the window each
+// page presents into (nullptr while it has none).
+struct AtlasHandle {
+  wt_atlas* atlas = nullptr;
+  uint32_t width = 0;
+  std::vector<std::unique_ptr<AtlasWindow>> windows;
+};
+
+AtlasHandle* AtlasFromJ(jlong handle) {
+  return reinterpret_cast<AtlasHandle*>(static_cast<intptr_t>(handle));
+}
 
 // Out-array layout of nativeCreate.
 enum : jsize {
@@ -335,6 +380,158 @@ Java_com_example_webm_1texture_WtNative_nativeSetSchedulerOptions(
   options.max_fps = static_cast<uint32_t>(max_fps);
   options.max_concurrent = static_cast<uint32_t>(max_concurrent);
   return wt_sched_set_options(sched, &options);
+}
+
+// Creates an empty atlas on the shared scheduler with pages `width` wide
+// (rounded down to 16) and up to max_height tall, at most max_pages of them,
+// in RGBA_8888. Writes the status into out[0] and returns the handle, or 0.
+// Thread: platform main thread.
+JNIEXPORT jlong JNICALL
+Java_com_example_webm_1texture_WtNative_nativeAtlasCreate(JNIEnv* env, jclass,
+                                                          jint width,
+                                                          jint max_height,
+                                                          jint max_pages,
+                                                          jintArray out) {
+  if (out == nullptr || env->GetArrayLength(out) < 1) return 0;
+  jint status = WT_ERR_INVALID_ARGUMENT;
+  wt_sched* sched = SharedScheduler(env);
+  if (sched == nullptr) status = WT_ERR_NO_MEMORY;
+  std::unique_ptr<AtlasHandle> h;
+  if (sched != nullptr && width > 0 && max_height > 0 && max_pages > 0) {
+    wt_atlas_options options;
+    wt_atlas_options_init_default(&options);
+    options.width = static_cast<uint32_t>(width);
+    options.max_height = static_cast<uint32_t>(max_height);
+    options.max_pages = static_cast<uint32_t>(max_pages);
+    options.format = WT_PIXEL_FORMAT_RGBA8888;
+    h = std::make_unique<AtlasHandle>();
+    h->width = options.width & ~15u;
+    status = wt_atlas_create(sched, &options, &h->atlas);
+  }
+  env->SetIntArrayRegion(out, 0, 1, &status);
+  if (status != WT_OK) return 0;
+  return static_cast<jlong>(reinterpret_cast<intptr_t>(h.release()));
+}
+
+// Gives every animation in the atlas back its own sink, waits for presents
+// in flight, then releases every page's window. The caller releases the
+// SurfaceProducers afterwards. Thread: platform main thread.
+JNIEXPORT void JNICALL
+Java_com_example_webm_1texture_WtNative_nativeAtlasDestroy(JNIEnv*, jclass,
+                                                           jlong atlas) {
+  AtlasHandle* h = AtlasFromJ(atlas);
+  if (h == nullptr) return;
+  wt_atlas_destroy(h->atlas);  // No target callback runs after this.
+  delete h;
+}
+
+// Moves the animation into a slot of the atlas (wt_atlas_attach). Writes
+// {page, x, y, width, height} into out and returns a wt_status.
+// Thread: platform main thread (waits for at most one frame in flight).
+JNIEXPORT jint JNICALL
+Java_com_example_webm_1texture_WtNative_nativeAtlasAttach(JNIEnv* env, jclass,
+                                                          jlong atlas,
+                                                          jlong anim,
+                                                          jintArray out) {
+  AtlasHandle* a = AtlasFromJ(atlas);
+  Handle* p = FromJ(anim);
+  if (a == nullptr || p == nullptr || out == nullptr ||
+      env->GetArrayLength(out) < kSlotLength) {
+    return WT_ERR_INVALID_ARGUMENT;
+  }
+  wt_atlas_slot slot;
+  const wt_status st = wt_atlas_attach(a->atlas, p->player->player(), &slot);
+  if (st != WT_OK) return st;
+  const jint values[kSlotLength] = {
+      static_cast<jint>(slot.page), static_cast<jint>(slot.x),
+      static_cast<jint>(slot.y), static_cast<jint>(slot.width),
+      static_cast<jint>(slot.height)};
+  env->SetIntArrayRegion(out, 0, kSlotLength, values);
+  return WT_OK;
+}
+
+// Moves the animation back to its own sink (wt_atlas_detach). Returns a
+// wt_status. Thread: platform main thread (waits for at most one frame).
+JNIEXPORT jint JNICALL
+Java_com_example_webm_1texture_WtNative_nativeAtlasDetach(JNIEnv*, jclass,
+                                                          jlong atlas,
+                                                          jlong anim) {
+  AtlasHandle* a = AtlasFromJ(atlas);
+  Handle* p = FromJ(anim);
+  if (a == nullptr || p == nullptr) return WT_ERR_INVALID_ARGUMENT;
+  return wt_atlas_detach(a->atlas, p->player->player());
+}
+
+// Pages created so far. Thread: platform main thread.
+JNIEXPORT jint JNICALL
+Java_com_example_webm_1texture_WtNative_nativeAtlasPageCount(JNIEnv*, jclass,
+                                                             jlong atlas) {
+  AtlasHandle* a = AtlasFromJ(atlas);
+  return a == nullptr ? 0 : static_cast<jint>(wt_atlas_page_count(a->atlas));
+}
+
+// Fills out with wt_atlas_page_info (see the kPage* layout). Returns a
+// wt_status. Thread: platform main thread; never waits for a frame.
+JNIEXPORT jint JNICALL
+Java_com_example_webm_1texture_WtNative_nativeAtlasPageInfo(JNIEnv* env, jclass,
+                                                            jlong atlas,
+                                                            jint page,
+                                                            jlongArray out) {
+  AtlasHandle* a = AtlasFromJ(atlas);
+  if (a == nullptr || page < 0 || out == nullptr ||
+      env->GetArrayLength(out) < kPageLength) {
+    return WT_ERR_INVALID_ARGUMENT;
+  }
+  wt_atlas_page_info info;
+  const wt_status st =
+      wt_atlas_get_page(a->atlas, static_cast<uint32_t>(page), &info);
+  if (st != WT_OK) return st;
+  const jlong values[kPageLength] = {
+      info.width,
+      info.used_height,
+      info.wanted_height,
+      info.height,
+      info.has_target,
+      info.live_slots,
+      info.buffers,
+      info.buffer_stride,
+      static_cast<jlong>(info.buffer_bytes),
+      static_cast<jlong>(info.cpu_bytes),
+      static_cast<jlong>(info.presents),
+      static_cast<jlong>(info.present_failures),
+  };
+  env->SetLongArrayRegion(out, 0, kPageLength, values);
+  return WT_OK;
+}
+
+// Points page `page` at surface, a SurfaceProducer surface of the page's
+// width x height (null: no surface for now, keeping height; height 0: none
+// at all). Waits for a present in flight on the old window, then releases
+// it. Returns a wt_status. Thread: platform main thread.
+JNIEXPORT jint JNICALL
+Java_com_example_webm_1texture_WtNative_nativeAtlasSetSurface(
+    JNIEnv* env, jclass, jlong atlas, jint page, jobject surface, jint height) {
+  AtlasHandle* a = AtlasFromJ(atlas);
+  if (a == nullptr || page < 0 || height < 0) return WT_ERR_INVALID_ARGUMENT;
+  const auto index = static_cast<uint32_t>(page);
+  if (index >= wt_atlas_page_count(a->atlas)) return WT_ERR_INVALID_ARGUMENT;
+  std::unique_ptr<AtlasWindow> next;
+  if (surface != nullptr) {
+    ANativeWindow* window = ANativeWindow_fromSurface(env, surface);
+    if (window == nullptr) return WT_ERR_INTERNAL;
+    next = AtlasWindow::Create(window, a->width, static_cast<uint32_t>(height));
+    if (next == nullptr) return WT_ERR_INTERNAL;
+  }
+  wt_atlas_target target{};
+  if (next != nullptr) target = next->target();
+  const wt_status st =
+      wt_atlas_set_target(a->atlas, index, next != nullptr ? &target : nullptr,
+                          static_cast<uint32_t>(height));
+  if (st != WT_OK) return st;  // `next` is released; the old one stays.
+  if (a->windows.size() <= index) a->windows.resize(index + 1);
+  // The core no longer calls the old window: release it.
+  a->windows[index] = std::move(next);
+  return WT_OK;
 }
 
 // The core's name for a status code, e.g. "WT_ERR_LIMIT".

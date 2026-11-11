@@ -21,6 +21,7 @@ internal object WtNative {
 
     const val WT_OK = 0
     const val WT_ERR_INVALID_ARGUMENT = -1
+    const val WT_ERR_LIMIT = -6
 
     /**
      * Creates the decoder for [bytes] or [path] at [width] x [height] (0 x 0
@@ -89,6 +90,68 @@ internal object WtNative {
      * Returns a `wt_status`. Main thread.
      */
     @JvmStatic external fun nativeSetSchedulerOptions(workerCount: Int, maxFps: Int, maxConcurrent: Int): Int
+
+    // Indices into nativeAtlasAttach's `out` array.
+    const val SLOT_PAGE = 0
+    const val SLOT_X = 1
+    const val SLOT_Y = 2
+    const val SLOT_WIDTH = 3
+    const val SLOT_HEIGHT = 4
+    const val SLOT_LENGTH = 5
+
+    // Indices into nativeAtlasPageInfo's `out` array (wt_atlas_page_info).
+    const val PAGE_WIDTH = 0
+    const val PAGE_USED_HEIGHT = 1
+    const val PAGE_WANTED_HEIGHT = 2
+    const val PAGE_HEIGHT = 3
+    const val PAGE_HAS_TARGET = 4
+    const val PAGE_LIVE_SLOTS = 5
+    const val PAGE_BUFFERS = 6
+    const val PAGE_STRIDE = 7
+    const val PAGE_BUFFER_BYTES = 8
+    const val PAGE_CPU_BYTES = 9
+    const val PAGE_PRESENTS = 10
+    const val PAGE_FAILURES = 11
+    const val PAGE_LENGTH = 12
+
+    /**
+     * Creates an empty atlas on the process-wide scheduler: pages [width]
+     * wide (rounded down to 16), up to [maxHeight] tall, at most [maxPages]
+     * of them. Writes the `wt_status` into `out[0]` and returns the handle,
+     * or 0. Main thread.
+     */
+    @JvmStatic external fun nativeAtlasCreate(width: Int, maxHeight: Int, maxPages: Int, out: IntArray): Long
+
+    /**
+     * Gives every animation in the atlas back its own sink, waits for
+     * presents in flight and releases the pages' windows (not their
+     * producers). Main thread.
+     */
+    @JvmStatic external fun nativeAtlasDestroy(atlas: Long)
+
+    /**
+     * Moves the animation ([anim] from [nativeCreate]) into a slot. Fills
+     * [out] (see `SLOT_*`) and returns a `wt_status`. Main thread; waits for
+     * at most one frame in flight.
+     */
+    @JvmStatic external fun nativeAtlasAttach(atlas: Long, anim: Long, out: IntArray): Int
+
+    /** Moves the animation back to its own surface. Returns a `wt_status`. Main thread. */
+    @JvmStatic external fun nativeAtlasDetach(atlas: Long, anim: Long): Int
+
+    /** Pages the atlas has created so far. Main thread. */
+    @JvmStatic external fun nativeAtlasPageCount(atlas: Long): Int
+
+    /** Fills [out] (see `PAGE_*`) for [page]; returns a `wt_status`. Main thread. */
+    @JvmStatic external fun nativeAtlasPageInfo(atlas: Long, page: Int, out: LongArray): Int
+
+    /**
+     * Points [page] at [surface] (the atlas width x [height]); null removes
+     * the page's surface for now, keeping [height] (0: for good). Waits for a
+     * present in flight on the old surface. Returns a `wt_status`. Main
+     * thread.
+     */
+    @JvmStatic external fun nativeAtlasSetSurface(atlas: Long, page: Int, surface: Surface?, height: Int): Int
 
     /** The core's name for a `wt_status`, such as `WT_ERR_LIMIT`. */
     @JvmStatic external fun nativeStatusName(status: Int): String

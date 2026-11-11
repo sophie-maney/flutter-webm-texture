@@ -110,6 +110,167 @@ class AnimationErrorMessage {
   String message;
 }
 
+/// Layout of an atlas's pages ([WebmTextureHostApi.createAtlas]; see
+/// `wt_atlas_options` in `wt_api.h`).
+class AtlasOptionsMessage {
+  AtlasOptionsMessage({
+    required this.width,
+    required this.maxHeight,
+    required this.maxPages,
+  });
+
+  /// Page width in physical pixels, 16..2048 (rounded down to 16).
+  int width;
+
+  /// The tallest a page may grow, 16..2048 (rounded down to 16).
+  int maxHeight;
+
+  /// The most pages (platform textures) the atlas may use, 1..16.
+  int maxPages;
+}
+
+/// Where an animation attached to an atlas is drawn, in its page's pixels
+/// (origin top left). Each slot has a transparent gutter of at least 2 px
+/// around this rect.
+class AtlasSlotMessage {
+  AtlasSlotMessage({
+    required this.animId,
+    required this.pageId,
+    required this.x,
+    required this.y,
+    required this.width,
+    required this.height,
+    this.error,
+  });
+
+  int animId;
+
+  /// The page; draw [AtlasPageMessage.textureId] of this page. -1 when
+  /// [error] is set.
+  int pageId;
+
+  /// The animation's frame, at its bucket size.
+  int x;
+  int y;
+  int width;
+  int height;
+
+  /// Null on success. Otherwise a `wt_status` name, such as `WT_ERR_LIMIT`
+  /// (every page is full) or `WT_ERR_INVALID_ARGUMENT` (unknown animation,
+  /// already in an atlas, or too big for a page): the animation keeps its
+  /// own texture.
+  String? error;
+}
+
+/// An atlas page as Dart should draw it: a `Texture(textureId)` laid out at
+/// [width] x [height] physical pixels, clipped to a slot.
+class AtlasPageMessage {
+  AtlasPageMessage({
+    required this.atlasId,
+    required this.pageId,
+    required this.textureId,
+    required this.width,
+    required this.height,
+  });
+
+  int atlasId;
+  int pageId;
+  int textureId;
+  int width;
+  int height;
+}
+
+/// What a call that moves animations into or out of an atlas changed.
+class AtlasLayoutMessage {
+  AtlasLayoutMessage({
+    required this.slots,
+    required this.handles,
+    required this.pages,
+    required this.retiredTextureIds,
+  });
+
+  /// [WebmTextureHostApi.attachToAtlas]: one per animation, in order.
+  List<AtlasSlotMessage> slots;
+
+  /// [WebmTextureHostApi.detachFromAtlas]: each animation's new texture of
+  /// its own, in order (textureId -1 for an unknown animation).
+  List<AnimationHandleMessage> handles;
+
+  /// Every page of the atlases involved that has a texture, after the call.
+  /// A page whose size changed has a new texture id: slots on it are drawn
+  /// with the new id and size from now on.
+  List<AtlasPageMessage> pages;
+
+  /// Textures this call replaced (a page's previous size, an animation's own
+  /// texture when it entered the atlas). They hold their last frame until
+  /// Dart calls [WebmTextureHostApi.releaseTextures], which it does once no
+  /// widget draws them any more.
+  List<int> retiredTextureIds;
+}
+
+/// One atlas page's state and memory ([WebmTextureHostApi.atlasStats]).
+class AtlasPageStatsMessage {
+  AtlasPageStatsMessage({
+    required this.pageId,
+    required this.textureId,
+    required this.width,
+    required this.height,
+    required this.usedHeight,
+    required this.liveSlots,
+    required this.buffers,
+    required this.bufferBytes,
+    required this.cpuBytes,
+    required this.presents,
+    required this.presentFailures,
+  });
+
+  int pageId;
+
+  /// -1 when the page has no texture (it is empty).
+  int textureId;
+  int width;
+
+  /// The texture's height; 0 without one.
+  int height;
+
+  /// Rows the slots use.
+  int usedHeight;
+  int liveSlots;
+
+  /// Distinct platform buffers the page's queue handed out (gralloc buffers
+  /// on Android, IOSurfaces on iOS).
+  int buffers;
+
+  /// [buffers] x row stride x [height]: the page's graphics memory.
+  int bufferBytes;
+
+  /// The slots' latest frames and spare decode buffers, in RAM.
+  int cpuBytes;
+
+  /// Frames shown (one per scheduler tick at most) and failed attempts.
+  int presents;
+  int presentFailures;
+}
+
+/// [WebmTextureHostApi.atlasStats].
+class AtlasStatsMessage {
+  AtlasStatsMessage({
+    required this.pages,
+    required this.textures,
+    required this.pluginTextures,
+  });
+
+  List<AtlasPageStatsMessage> pages;
+
+  /// Platform textures the plugin holds for this atlas: its pages' current
+  /// textures.
+  int textures;
+
+  /// Platform textures the plugin holds in all: animations' own, every
+  /// atlas page's, and retired ones not released yet.
+  int pluginTextures;
+}
+
 /// Texture lifecycle and device queries. Handlers run on the platform main
 /// thread and must not decode; decoding happens on native worker threads.
 @HostApi()
@@ -153,6 +314,8 @@ abstract class WebmTextureHostApi {
   void seekToFrame(int animId, int frame);
 
   /// Releases the animation, its texture and its decoder. Safe to call twice.
+  /// An animation in an atlas leaves it; its page keeps its size until the
+  /// atlas's next attach or detach.
   void dispose(int animId);
 
   /// Reads the current device signals.
@@ -164,6 +327,34 @@ abstract class WebmTextureHostApi {
   /// Changes reach running animations on the next scheduler round. Throws
   /// `WT_ERR_INVALID_ARGUMENT` for a value out of range.
   void setSchedulerOptions(int workerCount, int maxFps, int maxConcurrent);
+
+  /// Creates an empty atlas (ADR 0020): a set of pages, each one platform
+  /// texture that many animations draw into. No texture exists until an
+  /// animation is attached.
+  int createAtlas(AtlasOptionsMessage options);
+
+  /// Moves animations into atlas [atlasId], each into a slot of its bucket
+  /// size on a page with room (adding a page when needed), and retires their
+  /// own textures. An animation keeps playing, pausing, seeking and
+  /// reporting errors as before. Pages that grew get a new texture.
+  AtlasLayoutMessage attachToAtlas(int atlasId, List<int> animIds);
+
+  /// Moves animations out of the atlas they are in, onto a new texture of
+  /// their own (also for an animation whose atlas was disposed). Pages that
+  /// shrank get a new texture; a page left empty has none.
+  AtlasLayoutMessage detachFromAtlas(List<int> animIds);
+
+  /// Releases retired textures (see [AtlasLayoutMessage.retiredTextureIds]).
+  /// Unknown ids are ignored.
+  void releaseTextures(List<int> textureIds);
+
+  /// The atlas's pages and memory.
+  AtlasStatsMessage atlasStats(int atlasId);
+
+  /// Frees the atlas. Animations still in it are left without a texture
+  /// until [detachFromAtlas] (or [dispose]). Its page textures are retired,
+  /// as listed in the result.
+  AtlasLayoutMessage disposeAtlas(int atlasId);
 
   /// Sets the directory for the frame cache and returns the one in use, an
   /// absolute path. With a null [directory] nothing changes: the result is

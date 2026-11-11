@@ -16,6 +16,7 @@ add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../src" "${CMAKE_CURRENT_BINARY_DI
 # The glue only sees wt_api.h (through the core target's public include) and
 # exports only its JNIEXPORT functions; the core's visibility settings apply.
 target_sources(webm_texture PRIVATE
+  src/main/cpp/atlas_window.cc
   src/main/cpp/jni_bridge.cc
   src/main/cpp/surface_player.cc)
 target_link_libraries(webm_texture PRIVATE android log)
