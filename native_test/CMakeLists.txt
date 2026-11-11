@@ -51,6 +51,11 @@ target_include_directories(wt_native_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/
 target_compile_definitions(wt_native_tests PRIVATE
   WT_TEST_ASSETS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../test_assets")
 target_compile_options(wt_native_tests PRIVATE -Wall -Wextra $<$<BOOL:${WT_WERROR}>:-Werror>)
+# gif_test.cc calls wt::GifDecoder's virtual methods directly. The core is
+# built without RTTI, so no typeinfo exists for it, and GCC's UBSan vptr check
+# would need one to link.
+set_source_files_properties(gif_test.cc PROPERTIES
+  COMPILE_OPTIONS "$<$<BOOL:${WT_SANITIZE}>:-fno-sanitize=vptr>")
 
 include(GoogleTest)
 gtest_discover_tests(wt_native_tests DISCOVERY_MODE PRE_TEST)
