@@ -23,5 +23,5 @@
 ## Consequences
 
 - Two network URLs that return the same bytes share one animation, but both are fetched.
-- Cached resolutions hold their bytes, at most 32 × `maxBytes`.
-- A fetcher that overwrites a file in place under the same path keeps serving the old animation.
+- Cached resolutions hold their bytes, at most 32 × `maxBytes`. (T6.1: only enforced since [ADR 0024](0024-security-review-hardening.md), which refuses fetched bytes over 2 MiB; assets are as large as the app ships.)
+- A fetcher that overwrites a file in place under the same path keeps serving the old animation. (T6.1: only if it writes a new file and renames it over the old one. Rewriting it in place truncates the file under the core's mapping, which raises SIGBUS.)
