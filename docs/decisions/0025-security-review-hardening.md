@@ -1,4 +1,4 @@
-# 0024: Hardening from the 1.0 security review
+# 0025: Hardening from the 1.0 security review
 
 - **Status:** Accepted (T6.1)
 - **Date:** 2026-11-12
