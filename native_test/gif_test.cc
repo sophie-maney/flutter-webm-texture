@@ -999,6 +999,54 @@ TEST(GifLimitTest, DecodeBudgetCountsSeekReplay) {
   }
 }
 
+// T6.1 (S-02): giflib expands a frame's whole rect, on the canvas or not. A
+// rect may cover at most max_dimension squared, and each decode is charged at
+// the rect's area, so the replays after a decode error (every later frame
+// resets and decodes again up to the broken one) stay inside the pass budget.
+// Before the fix a 1 x 1 canvas charged 1 px for a 64 x 64 frame, so the
+// replays never ran out of budget: about 4096 px of LZW per frame shown.
+TEST(GifLimitTest, RectsAreChargedAsDecoded) {
+  GifTestFile g;
+  g.screen_width = 1;
+  g.screen_height = 1;
+  g.global_palette = P4();
+  g.frames = {Solid(0, 0, 64, 64, kIRed, 0, 2), Solid(0, 0, 8, 8, kIGreen)};
+  g.frames[1].drop_pixels = 5;  // The LZW stream ends early: a decode error.
+  g.frames[1].min_code_size = 3;
+  for (int i = 0; i < 20; ++i) g.frames.push_back(Solid(0, 0, 1, 1, kIBlue));
+  wt_limits l = DefaultLimits();
+  l.max_dimension = 64;
+  l.max_total_pixels = 3 * 64 * 64;
+  const Bytes bytes = WriteGif(g);
+
+  GifTestFile wider = g;
+  wider.frames[0] = Solid(0, 0, 65, 64, kIRed);
+  wt::GifIndex index;
+  EXPECT_EQ(Demux(WriteGif(wider), &index, &l), WT_ERR_LIMIT);
+  // Long and thin is fine: it is the area that costs.
+  wider.frames[0] = Solid(0, 0, 4096, 1, kIRed);
+  EXPECT_EQ(Demux(WriteGif(wider), &index, &l), WT_OK);
+
+  std::unique_ptr<wt::Anim> anim;
+  ASSERT_EQ(Create(bytes, 0, 0, &anim, &l), WT_OK);
+  Bytes px(4);
+  wt_frame_info info;
+  std::vector<wt_status> statuses;
+  for (;;) {
+    const wt_status s = anim->NextFrame(px.data(), px.size(), 4,
+                                        WT_PIXEL_FORMAT_RGBA8888, &info);
+    if (s == WT_END) break;
+    statuses.push_back(s);
+  }
+  ASSERT_EQ(statuses.size(), 22u);
+  EXPECT_EQ(statuses[0], WT_OK);
+  EXPECT_EQ(statuses[1], WT_ERR_DECODE);
+  EXPECT_EQ(statuses[2], WT_ERR_DECODE);  // Replayed 0 and 1: 3 x 4096 + 2x64.
+  for (size_t i = 3; i < statuses.size(); ++i) {
+    EXPECT_EQ(statuses[i], WT_ERR_LIMIT) << i;
+  }
+}
+
 // --- Playback behaviour -----------------------------------------------------
 
 TEST(GifPlaybackTest, SkipAndSeekMatchSequentialPlayback) {

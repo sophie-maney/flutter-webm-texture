@@ -1,6 +1,8 @@
 // Tests for the VP8/VP9 decoder (src/decode/vpx_decoder.*) and the YUVA
 // conversions (src/convert/yuva.*): alpha gaps and resynchronisation,
 // keyframe gating, size checks, colour matrices, scaling and buffer checks.
+#include <sys/resource.h>
+
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
@@ -196,6 +198,62 @@ TEST(VpxDecoderTest, SizeMismatchIsInvalidData) {
   EXPECT_EQ(d.Decode(clip.Data(0), clip.Alpha(0), &out), WT_ERR_INVALID_DATA);
   EXPECT_FALSE(out.shown);
   EXPECT_EQ(out.view.y, nullptr);
+}
+
+// A VP8 keyframe whose header claims width x height (14 bits each), with a
+// zeroed first partition: all libvpx needs to size its frame buffers.
+Bytes Vp8Keyframe(uint32_t width, uint32_t height) {
+  const uint32_t tag = 64u << 5 | 1u << 4;  // Keyframe, shown, 64-byte part.
+  Bytes b = {static_cast<uint8_t>(tag),
+             static_cast<uint8_t>(tag >> 8),
+             static_cast<uint8_t>(tag >> 16),
+             0x9d,
+             0x01,
+             0x2a,
+             static_cast<uint8_t>(width),
+             static_cast<uint8_t>((width >> 8) & 0x3f),
+             static_cast<uint8_t>(height),
+             static_cast<uint8_t>((height >> 8) & 0x3f)};
+  b.resize(b.size() + 128, 0);
+  return b;
+}
+
+uint64_t PeakRssBytes() {
+  struct rusage usage;
+  getrusage(RUSAGE_SELF, &usage);
+#ifdef __APPLE__
+  return static_cast<uint64_t>(usage.ru_maxrss);  // Bytes.
+#else
+  return static_cast<uint64_t>(usage.ru_maxrss) * 1024;  // KiB.
+#endif
+}
+
+// T6.1 (S-01): libvpx's --size-limit guards VP9 only. VP8 allocated four
+// frame buffers at a keyframe header's size (up to 16383 x 16383, ~400 MB
+// each) before decoding anything, so a few hundred bytes in a 16 x 16 track
+// took ~465 MB of RSS. Such a keyframe never reaches libvpx now, and the
+// decoder still takes the next keyframe of the right size. (The RSS bound
+// only bites when ctest runs this test in its own process.)
+TEST(VpxDecoderTest, OversizedVp8KeyframeIsRefusedBeforeDecoding) {
+  Clip clip;
+  ASSERT_NO_FATAL_FAILURE(LoadClip("vp8_alpha_256.webm", &clip));
+  wt::VpxDecoder d;
+  ASSERT_EQ(InitFor(clip, &d), WT_OK);
+  const uint64_t rss_before = PeakRssBytes();
+  const Bytes bomb = Vp8Keyframe(16383, 16383);
+  const wt::ByteView view{bomb.data(), bomb.size()};
+  wt::VpxDecoder::Output out;
+  EXPECT_EQ(d.Decode(view, view, &out), WT_ERR_INVALID_DATA);
+  EXPECT_FALSE(out.shown);
+  EXPECT_LT(PeakRssBytes() - rss_before, uint64_t{64} << 20);
+  // A right-size colour keyframe with an oversized alpha one: the colour
+  // shows, the alpha is refused like a broken payload.
+  EXPECT_EQ(d.Decode(clip.Data(0), view, &out), WT_OK);
+  EXPECT_TRUE(out.shown);
+  EXPECT_FALSE(out.alpha_fresh);
+  EXPECT_LT(PeakRssBytes() - rss_before, uint64_t{64} << 20);
+  EXPECT_EQ(d.Decode(clip.Data(0), clip.Alpha(0), &out), WT_OK);
+  EXPECT_TRUE(out.alpha_fresh);
 }
 
 TEST(VpxDecoderTest, WrongCodecFails) {

@@ -170,8 +170,10 @@ wt_status Atlas::Page::Present(TimePoint start) {
   }
   const uint32_t height = target_height_;
   const size_t row = size_t{width_} * 4;
+  // In 64 bits, like CheckPixelBuffer: a 32-bit size_t (armeabi-v7a) could
+  // wrap for a bogus stride and let a too-small buffer through.
   if (buf.pixels == nullptr || buf.format != format_ || buf.stride < row ||
-      buf.size < size_t{buf.stride} * (height - 1) + row) {
+      buf.size < uint64_t{buf.stride} * (height - 1) + row) {
     target_.present(target_.context, WT_ERR_INTERNAL);
     CountFailure();
     return WT_ERR_INTERNAL;

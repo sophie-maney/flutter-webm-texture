@@ -249,7 +249,14 @@ wt_status DemuxGif(ByteView bytes, const wt_limits& limits, GifIndex* out) {
     // The frame is complete: account for it.
     total_ms += frame.duration_ms;
     if (total_ms > limits.max_duration_ms) return fail(WT_ERR_LIMIT);
-    rect_pixels += uint64_t{frame.width} * frame.height;
+    // One frame may cost no more than a max_dimension-square one, as with
+    // WebM and WebP: giflib expands the whole rect, on the canvas or not
+    // (T6.1, S-02). Two 32-bit factors can't overflow 64 bits.
+    const uint64_t frame_pixels = uint64_t{frame.width} * frame.height;
+    if (frame_pixels > uint64_t{limits.max_dimension} * limits.max_dimension) {
+      return fail(WT_ERR_LIMIT);
+    }
+    rect_pixels += frame_pixels;
     if (rect_pixels > limits.max_total_pixels) return fail(WT_ERR_LIMIT);
     if (uint64_t{width} * height >
         limits.max_total_pixels / (out->frames.size() + 1)) {

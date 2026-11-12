@@ -596,7 +596,9 @@ class WtBindings {
   late final _wt_cache_get_budget = _wt_cache_get_budgetPtr
       .asFunction<int Function()>();
 
-  /// Counts the cache files in dir.
+  /// Counts the cache files in dir. Like every function here, it deletes the
+  /// files a listing finds past the 65,536th, so a flooded directory can't make
+  /// a scan unbounded.
   /// Thread: background thread (reads the directory).
   int wt_cache_get_stats(
     ffi.Pointer<ffi.Char> dir,
@@ -1418,8 +1420,9 @@ final class wt_info extends ffi.Struct {
   @ffi.Double()
   external double fps;
 
-  /// The video has an alpha channel (WebM AlphaMode = 1, a WebP alpha flag or
-  /// a GIF transparent index). False means every pixel is opaque.
+  /// Some pixel can be transparent (WebM AlphaMode = 1, a WebP alpha flag, or
+  /// for GIF a transparent index, a first frame that doesn't cover the canvas
+  /// or a disposal that exposes it). False means every pixel is opaque.
   @ffi.Bool()
   external bool has_alpha;
 
@@ -1472,7 +1475,9 @@ final class wt_limits extends ffi.Struct {
   external int max_total_pixels;
 
   /// Largest accepted width or height, in pixels, of the source and of the
-  /// output. Default 1024, which matches libvpx's --size-limit.
+  /// output. Default 1024, which matches libvpx's --size-limit (VP9 only;
+  /// the core holds every VP8/VP9 keyframe to the track's size). A GIF frame
+  /// rect may cover at most max_dimension squared pixels.
   @ffi.Uint32()
   external int max_dimension;
 

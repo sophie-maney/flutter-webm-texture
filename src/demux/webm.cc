@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstring>
 
+#include "convert/yuva.h"
 #include "vpx/vp8dx.h"
 #include "vpx/vpx_decoder.h"
 
@@ -78,7 +79,10 @@ bool ScaleTicks(int64_t value, uint64_t scale, int64_t* out) {
   return true;
 }
 
-bool PeekKeyframe(wt_codec codec, ByteView bytes, Span span) {
+// Whether the payload at span is a bitstream keyframe; for one, *width and
+// *height receive its coded size.
+bool PeekKeyframe(wt_codec codec, ByteView bytes, Span span, uint32_t* width,
+                  uint32_t* height) {
   if (span.empty() || span.size > UINT_MAX) return false;
   vpx_codec_iface_t* iface =
       codec == WT_CODEC_VP9 ? vpx_codec_vp9_dx() : vpx_codec_vp8_dx();
@@ -92,6 +96,8 @@ bool PeekKeyframe(wt_codec codec, ByteView bytes, Span span) {
                                  &si) != VPX_CODEC_OK) {
     return false;
   }
+  *width = si.w;
+  *height = si.h;
   return si.is_kf != 0;
 }
 
@@ -385,7 +391,11 @@ class Parser {
     if (width == 0 || height == 0) {
       return Fail(WT_ERR_INVALID_DATA, "zero PixelWidth or PixelHeight");
     }
-    if (width > limits_.max_dimension || height > limits_.max_dimension) {
+    // kMaxDimension too, as the WebP and GIF demuxers check: a caller may
+    // raise max_dimension, but no frame larger than that can be decoded, and
+    // it keeps the decode budget product in Push() far from overflowing.
+    if (width > limits_.max_dimension || height > limits_.max_dimension ||
+        width > YuvaImage::kMaxDimension || height > YuvaImage::kMaxDimension) {
       return Fail(WT_ERR_LIMIT, "video size over max_dimension");
     }
     out_->has_video = true;
@@ -506,9 +516,9 @@ class Parser {
       return Fail(WT_ERR_LIMIT, "more frames than max_frames");
     }
     // Decode budget: every frame is decoded at source size, so the pass costs
-    // width x height per frame. Both factors are <= max_dimension (checked
-    // with the track) and the count is < max_frames <= 2^32, so this cannot
-    // overflow 64 bits.
+    // width x height per frame. Both factors are <= YuvaImage::kMaxDimension
+    // = 2^14 (checked with the track) and the count is < max_frames <= 2^32,
+    // so this cannot overflow 64 bits.
     const uint64_t pixels = uint64_t{out_->video.width} * out_->video.height;
     if ((out_->frames.size() + 1) * pixels > limits_.max_total_pixels) {
       return Fail(WT_ERR_LIMIT, "decode budget over max_total_pixels");
@@ -518,9 +528,20 @@ class Parser {
     // Pitfall 1: the streams come from independent encoders, so a frame is a
     // random-access point only if both payloads are bitstream keyframes.
     const ByteView bytes{d_, n_};
-    f.random_access =
-        PeekKeyframe(out_->video.codec, bytes, f.data) &&
-        (f.alpha.empty() || PeekKeyframe(out_->video.codec, bytes, f.alpha));
+    const wt_codec codec = out_->video.codec;
+    uint32_t cw = 0, ch = 0, aw = 0, ah = 0;
+    const bool color_key = PeekKeyframe(codec, bytes, f.data, &cw, &ch);
+    const bool alpha_key =
+        !f.alpha.empty() && PeekKeyframe(codec, bytes, f.alpha, &aw, &ah);
+    // A keyframe sets the size the decoder allocates for, and VP8 has no
+    // --size-limit, so it must be the track's size, which max_dimension
+    // bounds (T6.1, S-01). VpxDecoder refuses one again before decoding.
+    const uint32_t w = out_->video.width, h = out_->video.height;
+    if ((color_key && (cw != w || ch != h)) ||
+        (alpha_key && (aw != w || ah != h))) {
+      return Fail(WT_ERR_INVALID_DATA, "keyframe size differs from the track");
+    }
+    f.random_access = color_key && (f.alpha.empty() || alpha_key);
     // Held here until the next frame's pts is known; see Finish().
     f.duration_ns = block_duration_ns;
     out_->frames.push_back(f);
