@@ -40,7 +40,7 @@ class Exclusive {
   std::atomic<int> overlaps_{0};
 };
 
-// A frame source with fixed durations and no pixels to decode: Draw writes
+// A frame source with fixed durations and no pixels to decode: Write puts
 // the frame index into the first four bytes of the buffer.
 class FakeSource final : public wt::FrameSource {
  public:
@@ -50,7 +50,7 @@ class FakeSource final : public wt::FrameSource {
     std::atomic<uint32_t> seeks{0};
     std::atomic<uint32_t> skips{0};
     std::atomic<uint32_t> draws{0};
-    // Draw and Skip fail with WT_ERR_DECODE for this frame (UINT32_MAX:
+    // Prepare and Skip fail with WT_ERR_DECODE for this frame (UINT32_MAX:
     // never).
     std::atomic<uint32_t> broken_frame{UINT32_MAX};
   };
@@ -71,24 +71,29 @@ class FakeSource final : public wt::FrameSource {
     cursor_ = index;
     return WT_OK;
   }
-  wt_status Skip() override {
+  wt_status Skip(const wt::CancelFlag&) override {
     Exclusive::Scope scope(&log_->exclusive);
     if (cursor_ >= frame_count()) return WT_END;
     log_->skips.fetch_add(1);
     // Like a real skip, a broken frame fails to decode (and still advances).
     return cursor_++ == log_->broken_frame.load() ? WT_ERR_DECODE : WT_OK;
   }
-  wt_status Draw(const wt_buffer& dst, wt_frame_info* out) override {
+  wt_status Prepare(const wt::CancelFlag&, wt_frame_info* out) override {
     Exclusive::Scope scope(&log_->exclusive);
     std::memset(out, 0, sizeof(*out));
     if (cursor_ >= frame_count()) return WT_END;
-    if (dst.pixels == nullptr || dst.size < 4) return WT_ERR_INVALID_ARGUMENT;
     const uint32_t index = cursor_++;
     log_->draws.fetch_add(1);
     if (index == log_->broken_frame.load()) return WT_ERR_DECODE;
-    std::memcpy(dst.pixels, &index, sizeof(index));
+    prepared_ = index;
     out->index = index;
     out->duration_ms = durations_[index];
+    return WT_OK;
+  }
+  wt_status Write(const wt_buffer& dst) override {
+    Exclusive::Scope scope(&log_->exclusive);
+    if (dst.pixels == nullptr || dst.size < 4) return WT_ERR_INVALID_ARGUMENT;
+    std::memcpy(dst.pixels, &prepared_, sizeof(prepared_));
     return WT_OK;
   }
 
@@ -96,6 +101,7 @@ class FakeSource final : public wt::FrameSource {
   const std::vector<uint32_t> durations_;
   const std::shared_ptr<Log> log_;
   uint32_t cursor_ = 0;
+  uint32_t prepared_ = 0;  // The frame Prepare kept for Write.
 };
 
 // A wt_sink that records the frames it shows.

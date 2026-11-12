@@ -37,6 +37,7 @@ add_executable(wt_native_tests
   probe_test.cc
   ref_frames.cc
   sanitizer_test.cc
+  sched_cancel_test.cc
   sched_stress_test.cc
   sched_test.cc
   slot_allocator_test.cc

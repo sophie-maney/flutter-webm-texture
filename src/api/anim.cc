@@ -337,7 +337,7 @@ void Anim::DisableCache() {
   cache_path_.clear();
 }
 
-void Anim::WriteCache(uint32_t index) {
+void Anim::WriteCache(uint32_t index, const CancelFlag* cancel) {
   if (cache_path_.empty()) return;
   // A seek broke the pass: drop what was written. The next pass from frame 0
   // (maybe this one) starts over.
@@ -371,6 +371,9 @@ void Anim::WriteCache(uint32_t index) {
   }
   if (s != WT_OK) return DisableCache();  // A full disk stays full.
   if (!writer_->full()) return;
+  // fsync, rename and eviction can take a while: not for a job that is
+  // being cancelled. The next Advance finishes the file.
+  if (IsCancelled(cancel)) return;
   FinishCache();
 }
 
@@ -465,7 +468,7 @@ wt_status Anim::DecodeCanvasFrame(bool present) {
   return WT_OK;
 }
 
-wt_status Anim::CatchUpCanvas(uint32_t index) {
+wt_status Anim::CatchUpCanvas(uint32_t index, const CancelFlag* cancel) {
   // Sequential playback finds position() == index. Anything else, or a
   // decoder that failed (its compositing state is suspect), starts over.
   if (!decoder_healthy_ || canvas_->position() > index) {
@@ -474,21 +477,27 @@ wt_status Anim::CatchUpCanvas(uint32_t index) {
     decoder_healthy_ = true;
   }
   while (canvas_->position() < index) {
+    // The decoder stays where it got to; the next call carries on.
+    if (IsCancelled(cancel)) return kCancelled;
     const wt_status s = DecodeFrame(canvas_->position(), /*present=*/false);
     if (s != WT_OK) return s;
   }
   return DecodeFrame(index, /*present=*/true);
 }
 
-wt_status Anim::DecodeAt(uint32_t index) {
+wt_status Anim::DecodeAt(uint32_t index, const CancelFlag* cancel) {
   wt_status s = EnsureDecoder(index);
   if (s != WT_OK) return s;
   if (canvas_ != nullptr) {
-    s = CatchUpCanvas(index);
+    s = CatchUpCanvas(index, cancel);
+    if (s == kCancelled) return s;
   } else {
     // Catch up from a seek. Errors here are the target frame's problem: the
-    // decoder resynchronises at the next keyframe either way.
+    // decoder resynchronises at the next keyframe either way. Cancelled, it
+    // stops between frames; next_decode_ (and the decode budget) keep the
+    // progress for the next call.
     while (next_decode_ < index) {
+      if (IsCancelled(cancel)) return kCancelled;
       s = DecodeFrame(next_decode_++, /*present=*/false);
       if (s == WT_ERR_NO_MEMORY) return s;
     }
@@ -503,12 +512,18 @@ wt_status Anim::DecodeAt(uint32_t index) {
     DisableCache();
     return s;
   }
-  WriteCache(index);
+  WriteCache(index, cancel);
   return WT_OK;
 }
 
-wt_status Anim::Advance(bool need_pixels, wt_frame_info* out_frame) {
-  const uint32_t index = cursor_++;
+wt_status Anim::Advance(bool need_pixels, const CancelFlag* cancel,
+                        wt_frame_info* out_frame) {
+  // A cancelled call left a complete file to finish.
+  if (writer_ != nullptr && writer_->full()) {
+    if (IsCancelled(cancel)) return kCancelled;
+    FinishCache();
+  }
+  const uint32_t index = cursor_;
   wt_status s = WT_ERR_INTERNAL;
   if (reader_ != nullptr) {
     // Every cached frame is complete on its own, so a skip reads nothing.
@@ -523,7 +538,11 @@ wt_status Anim::Advance(bool need_pixels, wt_frame_info* out_frame) {
       pass_pixels_ = 0;
     }
   }
-  if (reader_ == nullptr) s = DecodeAt(index);
+  if (reader_ == nullptr) {
+    s = DecodeAt(index, cancel);
+    if (s == kCancelled) return s;  // Nothing moved.
+  }
+  cursor_ = index + 1;
   if (s != WT_OK) return s;
   if (out_frame != nullptr) {
     out_frame->index = index;
@@ -541,18 +560,37 @@ wt_status Anim::NextFrame(uint8_t* dst, size_t dst_size, uint32_t stride,
     return WT_ERR_INVALID_ARGUMENT;
   }
   wt_frame_info frame{};
-  wt_status s = Advance(/*need_pixels=*/true, &frame);
+  wt_status s = PrepareFrame(&frame);
   if (s != WT_OK) return s;
-  s = YuvaToPremultiplied(frame_.view(), dst, dst_size, stride, format);
+  s = WriteFrame(dst, dst_size, stride, format);
   if (s != WT_OK) return s;
   if (out_frame != nullptr) *out_frame = frame;
   return WT_OK;
 }
 
-wt_status Anim::SkipFrame(wt_frame_info* out_frame) {
+wt_status Anim::PrepareFrame(wt_frame_info* out_frame,
+                             const CancelFlag* cancel) {
   if (out_frame != nullptr) std::memset(out_frame, 0, sizeof(*out_frame));
   if (cursor_ >= info_.frame_count) return WT_END;
-  return Advance(/*need_pixels=*/false, out_frame);
+  return Advance(/*need_pixels=*/true, cancel, out_frame);
+}
+
+wt_status Anim::WriteFrame(uint8_t* dst, size_t dst_size, uint32_t stride,
+                           wt_pixel_format format) const {
+  if (dst == nullptr ||
+      (format != WT_PIXEL_FORMAT_RGBA8888 &&
+       format != WT_PIXEL_FORMAT_BGRA8888) ||
+      CheckPixelBuffer(width(), height(), dst_size, stride) != WT_OK) {
+    return WT_ERR_INVALID_ARGUMENT;
+  }
+  if (!have_frame_) return WT_ERR_INTERNAL;
+  return YuvaToPremultiplied(frame_.view(), dst, dst_size, stride, format);
+}
+
+wt_status Anim::SkipFrame(wt_frame_info* out_frame, const CancelFlag* cancel) {
+  if (out_frame != nullptr) std::memset(out_frame, 0, sizeof(*out_frame));
+  if (cursor_ >= info_.frame_count) return WT_END;
+  return Advance(/*need_pixels=*/false, cancel, out_frame);
 }
 
 }  // namespace wt

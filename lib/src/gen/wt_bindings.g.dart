@@ -261,8 +261,9 @@ class WtBindings {
 
   /// Moves player (on the atlas's scheduler) into a slot of its output size:
   /// the lowest page with a free slot for that size, else the first page that
-  /// can grow or reuse rows for it, else a new page. Waits for the player's
-  /// frame in flight; from then on its frames go to the slot (its own sink's
+  /// can grow or reuse rows for it, else a new page. Cancels the player's frame
+  /// in flight and waits for it to stop (see Threading); from then on its
+  /// frames go to the slot (its own sink's
   /// error callback still reports decode failures) and the frame that should be
   /// showing is drawn right away. A page that grew wants a new target (see
   /// wt_atlas_page_info.wanted_height); until it has one, the new slot isn't
@@ -350,8 +351,8 @@ class WtBindings {
       .asFunction<void Function(ffi.Pointer<wt_atlas>)>();
 
   /// Frees player's slot and gives it back the sink it had before
-  /// wt_atlas_attach, waiting for its frame in flight; the frame that should be
-  /// showing is then drawn into that sink. The page may now want a smaller
+  /// wt_atlas_attach, cancelling its frame in flight and waiting for it to stop;
+  /// the frame that should be showing is then drawn into that sink. The page may now want a smaller
   /// target, or none. Returns WT_ERR_INVALID_ARGUMENT when player isn't in this
   /// atlas.
   /// Thread: as wt_atlas_attach.
@@ -699,10 +700,11 @@ class WtBindings {
         )
       >();
 
-  /// Removes player from its scheduler and destroys it and its animation. Waits
-  /// for a frame in flight, so no sink callback runs once this returns and the
-  /// sink's context may be freed. A player attached to an atlas leaves it first
-  /// (its slot is freed). NULL does nothing.
+  /// Removes player from its scheduler and destroys it and its animation.
+  /// Cancels a frame in flight and waits for it to stop (see Threading), so no
+  /// sink callback runs once this returns and the sink's context may be freed.
+  /// A player attached to an atlas leaves it first (its slot is freed). NULL
+  /// does nothing.
   /// Thread: any thread but the scheduler's own (not from a sink callback), and
   /// not concurrently with another call on player.
   void wt_player_destroy(ffi.Pointer<wt_player> player) {
@@ -842,8 +844,9 @@ class WtBindings {
         )
       >();
 
-  /// Stops the scheduler's threads, waiting for frames in flight, then destroys
-  /// every player still on it (their handles become invalid). NULL does nothing.
+  /// Stops the scheduler's threads, cancelling frames in flight and waiting for
+  /// them to stop, then destroys every player still on it (their handles become
+  /// invalid). NULL does nothing.
   /// Thread: any thread but the scheduler's own (not from a sink callback).
   void wt_sched_destroy(ffi.Pointer<wt_sched> sched) {
     return _wt_sched_destroy(sched);
@@ -891,8 +894,9 @@ class WtBindings {
       .asFunction<void Function(ffi.Pointer<wt_sched_options>)>();
 
   /// Applies new options to a running scheduler. Changes to max_fps and
-  /// max_concurrent take effect on the next round; fewer workers wait for their
-  /// frame in flight to finish.
+  /// max_concurrent take effect on the next round. Fewer workers cancel the
+  /// frames they were decoding (the workers that stay draw them) and this waits
+  /// for them to stop.
   /// Returns WT_ERR_INVALID_ARGUMENT for an option out of range (nothing
   /// changes) and WT_ERR_NO_MEMORY when a new worker can't be started (the
   /// others still apply; see wt_sched_get_stats).
@@ -1657,12 +1661,14 @@ final class wt_sched_stats extends ffi.Struct {
 final class wt_sink extends ffi.Struct {
   external ffi.Pointer<ffi.Void> context;
 
-  /// Provides a buffer of the player's output size for the next frame. Return
+  /// Provides a buffer of the player's output size for the next frame, which
+  /// is already decoded: release follows as soon as it is written. Return
   /// WT_OK after filling *out; release is then called exactly once, on the
   /// same thread. Any other status skips this attempt, and nothing else is
   /// called: WT_BUSY retries on the next tick, WT_NO_TARGET waits for
-  /// wt_player_redraw, and a negative status retries about 100 ms later.
-  /// Required.
+  /// wt_player_redraw, and a negative status retries about 100 ms later. The
+  /// decoded frame is kept for that retry. A frame that fails to decode never
+  /// reaches acquire (error reports it). Required.
   external ffi.Pointer<
     ffi.NativeFunction<
       wt_status Function(
