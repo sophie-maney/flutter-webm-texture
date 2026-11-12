@@ -379,7 +379,7 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 
 **Accept:** `fvm dart doc` produces no warnings.
 
-### [ ] T6.3 Licenses and privacy manifest
+### [x] T6.3 Licenses and privacy manifest
 **Model** Haiku 5.5 · `low` · **Depends** T0.4 · **Track** C
 - Aggregate third-party licenses into `LICENSE` and NOTICE, and add `ios/.../PrivacyInfo.xcprivacy` (no tracking, no required-reason APIs unless used; file timestamps are used by the cache, so declare `C617.1`).
 
