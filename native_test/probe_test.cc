@@ -175,10 +175,8 @@ TEST(ProbeErrorTest, CorpusErrors) {
   EXPECT_EQ(Probe("garbage.bin", &info), WT_ERR_INVALID_DATA);
   EXPECT_TRUE(IsZero(info));
 
-  // Sniffed fine, decoded in Phase 5.
+  // Sniffed fine, decoded in T5.2.
   std::memset(&info, 0xAB, sizeof(info));
-  EXPECT_EQ(Probe("anim.webp", &info), WT_ERR_UNSUPPORTED);
-  EXPECT_TRUE(IsZero(info));
   EXPECT_EQ(Probe("anim_disposal.gif", &info), WT_ERR_UNSUPPORTED);
 }
 

@@ -83,6 +83,8 @@ class YuvaImage {
  private:
   friend wt_status ScaleColor(const YuvaView& src, YuvaImage* dst);
   friend wt_status ScaleAlpha(const YuvaView& src, YuvaImage* dst);
+  friend wt_status RgbaToYuva(const uint8_t* rgba, size_t stride,
+                              uint32_t width, uint32_t height, YuvaImage* dst);
 
   std::unique_ptr<uint8_t[]> buffer_;
   uint8_t* y_ = nullptr;
@@ -104,6 +106,22 @@ wt_status ScaleColor(const YuvaView& src, YuvaImage* dst);
 // Scales src's alpha plane into dst's alpha plane, like ScaleColor.
 // Returns WT_ERR_INVALID_ARGUMENT when src.a is null or dst has no alpha.
 wt_status ScaleAlpha(const YuvaView& src, YuvaImage* dst);
+
+// Converts a straight-alpha (unpremultiplied) 8-bit RGBA canvas, bytes in
+// R, G, B, A order, into dst, which must be exactly width x height. This is
+// how the canvas decoders (WebP, GIF) join the YUVA path: they produce RGBA,
+// and everything after this call is format-neutral.
+//
+// Colour is written as full-range BT.601 (libyuv's "J420") and dst's colour
+// signalling is set to match, because 4:2:0 subsampling already loses chroma
+// detail and the full range loses the least of the 8 bits. When dst has an
+// alpha plane it receives the canvas alpha exactly; without one the canvas
+// alpha is ignored (callers allocate dst without alpha only for opaque
+// sources). The canvas must be readable for stride * (height - 1) + width * 4
+// bytes. Returns WT_ERR_INVALID_ARGUMENT for a null canvas, a size that
+// differs from dst's, or a stride below width * 4 (or above INT_MAX).
+wt_status RgbaToYuva(const uint8_t* rgba, size_t stride, uint32_t width,
+                     uint32_t height, YuvaImage* dst);
 
 // Checks that a caller's buffer can hold width x height 4-byte pixels:
 // stride >= width * 4, stride fits libyuv's int, and

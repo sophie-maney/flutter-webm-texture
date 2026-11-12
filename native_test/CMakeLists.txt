@@ -42,6 +42,7 @@ add_executable(wt_native_tests
   source_test.cc
   store_test.cc
   webm_test.cc
+  webp_test.cc
 )
 target_link_libraries(wt_native_tests PRIVATE wt_core GTest::gtest_main ZLIB::ZLIB)
 # Internal headers (demux/…) are tested directly, besides the public C ABI.

@@ -27,8 +27,8 @@ Future<void> expectProbeMatchesManifest(
     );
     return;
   }
-  if (kind != 'webm') {
-    // WebP and GIF sniff but don't probe until Phase 5.
+  if (kind == 'gif') {
+    // GIF sniffs but doesn't probe until T5.2.
     await expectLater(
       probe(),
       throwsStatus('WT_ERR_UNSUPPORTED'),
@@ -41,7 +41,11 @@ Future<void> expectProbeMatchesManifest(
   final durations = (entry['durations_ms'] as List).cast<int>();
   final totalMs = durations.fold<int>(0, (a, b) => a + b);
   final frames = entry['frame_count'] as int;
-  expect(info.format, StickerFormat.webm, reason: name);
+  expect(
+    info.format,
+    kind == 'webp' ? StickerFormat.webp : StickerFormat.webm,
+    reason: name,
+  );
   expect(info.codec.name, entry['codec'], reason: '$name codec');
   expect(info.width, entry['width'], reason: '$name width');
   expect(info.height, entry['height'], reason: '$name height');

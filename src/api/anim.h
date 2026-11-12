@@ -1,12 +1,16 @@
 // wt::Anim: the playback cursor behind a wt_anim handle.
 //
-// Scope: WebM (VP8/VP9, with or without alpha) only. WebP and GIF arrive in
-// Phase 5. Limits (wt_limits) are enforced when the file is indexed
-// (ProbeSource) and, as a guard, while decoding.
+// Scope: WebM (VP8/VP9, with or without alpha) and animated WebP; GIF
+// arrives in T5.2 through the same CanvasDecoder seam. Limits (wt_limits) are
+// enforced when the file is indexed (ProbeSource) and, as a guard, while
+// decoding.
 //
-// Per frame, decoding: decode at source size (VpxDecoder) -> scale into a
-// YUVA 4:2:0 frame at the output size (YuvaImage) -> premultiplied RGBA/BGRA
-// in the caller's buffer. The scaled frame persists between calls, which is
+// Per frame, decoding: decode at source size (VpxDecoder, or a CanvasDecoder
+// whose RGBA canvas RgbaToYuva turns into full-range BT.601 YUVA) -> scale
+// into a YUVA 4:2:0 frame at the output size (YuvaImage) -> premultiplied
+// RGBA/BGRA in the caller's buffer. A canvas decoder is sequential, so a
+// seek backwards resets it and decodes forward from frame 0 (within the
+// decode budget). The scaled frame persists between calls, which is
 // how a packet that shows nothing repeats the previous frame and how a frame
 // with a broken alpha payload keeps the last good alpha.
 //
@@ -28,15 +32,35 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "api/wt_api.h"
 #include "cache/wsc.h"
 #include "convert/yuva.h"
+#include "decode/canvas_decoder.h"
 #include "decode/vpx_decoder.h"
 #include "demux/source.h"
 #include "demux/webm.h"
+#include "demux/webp.h"
 
 namespace wt {
+
+// What every format reports per frame, which is all playback needs from the
+// index: how long it shows, when it starts (ms, relative to frame 0), and
+// whether decoding can start there from scratch.
+struct FrameTiming {
+  uint32_t duration_ms = 1;  // >= 1.
+  int64_t pts_ms = 0;
+  bool random_access = false;
+};
+
+// The index of a probed source: format-neutral timing for every playable
+// frame, plus the format's own index for decoding.
+struct SourceIndex {
+  std::vector<FrameTiming> frames;
+  WebmIndex webm;  // WT_FORMAT_WEBM only.
+  WebpIndex webp;  // WT_FORMAT_WEBP only.
+};
 
 // Fills *out from a demuxed WebM whose status is WT_OK or (with frames)
 // WT_ERR_TRUNCATED. Durations saturate rather than overflow.
@@ -48,13 +72,14 @@ void WebmInfo(const WebmIndex& index, wt_info* out);
 // too, so both fail identically. *out_info is zeroed on failure.
 //
 // Errors: WT_ERR_INVALID_DATA for an unknown format or malformed input,
-// WT_ERR_UNSUPPORTED for WebP and GIF (Phase 5) and files the core won't
-// play, WT_ERR_TRUNCATED when no complete frame exists, WT_ERR_LIMIT.
-// A file cut after its first frame succeeds with out_info->truncated set.
-// If `index` is non-null it receives the frame index on success.
-// Thread: background thread.
+// WT_ERR_UNSUPPORTED for GIF (T5.2) and files the core won't play,
+// WT_ERR_TRUNCATED when no complete frame exists, WT_ERR_LIMIT. A file cut
+// after its first frame succeeds with out_info->truncated set. If `index` is
+// non-null it receives the frame index on success. A WebP is a canvas of
+// `width` x `height` shown frame after frame; a still WebP is one frame. See
+// demux/webp.h for the duration policy. Thread: background thread.
 wt_status ProbeSource(ByteView bytes, wt_format format, const wt_limits& limits,
-                      wt_info* out_info, WebmIndex* index);
+                      wt_info* out_info, SourceIndex* index);
 
 class Anim {
  public:
@@ -116,6 +141,13 @@ class Anim {
   // Feeds frame `index` to the decoder; when present, also scales its output
   // into frame_.
   wt_status DecodeFrame(uint32_t index, bool present);
+  // Canvas formats: decodes the next canvas and, when present, converts it
+  // (and scales it) into frame_.
+  wt_status DecodeCanvasFrame(bool present);
+  // DecodeAt for a canvas decoder: seeks it to `index` by resetting and
+  // decoding forward.
+  wt_status CatchUpCanvas(uint32_t index);
+  bool has_decoder() const { return decoder_ != nullptr || canvas_ != nullptr; }
   // Decodes frame `index` into frame_, catching up from a seek first, and
   // streams it to the cache writer when one is open.
   wt_status DecodeAt(uint32_t index);
@@ -143,10 +175,16 @@ class Anim {
   void DisableCache();
 
   ByteView bytes_;
-  WebmIndex index_;
+  SourceIndex index_;
   wt_info info_{};
   wt_limits limits_{};
-  std::unique_ptr<VpxDecoder> decoder_;  // Null while the cache serves.
+  // Exactly one of these exists while decoding (neither while the cache
+  // serves): decoder_ for WebM, canvas_ for the canvas formats.
+  std::unique_ptr<VpxDecoder> decoder_;
+  std::unique_ptr<CanvasDecoder> canvas_;
+  // Canvas formats at a scaled output: the source-size YUVA that RgbaToYuva
+  // writes before ScaleColor/ScaleAlpha shrink it into frame_.
+  YuvaImage stage_;
   YuvaImage frame_;          // The current frame at the output size.
   bool have_frame_ = false;  // frame_ holds a decoded frame.
   // The last packet decoded, so the decoder can continue from next_decode_

@@ -5,6 +5,8 @@
 #include <new>
 
 #include "libyuv/convert_argb.h"
+#include "libyuv/convert_from_argb.h"
+#include "libyuv/planar_functions.h"
 #include "libyuv/scale.h"
 
 namespace wt {
@@ -122,6 +124,29 @@ wt_status ScaleAlpha(const YuvaView& src, YuvaImage* dst) {
                          I(dst->height_), libyuv::kFilterBox) != 0) {
     return WT_ERR_INTERNAL;
   }
+  return WT_OK;
+}
+
+wt_status RgbaToYuva(const uint8_t* rgba, size_t stride, uint32_t width,
+                     uint32_t height, YuvaImage* dst) {
+  if (rgba == nullptr || dst == nullptr || dst->buffer_ == nullptr ||
+      width != dst->width_ || height != dst->height_ ||
+      stride < size_t{width} * 4 || stride > static_cast<size_t>(INT_MAX)) {
+    return WT_ERR_INVALID_ARGUMENT;
+  }
+  const YuvaView d = dst->view();
+  // libyuv "ABGR" is R, G, B, A in memory.
+  if (libyuv::ABGRToJ420(rgba, static_cast<int>(stride), dst->y_, d.y_stride,
+                         dst->u_, d.u_stride, dst->v_, d.v_stride, I(width),
+                         I(height)) != 0) {
+    return WT_ERR_INTERNAL;
+  }
+  if (dst->a_ != nullptr &&
+      libyuv::ARGBExtractAlpha(rgba, static_cast<int>(stride), dst->a_,
+                               d.a_stride, I(width), I(height)) != 0) {
+    return WT_ERR_INTERNAL;
+  }
+  dst->color_ = YuvColor{YuvMatrix::kBt601, /*full_range=*/true};
   return WT_OK;
 }
 

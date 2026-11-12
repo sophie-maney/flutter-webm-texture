@@ -561,7 +561,9 @@ TEST_P(AnimCacheCorpusTest, WritesThenReads) {
 
 INSTANTIATE_TEST_SUITE_P(
     Corpus, AnimCacheCorpusTest,
-    testing::Values(CorpusCase{"vp9_alpha_512.webm", 128, 128},
+    testing::Values(CorpusCase{"anim.webp", 0, 0},
+                    CorpusCase{"anim.webp", 48, 48},
+                    CorpusCase{"vp9_alpha_512.webm", 128, 128},
                     CorpusCase{"vp9_opaque_256.webm", 0, 0},
                     CorpusCase{"vp8_alpha_256.webm", 96, 96},
                     CorpusCase{"vp9_alpha_vfr.webm", 0, 0},

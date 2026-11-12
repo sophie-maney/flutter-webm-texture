@@ -8,6 +8,7 @@
 
 #include "cache/crc32.h"
 #include "cache/store.h"
+#include "decode/webp_decoder.h"
 
 namespace wt {
 
@@ -36,6 +37,54 @@ ByteView SpanView(ByteView bytes, Span span) {
   return ByteView{bytes.data + span.offset, static_cast<size_t>(span.size)};
 }
 
+// Timing of every WebM frame, as Anim reports it: ms rounded from ns, at
+// least 1, pts relative to frame 0.
+void WebmTimings(const WebmIndex& index, std::vector<FrameTiming>* out) {
+  out->reserve(index.frames.size());
+  for (const WebmFrame& f : index.frames) {
+    FrameTiming t;
+    const uint32_t ms = ClampToU32(RoundNsToMs(f.duration_ns));
+    t.duration_ms = ms == 0 ? 1 : ms;  // duration_ns is > 0.
+    int64_t rel_ns;
+    if (__builtin_sub_overflow(f.pts_ns, index.frames[0].pts_ns, &rel_ns)) {
+      rel_ns = f.pts_ns < 0 ? INT64_MIN : INT64_MAX;
+    }
+    t.pts_ms = RoundNsToMs(rel_ns);
+    t.random_access = f.random_access;
+    out->push_back(t);
+  }
+}
+
+void WebpInfo(const WebpIndex& index, wt_info* out) {
+  std::memset(out, 0, sizeof(*out));
+  out->format = WT_FORMAT_WEBP;
+  out->codec = WT_CODEC_WEBP;
+  out->width = index.width;
+  out->height = index.height;
+  out->frame_count = static_cast<uint32_t>(index.duration_ms.size());
+  uint64_t total_ms = 0;
+  for (uint32_t ms : index.duration_ms) total_ms += ms;  // <= max_duration_ms.
+  out->duration_ms = ClampToU32(static_cast<int64_t>(total_ms));
+  out->fps = out->duration_ms == 0
+                 ? 0.0
+                 : out->frame_count * 1000.0 / out->duration_ms;
+  out->has_alpha = index.has_alpha;
+  out->truncated = index.truncated;
+}
+
+void WebpTimings(const WebpIndex& index, std::vector<FrameTiming>* out) {
+  out->reserve(index.duration_ms.size());
+  int64_t pts = 0;
+  for (uint32_t ms : index.duration_ms) {
+    FrameTiming t;
+    t.duration_ms = ms;
+    t.pts_ms = pts;
+    t.random_access = out->empty();  // Only frame 0: compositing is stateful.
+    pts += ms;
+    out->push_back(t);
+  }
+}
+
 }  // namespace
 
 void WebmInfo(const WebmIndex& index, wt_info* out) {
@@ -62,28 +111,42 @@ void WebmInfo(const WebmIndex& index, wt_info* out) {
 }
 
 wt_status ProbeSource(ByteView bytes, wt_format format, const wt_limits& limits,
-                      wt_info* out_info, WebmIndex* index) {
+                      wt_info* out_info, SourceIndex* index) {
   std::memset(out_info, 0, sizeof(*out_info));
+  SourceIndex local;
+  SourceIndex* idx = index != nullptr ? index : &local;
+  *idx = SourceIndex();
   switch (format) {
     case WT_FORMAT_WEBM:
       break;
-    case WT_FORMAT_WEBP:
+    case WT_FORMAT_WEBP: {
+      const wt_status s = DemuxWebp(bytes, limits, &idx->webp);
+      if (s != WT_OK) return s;
+      if (idx->webp.duration_ms.empty() || idx->webp.width == 0 ||
+          idx->webp.height == 0) {
+        return WT_ERR_INTERNAL;  // The demuxer promises a playable frame.
+      }
+      WebpInfo(idx->webp, out_info);
+      WebpTimings(idx->webp, &idx->frames);
+      return WT_OK;
+    }
     case WT_FORMAT_GIF:
-      return WT_ERR_UNSUPPORTED;  // Phase 5.
+      return WT_ERR_UNSUPPORTED;  // T5.2.
     default:
       return WT_ERR_INVALID_DATA;
   }
-  WebmIndex local;
-  WebmIndex* idx = index != nullptr ? index : &local;
-  const wt_status demux = DemuxWebm(bytes, limits, idx);
+  const wt_status demux = DemuxWebm(bytes, limits, &idx->webm);
   // A truncated file plays the complete frames before the cut (ADR 0008).
-  if (demux != WT_OK && !(demux == WT_ERR_TRUNCATED && !idx->frames.empty())) {
+  if (demux != WT_OK &&
+      !(demux == WT_ERR_TRUNCATED && !idx->webm.frames.empty())) {
     return demux;
   }
-  if (idx->frames.empty() || idx->video.width == 0 || idx->video.height == 0) {
+  if (idx->webm.frames.empty() || idx->webm.video.width == 0 ||
+      idx->webm.video.height == 0) {
     return WT_ERR_INTERNAL;  // The demuxer promises a playable track.
   }
-  WebmInfo(*idx, out_info);
+  WebmInfo(idx->webm, out_info);
+  WebmTimings(idx->webm, &idx->frames);
   return WT_OK;
 }
 
@@ -105,15 +168,20 @@ wt_status Anim::Create(ByteView bytes, wt_format format,
   const wt_status probe =
       ProbeSource(bytes, format, limits, &anim->info_, &anim->index_);
   if (probe != WT_OK) return probe;
-  const WebmVideoTrack& track = anim->index_.video;
   anim->max_pass_pixels_ = limits.max_total_pixels;
 
   if (width == 0) {
-    width = track.width;
-    height = track.height;
+    width = anim->info_.width;
+    height = anim->info_.height;
   }
-  wt_status s = anim->frame_.Allocate(width, height, track.has_alpha());
+  wt_status s = anim->frame_.Allocate(width, height, anim->info_.has_alpha);
   if (s != WT_OK) return s;
+  if (format == WT_FORMAT_WEBP &&
+      (width != anim->info_.width || height != anim->info_.height)) {
+    s = anim->stage_.Allocate(anim->info_.width, anim->info_.height,
+                              anim->info_.has_alpha);
+    if (s != WT_OK) return s;
+  }
 
   if (cache_path != nullptr && cache_path[0] != '\0') {
     anim->cache_path_ = cache_path;
@@ -136,10 +204,25 @@ Anim::CacheMode Anim::cache_mode() const {
 }
 
 wt_status Anim::EnsureDecoder(uint32_t target) {
-  if (decoder_ != nullptr) return WT_OK;
+  if (has_decoder()) return WT_OK;
+  if (info_.format == WT_FORMAT_WEBP) {
+    // A cut file decodes from its complete-frames prefix (demux/webp.h).
+    const ByteView source =
+        index_.webp.truncated
+            ? ByteView{index_.webp.prefix.data(), index_.webp.prefix.size()}
+            : bytes_;
+    std::unique_ptr<WebpDecoder> webp;
+    const wt_status s = WebpDecoder::Create(source, info_.width, info_.height,
+                                            info_.frame_count, &webp);
+    if (s != WT_OK) return s;
+    canvas_ = std::move(webp);
+    decoder_healthy_ = true;
+    next_decode_ = 0;
+    return WT_OK;
+  }
   std::unique_ptr<VpxDecoder> decoder(new (std::nothrow) VpxDecoder);
   if (decoder == nullptr) return WT_ERR_NO_MEMORY;
-  const WebmVideoTrack& track = index_.video;
+  const WebmVideoTrack& track = index_.webm.video;
   const wt_status s =
       decoder->Init(track.codec, track.width, track.height, track.has_alpha());
   if (s != WT_OK) return s;
@@ -158,17 +241,11 @@ uint32_t Anim::RandomAccessBefore(uint32_t index) const {
 }
 
 uint32_t Anim::FrameDurationMs(uint32_t index) const {
-  const uint32_t ms = ClampToU32(RoundNsToMs(index_.frames[index].duration_ns));
-  return ms == 0 ? 1 : ms;  // duration_ns is > 0.
+  return index_.frames[index].duration_ms;
 }
 
 int64_t Anim::FramePtsMs(uint32_t index) const {
-  const int64_t pts = index_.frames[index].pts_ns;
-  int64_t rel_ns;
-  if (__builtin_sub_overflow(pts, index_.frames[0].pts_ns, &rel_ns)) {
-    rel_ns = pts < 0 ? INT64_MIN : INT64_MAX;
-  }
-  return RoundNsToMs(rel_ns);
+  return index_.frames[index].pts_ms;
 }
 
 // --- Frame cache
@@ -245,7 +322,10 @@ void Anim::WriteCache(uint32_t index) {
   writer_.reset();
   // Later loops read the file instead of decoding.
   OpenCache();
-  if (reader_ != nullptr) decoder_.reset();
+  if (reader_ != nullptr) {
+    decoder_.reset();
+    canvas_.reset();
+  }
   // Mapped first, so even if the budget evicts our own file (one larger than
   // the budget) the mapping keeps serving this animation's loops.
   EvictAfterWrite(cache_path_);
@@ -270,9 +350,10 @@ wt_status Anim::Seek(uint32_t frame_index) {
 }
 
 wt_status Anim::DecodeFrame(uint32_t index, bool present) {
-  const WebmFrame& f = index_.frames[index];
   pass_pixels_ += uint64_t{info_.width} * info_.height;
   if (pass_pixels_ > max_pass_pixels_) return WT_ERR_LIMIT;
+  if (canvas_ != nullptr) return DecodeCanvasFrame(present);
+  const WebmFrame& f = index_.webm.frames[index];
   VpxDecoder::Output out;
   const wt_status s = decoder_->Decode(SpanView(bytes_, f.data),
                                        SpanView(bytes_, f.alpha), &out);
@@ -286,17 +367,57 @@ wt_status Anim::DecodeFrame(uint32_t index, bool present) {
   return WT_OK;
 }
 
+wt_status Anim::DecodeCanvasFrame(bool present) {
+  RgbaView canvas;
+  wt_status s = canvas_->Next(&canvas);
+  decoder_healthy_ = s == WT_OK;
+  if (s != WT_OK || !present) return s;
+  // At the source size the canvas converts straight into the output frame;
+  // otherwise through stage_, then scaled like a WebM frame.
+  const bool scaled = stage_.width() != 0;
+  YuvaImage* target = scaled ? &stage_ : &frame_;
+  s = RgbaToYuva(canvas.data, canvas.stride, canvas.width, canvas.height,
+                 target);
+  if (s == WT_OK && scaled) {
+    s = ScaleColor(stage_.view(), &frame_);
+    if (s == WT_OK && frame_.has_alpha())
+      s = ScaleAlpha(stage_.view(), &frame_);
+  }
+  if (s != WT_OK) return s;
+  have_frame_ = true;
+  return WT_OK;
+}
+
+wt_status Anim::CatchUpCanvas(uint32_t index) {
+  // Sequential playback finds position() == index. Anything else, or a
+  // decoder that failed (its compositing state is suspect), starts over.
+  if (!decoder_healthy_ || canvas_->position() > index) {
+    const wt_status s = canvas_->Reset();
+    if (s != WT_OK) return s;
+    decoder_healthy_ = true;
+  }
+  while (canvas_->position() < index) {
+    const wt_status s = DecodeFrame(canvas_->position(), /*present=*/false);
+    if (s != WT_OK) return s;
+  }
+  return DecodeFrame(index, /*present=*/true);
+}
+
 wt_status Anim::DecodeAt(uint32_t index) {
   wt_status s = EnsureDecoder(index);
   if (s != WT_OK) return s;
-  // Catch up from a seek. Errors here are the target frame's problem: the
-  // decoder resynchronises at the next keyframe either way.
-  while (next_decode_ < index) {
-    s = DecodeFrame(next_decode_++, /*present=*/false);
-    if (s == WT_ERR_NO_MEMORY) return s;
+  if (canvas_ != nullptr) {
+    s = CatchUpCanvas(index);
+  } else {
+    // Catch up from a seek. Errors here are the target frame's problem: the
+    // decoder resynchronises at the next keyframe either way.
+    while (next_decode_ < index) {
+      s = DecodeFrame(next_decode_++, /*present=*/false);
+      if (s == WT_ERR_NO_MEMORY) return s;
+    }
+    next_decode_ = index + 1;
+    s = DecodeFrame(index, /*present=*/true);
   }
-  next_decode_ = index + 1;
-  s = DecodeFrame(index, /*present=*/true);
   // A packet that showed nothing repeats the previous frame; with none yet
   // there is nothing to show.
   if (s == WT_OK && !have_frame_) s = WT_ERR_DECODE;
