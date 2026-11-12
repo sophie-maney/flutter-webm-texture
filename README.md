@@ -292,7 +292,9 @@ the files they use.
 
 ## License
 
-This package is licensed under the terms in [LICENSE](LICENSE). The
-third-party libraries it bundles (libvpx, libwebm, libwebp, giflib, libyuv,
-lz4) carry their own licenses, collected in
-[third_party/LICENSES.md](third_party/LICENSES.md).
+This package is BSD-3-Clause licensed. The native libraries it bundles
+(libvpx, libwebm, libwebp, giflib, libyuv, lz4) carry their own BSD and MIT
+licenses: their full texts follow the package license in [LICENSE](LICENSE),
+and [NOTICE](NOTICE) lists each library's copyright line and the patent
+grants. Regenerate both with `tool/aggregate_licenses.sh` after changing
+`third_party/versions.lock`.

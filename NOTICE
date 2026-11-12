@@ -1,0 +1,160 @@
+NOTICE
+
+webm_texture is Copyright 2026 The webm_texture Authors.
+
+The package's binaries bundle the following third-party libraries. Their
+full license texts are in LICENSE.
+
+--------------------------------------------------------------------------------
+Library:   libvpx
+Version:   1.17.0
+License:   BSD-3-Clause
+Upstream:  https://github.com/webmproject/libvpx
+Copyright: Copyright (c) 2010, The WebM Project authors. All rights reserved.
+
+--------------------------------------------------------------------------------
+Library:   libwebm
+Version:   1.0.0.32
+License:   BSD-3-Clause
+Upstream:  https://github.com/webmproject/libwebm
+Copyright: Copyright (c) 2010, Google Inc. All rights reserved.
+
+--------------------------------------------------------------------------------
+Library:   libyuv
+Version:   9e8c1ef826ea1f6cc624855555c36c4d38e72818
+License:   BSD-3-Clause
+Upstream:  https://chromium.googlesource.com/libyuv/libyuv
+Copyright: Copyright 2011 The LibYuv Project Authors. All rights reserved.
+
+--------------------------------------------------------------------------------
+Library:   libwebp
+Version:   1.6.0
+License:   BSD-3-Clause
+Upstream:  https://chromium.googlesource.com/webm/libwebp
+Copyright: Copyright (c) 2010, Google Inc. All rights reserved.
+
+--------------------------------------------------------------------------------
+Library:   giflib
+Version:   6.1.3
+License:   MIT
+Upstream:  https://giflib.sourceforge.net/
+Copyright: Copyright (c) 1997 Eric S. Raymond
+
+--------------------------------------------------------------------------------
+Library:   lz4
+Version:   1.11.0
+License:   BSD-2-Clause
+Upstream:  https://github.com/lz4/lz4
+Copyright: Copyright (c) 2011-2020, Yann Collet
+
+================================================================================
+Patent grants
+================================================================================
+
+These libraries include a patent grant from Google. The full text of each
+grant follows.
+
+File: libvpx PATENTS
+--------------------------------------------------------------------------------
+Additional IP Rights Grant (Patents)
+------------------------------------
+
+"These implementations" means the copyrightable works that implement the WebM
+codecs distributed by Google as part of the WebM Project.
+
+Google hereby grants to you a perpetual, worldwide, non-exclusive, no-charge,
+royalty-free, irrevocable (except as stated in this section) patent license to
+make, have made, use, offer to sell, sell, import, transfer, and otherwise
+run, modify and propagate the contents of these implementations of WebM, where
+such license applies only to those patent claims, both currently owned by
+Google and acquired in the future, licensable by Google that are necessarily
+infringed by these implementations of WebM. This grant does not include claims
+that would be infringed only as a consequence of further modification of these
+implementations. If you or your agent or exclusive licensee institute or order
+or agree to the institution of patent litigation or any other patent
+enforcement activity against any entity (including a cross-claim or
+counterclaim in a lawsuit) alleging that any of these implementations of WebM
+or any code incorporated within any of these implementations of WebM
+constitute direct or contributory patent infringement, or inducement of
+patent infringement, then any patent rights granted to you under this License
+for these implementations of WebM shall terminate as of the date such
+litigation is filed.
+
+File: libwebm PATENTS.TXT
+--------------------------------------------------------------------------------
+Additional IP Rights Grant (Patents)
+------------------------------------
+
+"These implementations" means the copyrightable works that implement the WebM
+codecs distributed by Google as part of the WebM Project.
+
+Google hereby grants to you a perpetual, worldwide, non-exclusive, no-charge,
+royalty-free, irrevocable (except as stated in this section) patent license to
+make, have made, use, offer to sell, sell, import, transfer, and otherwise
+run, modify and propagate the contents of these implementations of WebM, where
+such license applies only to those patent claims, both currently owned by
+Google and acquired in the future, licensable by Google that are necessarily
+infringed by these implementations of WebM. This grant does not include claims
+that would be infringed only as a consequence of further modification of these
+implementations. If you or your agent or exclusive licensee institute or order
+or agree to the institution of patent litigation or any other patent
+enforcement activity against any entity (including a cross-claim or
+counterclaim in a lawsuit) alleging that any of these implementations of WebM
+or any code incorporated within any of these implementations of WebM
+constitute direct or contributory patent infringement, or inducement of
+patent infringement, then any patent rights granted to you under this License
+for these implementations of WebM shall terminate as of the date such
+litigation is filed.
+
+File: libyuv PATENTS
+--------------------------------------------------------------------------------
+Additional IP Rights Grant (Patents)
+
+"This implementation" means the copyrightable works distributed by
+Google as part of the LibYuv code package.
+
+Google hereby grants to you a perpetual, worldwide, non-exclusive,
+no-charge, irrevocable (except as stated in this section) patent
+license to make, have made, use, offer to sell, sell, import,
+transfer, and otherwise run, modify and propagate the contents of this
+implementation of the LibYuv code package, where such license applies
+only to those patent claims, both currently owned by Google and
+acquired in the future, licensable by Google that are necessarily
+infringed by this implementation of the LibYuv code package. This
+grant does not include claims that would be infringed only as a
+consequence of further modification of this implementation. If you or
+your agent or exclusive licensee institute or order or agree to the
+institution of patent litigation against any entity (including a
+cross-claim or counterclaim in a lawsuit) alleging that this
+implementation of the LibYuv code package or any code incorporated
+within this implementation of the LibYuv code package constitutes
+direct or contributory patent infringement, or inducement of patent
+infringement, then any patent rights granted to you under this License
+for this implementation of the LibYuv code package shall terminate as
+of the date such litigation is filed.
+
+File: libwebp PATENTS
+--------------------------------------------------------------------------------
+Additional IP Rights Grant (Patents)
+------------------------------------
+
+"These implementations" means the copyrightable works that implement the WebM
+codecs distributed by Google as part of the WebM Project.
+
+Google hereby grants to you a perpetual, worldwide, non-exclusive, no-charge,
+royalty-free, irrevocable (except as stated in this section) patent license to
+make, have made, use, offer to sell, sell, import, transfer, and otherwise
+run, modify and propagate the contents of these implementations of WebM, where
+such license applies only to those patent claims, both currently owned by
+Google and acquired in the future, licensable by Google that are necessarily
+infringed by these implementations of WebM. This grant does not include claims
+that would be infringed only as a consequence of further modification of these
+implementations. If you or your agent or exclusive licensee institute or order
+or agree to the institution of patent litigation or any other patent
+enforcement activity against any entity (including a cross-claim or
+counterclaim in a lawsuit) alleging that any of these implementations of WebM
+or any code incorporated within any of these implementations of WebM
+constitute direct or contributory patent infringement, or inducement of
+patent infringement, then any patent rights granted to you under this License
+for these implementations of WebM shall terminate as of the date such
+litigation is filed.
