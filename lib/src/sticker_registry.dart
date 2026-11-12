@@ -35,12 +35,25 @@ class StickerAtlasDrawing {
   /// drawn frozen, on the image the scope latched for the frame.
   final bool shared;
 
+  /// The platform texture to draw.
   final int textureId;
+
+  /// Width of the texture, in physical pixels.
   final int pageWidth;
+
+  /// Height of the texture, in physical pixels.
   final int pageHeight;
+
+  /// Left edge of the slot in the texture, in pixels.
   final int x;
+
+  /// Top edge of the slot in the texture, in pixels.
   final int y;
+
+  /// Width of the slot, in pixels.
   final int width;
+
+  /// Height of the slot, in pixels.
   final int height;
 
   @override

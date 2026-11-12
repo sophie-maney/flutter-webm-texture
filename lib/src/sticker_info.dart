@@ -1,8 +1,35 @@
 /// Container format of a sticker.
-enum StickerFormat { unknown, webm, webp, gif }
+enum StickerFormat {
+  /// Not recognised.
+  unknown,
+
+  /// WebM (Matroska) container.
+  webm,
+
+  /// Animated WebP.
+  webp,
+
+  /// GIF.
+  gif,
+}
 
 /// Codec of the frames inside a sticker.
-enum StickerCodec { unknown, vp8, vp9, webp, gif }
+enum StickerCodec {
+  /// Not recognised.
+  unknown,
+
+  /// VP8 video.
+  vp8,
+
+  /// VP9 video.
+  vp9,
+
+  /// WebP frames (lossy or lossless).
+  webp,
+
+  /// GIF (LZW) frames.
+  gif,
+}
 
 /// What `WebmStickers.probe` learns about a sticker without decoding pixels.
 class StickerInfo {

@@ -699,7 +699,10 @@ class StickerAtlasSlot extends LeafRenderObjectWidget {
     this.fit = BoxFit.contain,
   });
 
+  /// Which part of which page texture to draw.
   final StickerAtlasDrawing drawing;
+
+  /// How the slot's frame is inscribed into the box.
   final BoxFit fit;
 
   @override
@@ -723,6 +726,7 @@ class RenderStickerAtlasSlot extends RenderBox {
   /// Creates the render object.
   RenderStickerAtlasSlot({required this._drawing, required this._fit});
 
+  /// Which part of which page texture to draw.
   StickerAtlasDrawing get drawing => _drawing;
   StickerAtlasDrawing _drawing;
   set drawing(StickerAtlasDrawing value) {
@@ -731,6 +735,7 @@ class RenderStickerAtlasSlot extends RenderBox {
     markNeedsPaint();
   }
 
+  /// How the slot's frame is inscribed into the box.
   BoxFit get fit => _fit;
   BoxFit _fit;
   set fit(BoxFit value) {

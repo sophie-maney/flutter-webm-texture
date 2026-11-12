@@ -2,9 +2,8 @@ import 'package:flutter/foundation.dart';
 
 import 'sticker_tier.dart';
 
-/// Settings for [WebmStickers.configure].
-///
-/// More fields (limits, fetcher) join this class as their features land.
+/// Settings for [WebmStickers.configure]: the frame cache and the device
+/// tier.
 @immutable
 class StickerConfig {
   /// Creates a configuration; a null field keeps its default.

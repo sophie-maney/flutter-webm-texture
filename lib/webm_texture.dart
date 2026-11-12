@@ -34,7 +34,11 @@ export 'src/sticker_tier.dart' show StickerTier;
 export 'src/webm_sticker.dart'
     show StickerErrorWidgetBuilder, WebmSticker, WebmStickerController;
 
+/// Leftover from the plugin template: reports the platform version.
+///
+/// Not part of the sticker API; use [WebmSticker] and [WebmStickers].
 class WebmTexture {
+  /// The platform's version string, such as `Android 14` or `iOS 18.0`.
   Future<String?> getPlatformVersion() {
     return WebmTexturePlatform.instance.getPlatformVersion();
   }

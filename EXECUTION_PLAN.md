@@ -373,7 +373,7 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 
 **Accept:** no open high or critical findings.
 
-### [ ] T6.2 Documentation
+### [x] T6.2 Documentation
 **Model** Sonnet 5.5 · `medium` · **Depends** T4.3 · **Track** B
 - README (features, limits, quick start, atlas mode, fetcher example, tiers, cache), dartdoc for all public APIs, and `CHANGELOG.md`.
 
