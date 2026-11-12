@@ -79,6 +79,16 @@ plugin ships no HTTP client; `StickerFetcher` is the app's).
   in place. Names are SHA-256 hashes of the key, so a key can't name a path.
   Eviction touches only regular `*.wsc` and `*.wsc.*.tmp` files directly in
   the directory.
+- **A bounded cache file** ([ADR 0026](decisions/0026-cache-file-cap.md)):
+  one file may take at most a quarter of the disk budget, and never more
+  than 64 MiB. A write that would pass that is abandoned before it is
+  finished, so it leaves nothing and evicts nothing, and the process
+  doesn't try that file again.
+- **No decode while a platform thread can wait**
+  ([ADR 0027](decisions/0027-cancellable-frames.md)): a worker decodes a
+  frame before it takes the sink's buffer (a locked window on Android), and
+  destroying, attaching, detaching or shrinking the pool cancels a frame in
+  flight, which a catch-up checks between frames.
 - **Fuzzing:** six libFuzzer targets with ASan and UBSan (`fuzz/`), 60 s on
   every PR, 30 min nightly, and about an hour each for this review, with
   allocations over 256 MB reported as findings.
@@ -99,23 +109,25 @@ ran under ASan + UBSan and under TSan. Findings were measured on an Apple-silico
 
 ### Findings
 
-**Critical 0 · High 1 (fixed) · Medium 3 (1 fixed, 2 open) · Low 9 (5 fixed,
-1 mitigated, 2 open, 1 accepted) · Info 13.** Fixed findings have a regression test that
-fails without the fix.
+**Critical 0 · High 1 (fixed) · Medium 3 (fixed) · Low 9 (6 fixed, 1
+mitigated, 1 open, 1 accepted) · Info 13.** Fixed findings have a regression
+test that fails without the fix. S-04, S-05 and S-11 were fixed by a
+follow-up to the review ([ADR 0026](decisions/0026-cache-file-cap.md),
+[ADR 0027](decisions/0027-cancellable-frames.md)).
 
 | ID | Component | Severity | Finding | Status | Covered by |
 |---|---|---|---|---|---|
 | S-01 | VP8 decode (libvpx) | **High** | libvpx's `--size-limit` is enforced by the VP9 decoder only. VP8 takes its frame size from each keyframe header (14 bits, up to 16383 × 16383) and allocates four frame buffers at that size before decoding; the core compared sizes only after decoding. An 811-byte WebM with a 16 × 16 track took ~465 MB of RSS per animation (+547 MB for one packet under ASan), enough for an OOM kill with a few on screen. | Fixed: every colour and alpha keyframe must have the track's size (the demuxer refuses the file, `VpxDecoder` the packet, before libvpx sees it), and the colour decoder waits for a right-size keyframe after any mismatch ([ADR 0025](decisions/0025-security-review-hardening.md)) | `VpxDecoderTest.OversizedVp8KeyframeIsRefusedBeforeDecoding`, `WebmDemuxTest.KeyframeSizeMustMatchTheTrack`, seed `fuzz/corpus/webm/vp8_oversized_keyframe.webm`; commit "Bound VP8 keyframe sizes and GIF rect work in the core" |
 | S-02 | GIF decode | Medium | giflib expands a frame's whole rect wherever the canvas is, but the decode budget charged the canvas area. One rect could be ~160 Mpx, and after an LZW error every later frame replays the frames before it, so a GIF of about 65 KB on a 1 × 1 canvas could keep a worker busy for as long as it is visible (an estimated 168 Mpx of LZW per frame shown). | Fixed: a rect may cover at most `max_dimension`², and a GIF frame is charged at the larger of the canvas and its rect, so replays run out of budget | `GifLimitTest.RectsAreChargedAsDecoded`, seed `fuzz/corpus/gif/big_rect_then_error.gif`; same commit |
 | S-03 | WebM demuxer, limits | Low | With `max_dimension` raised by the app, WebM tracks weren't held to the decodable size (16384) and the decode budget product in `Push()` could wrap (5 frames of 2^62 px passed a 3 × 2^62 budget). App-only. | Fixed: tracks are held to `YuvaImage::kMaxDimension` like WebP and GIF canvases | `WebmDemuxTest.RaisedDimensionLimitStopsAtTheDecodableSize`; same commit |
-| S-04 | Frame cache | Medium | A cache file has no size cap. Decoded frames are stored per frame with LZ4, so incompressible frames don't shrink: a 200 KB crafted WebM wrote a **119 MB** `.wsc` (up to ~395 MB, the format's worst case at the default limits). Every view of such a sticker writes that much flash, and once the file is written, eviction deletes every other cache file (it's the newest) and then the file itself (larger than the 200 MiB budget). On 32-bit Android the mapping also costs that much address space. | **Open, needs a product decision.** Options: (a) don't cache an animation whose worst-case file (`WscMaxFileSize`) is over a cap such as `min(budget / 4, 64 MiB)`, and abandon a write that passes it; (b) abandon a write once it passes the whole budget, and evict an oversized new file first (no new number, but a 190 MB file still flushes the rest); (c) a minimum LZ4 ratio. Recommended: (a), as an ADR. Related: S-11 | — |
-| S-05 | Scheduler, platform glue | Medium | `wt_player_destroy`, `wt_atlas_attach`/`detach`, `wt_sched_set_options` and the Android `SetWindow` wait for a frame in flight, and the glue calls them on the platform main thread. That "frame" can be a catch-up decode from the last keyframe (a request after a seek, a redraw after the surface came back, an atlas detach), the cache file's fsync and an eviction scan, all while the sink's buffer (and on Android `window_mu_`) is held. A 600-frame 512 × 512 WebM with one keyframe takes 155 ms to reach its last frame here, seconds on a low-end phone; ANRs are unlikely (each call waits for one job) but jank is easy. | **Open, needs a design change.** Options: decode before `acquire` and hold the sink only for the YUV→RGBA pass (split `FrameSource::Draw` into prepare and write); a cancel flag checked by the catch-up loop so removal doesn't wait; calling `nativeDestroy` off the main thread on Android, as iOS already does for `close`. Recommended: the first two, as an ADR | — |
+| S-04 | Frame cache | Medium | A cache file has no size cap. Decoded frames are stored per frame with LZ4, so incompressible frames don't shrink: a 200 KB crafted WebM wrote a **119 MB** `.wsc` (up to ~395 MB, the format's worst case at the default limits). Every view of such a sticker writes that much flash, and once the file is written, eviction deletes every other cache file (it's the newest) and then the file itself (larger than the 200 MiB budget). On 32-bit Android the mapping also costs that much address space. | Fixed: a file may take at most `min(budget / 4, 64 MiB)` (50 MiB by default). The writer abandons a file whose real size would pass it, which leaves nothing and evicts nothing, and that animation, and later ones for the same file in the process, decode instead of writing again. A worst-case check alone would have refused common stickers (90 frames at 512 px with alpha); everything measured up to 3 s of camera-like 512 px content at 60 fps (42 MB) is still cached ([ADR 0026](decisions/0026-cache-file-cap.md), with the measurements) | `AnimCacheCapTest.CraftedFileStopsAtTheCapAndEvictsNothing` (a 35 KB file that wrote 368 MB), `AnimCacheCapTest.CorpusIsStillCachedAtTheLargestBucket`, `WscCapTest.*`, `CacheBudgetTest.AFileOverAQuarterOfTheBudgetIsntWritten`, seed `fuzz/corpus/webm/noise_keyframe_static.webm`; commit "Cap cache files at a quarter of the disk budget" |
+| S-05 | Scheduler, platform glue | Medium | `wt_player_destroy`, `wt_atlas_attach`/`detach`, `wt_sched_set_options` and the Android `SetWindow` wait for a frame in flight, and the glue calls them on the platform main thread. That "frame" can be a catch-up decode from the last keyframe (a request after a seek, a redraw after the surface came back, an atlas detach), the cache file's fsync and an eviction scan, all while the sink's buffer (and on Android `window_mu_`) is held. A 600-frame 512 × 512 WebM with one keyframe takes 155 ms to reach its last frame here, seconds on a low-end phone; ANRs are unlikely (each call waits for one job) but jank is easy. | Fixed: a job decodes (`FrameSource::Prepare`) before it acquires the sink's buffer, which it holds only for the YUV→RGBA write (`Write`); removal, retargeting and fewer workers cancel the frame in flight, which a catch-up checks between frames, and wait for at most one frame: 0.1–1.1 ms instead of 208–219 ms during a 254 ms catch-up. Android destroys players off the main thread ([ADR 0027](decisions/0027-cancellable-frames.md)) | `SchedCancelTest.*`, `AnimCancelTest.*`, `SchedCancelStressTest.CancellationsRaceCompletions` (also under TSan); commits "Decode before taking the sink and cancel waited-for frames", "Destroy Android players off the main thread" |
 | S-06 | Dart resolver, iOS glue | Low | iOS passes the cache key as a C string (`sourceKey.UTF8String`), so `key:a\u0000x` and `key:a` named the same `.wsc` file; with S-08, the precondition for cache poisoning. Needs a key the sender influences. | Fixed: keys and paths containing NUL are refused | `StickerResolver a key or path with a NUL is refused`; commit "Refuse values FFI and the glue would mangle in Dart" |
 | S-07 | Dart resolver | Low | Fetched bytes were SHA-1 hashed on the UI isolate (≈10 ms/MB), kept in the 32-entry resolution cache and copied twice more before the core refused anything over 2 MiB. A fetcher without its own cap (`http.get(url).bodyBytes`) let a sender freeze the UI and pin memory. | Fixed: fetched bytes over 2 MiB are refused with `WT_ERR_LIMIT` before hashing or caching | `StickerResolver fetched bytes over the input limit are refused, not cached`; same commit |
 | S-08 | Frame cache | Low | The cache fingerprint is the source's size and CRC-32. If two stickers' keys collide (an app that builds `key:` from sender data, a fetcher that reuses file paths, or S-06), a sender can craft content with the same size, CRC-32 (4 free bytes in a Void element or an unknown chunk), shape and timing as a known sticker and have its frames shown for that one until eviction. ADR 0015/0016 claimed "never shows wrong frames". | **Open.** Fix: a v2 header that stores the first 128 bits of the source's SHA-256 (already in tree); docs corrected meanwhile | — |
 | S-09 | Dart FFI | Low | `StickerLimits` fields were stored into `uint32_t`/`uint64_t` modulo 2^32/2^64: `maxDimension: -1` meant 4294967295, i.e. no limit, for `WebmStickers.probe`. App-only. | Fixed: out-of-range fields throw `RangeError` | `probe limits that wt_limits can't hold are refused`; same commit |
 | S-10 | Dart FFI, cache | Low | `diskBudgetBytes` was only `assert`ed non-negative; in release builds `-1` reached `wt_cache_set_budget` as `UINT64_MAX` and turned eviction off. App-only. | Fixed: a negative budget throws `RangeError` | `a negative budget is refused at the FFI boundary`; same commit |
-| S-11 | Frame cache | Low | If the file just written can't be mapped again (out of address space on 32-bit for S-04-sized files, or a concurrent clear), the next loop writes the whole file again, every loop. | **Open**, to fix with S-04: stop caching when the reopen after `Finish` fails | — |
+| S-11 | Frame cache | Low | If the file just written can't be mapped again (out of address space on 32-bit for S-04-sized files, or a concurrent clear), the next loop writes the whole file again, every loop. | Fixed: an animation that can't map the file it just wrote stops caching ([ADR 0026](decisions/0026-cache-file-cap.md)) | `AnimCacheCapTest.AFailedReopenStopsCaching`; commit "Cap cache files at a quarter of the disk budget" |
 | S-12 | Byte sources | Low | File sources (and cache files) are mapped; a file truncated in place under a mapping raises SIGBUS. Only the app (a fetcher re-downloading over the same path) can do this. | Mitigated: documented on `StickerSource.file`, `StickerFetchResult.file` and in ADR 0013. Option if it recurs: read sources of at most `max_bytes` into memory instead of mapping them | API docs |
 | S-13 | Limits | Low | `wt_limits` has no upper bounds: an app that raises `max_dimension` or `max_total_pixels` gives up the memory bounds (WebP and GIF canvases up to 16384², ~1 GiB). Only the app can do this, and only for `WebmStickers.probe` today: playback always uses the defaults. | Accepted, by design (fields may be loosened); this document and the `StickerLimits` docs say so | — |
 | I-1 | Upstream | Info | Advisories checked on 2026-11-12: CVE-2026-1861 (Chrome) and CVE-2026-2447 (Firefox) are one libvpx heap overflow in the VP9 encoder's `write_superframe_index`, fixed upstream in d5f35ac8, which libvpx 1.17.0 contains; the encoder isn't built anyway; giflib 6.1.3 includes the CVE-2026-23868 fix (6.1.2), and CVE-2026-26740 is in `egif_lib.c`, which the prebuilts don't compile; nothing found for libwebp 1.6.0, lz4 1.11.0 or the pinned libyuv. No bump needed; T6.5's watch keeps checking | — | — |
@@ -123,14 +135,14 @@ fails without the fix.
 | I-3 | Fuzzing | Info | `fuzz_webm` never sought mid-stream, so the catch-up decode from a random-access frame wasn't fuzzed. | Fixed: it now seeks into the middle and to the end; `tool/fuzz.sh` also caps allocations at 256 MB | commit "Seek in fuzz_webm, cap fuzz allocations, add review seeds" |
 | I-4 | Fuzzing | Info | Not fuzzed: `Anim::OpenCache` against a source plus a mutated cache file (the reader itself is, by `fuzz_wsc`), `ByteSource::OpenFile`, scheduler timing with hostile durations (host tests only), `SlotAllocator` (inputs are bucket sizes). Follow-up: a `fuzz_anim_cache` target | Open (follow-up) | — |
 | I-5 | WebM playback | Info | WebM has no short-frame policy (WebP and GIF play ≤ 10/20 ms frames as 100 ms); the scheduler shows no frame for under 10 ms. A WebM that can't be cached (one broken frame disables caching) decodes up to ~27 Mpx/s for as long as it is visible, about 1.7× the worst legitimate file | Accepted | — |
-| I-6 | Android glue | Info | `SurfacePlayer::Release` and `AtlasWindow::Present` post the locked buffer even when the core wrote nothing into it (a buffer can't be cancelled), so a stale earlier frame of the same app can flash. Visual only | Accepted | — |
+| I-6 | Android glue | Info | `SurfacePlayer::Release` and `AtlasWindow::Present` post the locked buffer even when the core wrote nothing into it (a buffer can't be cancelled), so a stale earlier frame of the same app can flash. Visual only | Accepted. Since ADR 0027 a frame that fails to decode takes no buffer; only a failed write (a buffer of the wrong size) still posts one | — |
 | I-7 | iOS glue | Info | `StickerTexture.frameReady` reads `closed` under the lock, then calls `textureFrameAvailable` after unlocking, so a call can follow `unregisterTexture`. Relies on the engine ignoring unknown ids (spike B did) | Accepted | — |
 | I-8 | Atlas | Info | `Atlas::Page::Present` checked the buffer size in `size_t`, which a bogus stride could wrap on 32-bit; `CheckPixelBuffer` used 64 bits | Fixed: 64 bits | commit "Bound VP8 keyframe sizes and GIF rect work in the core" |
 | I-9 | Atlas | Info | `~Atlas` frees a slot even if returning its player fails, which only documented misuse (destroying a player concurrently) can cause | Accepted | — |
 | I-10 | Cache directory | Info | `wt_cache_get_stats` deletes files past the 65,536th like every scan; its doc said it only counts | Fixed: documented | `wt_api.h` |
 | I-11 | WebP | Info | `has_alpha` comes from the ALPHA flag and per-frame flags only, so an animated WebP whose frames don't cover the canvas shows black instead of transparent there. Correctness, not security | Open (follow-up) | — |
 | I-12 | Decoders | Info | VP8's corrupted-frame flag isn't checked, so a truncated partition shows garbage; libyuv's box filter saturates for reductions beyond ~256× (black output). Memory-safe | Accepted | — |
-| I-13 | Docs | Info | `StickerLimits` only affect `WebmStickers.probe`; playback always uses the defaults, which the class docs don't say. The `jni_bridge.cc` header says every function runs on the main thread, but `nativeEvictCache` is called from a background thread (correctly) | Open (T6.2 docs) | — |
+| I-13 | Docs | Info | `StickerLimits` only affect `WebmStickers.probe`; playback always uses the defaults, which the class docs don't say. The `jni_bridge.cc` header says every function runs on the main thread, but `nativeEvictCache` is called from a background thread (correctly) | Open (T6.2 docs). The `jni_bridge.cc` header was corrected with ADR 0027 | — |
 
 Checked and found sound, among others: the EBML reader (no recursion, every
 element inside its parent with overflow-free arithmetic, unknown sizes only
@@ -174,6 +186,12 @@ didn't find S-01 or S-02 themselves (both came from reading the code): the
 allocations stayed under libFuzzer's old 2 GB default, and the harnesses'
 small budgets kept S-02's replays under the 10 s timeout.
 
+The S-04/S-05 follow-up added the seed `fuzz/corpus/webm/noise_keyframe_static.webm`
+(S-04's crafted file) and ran every target for 300 s on its code, from
+fresh corpora: 82.0 M executions of `fuzz_sniff`, 26.0 M of `fuzz_probe`,
+1.2 M of `fuzz_webm`, 217 k of `fuzz_webp`, 149 k of `fuzz_gif` and 4.4 M of
+`fuzz_wsc`, with no finding.
+
 ### Sanitizers
 
 Full host suite (`ctest`, every test, not just the scheduler subset CI runs
@@ -184,14 +202,22 @@ under TSan), on the final code of this review:
 | ASan + UBSan (`-DWT_SANITIZE=ON`) | 327 | 327 passed, no sanitizer report |
 | ThreadSanitizer (`-DWT_TSAN=ON`) | 326 | 325 passed, 1 disabled by design (`SanitizerTest.NotASanitizerBuild`), no data race |
 
+After the S-04/S-05 follow-up, on its final code: ASan + UBSan 344 tests,
+all passed with no report; TSan 343 tests, 342 passed and the same one
+disabled, no data race. The new cancellation tests also passed five
+repeated runs under TSan.
+
 ### Follow-ups
 
-1. S-04 and S-11: cap cache file size (product decision, ADR).
-2. S-05: keep the sink (and the platform thread) out of long decodes (ADR).
-3. S-08: a cryptographic source fingerprint in a v2 cache header (ADR).
-4. I-2, I-4: instrumented third-party libraries for fuzzing, and a
+1. S-08: a cryptographic source fingerprint in a v2 cache header (ADR).
+2. I-2, I-4: instrumented third-party libraries for fuzzing, and a
    `fuzz_anim_cache` target.
-5. I-11, I-13: WebP alpha detection; `StickerLimits` and thread docs.
+3. I-11, I-13: WebP alpha detection; `StickerLimits` and thread docs.
+
+Done: S-04 and S-11 (a cache file cap,
+[ADR 0026](decisions/0026-cache-file-cap.md)) and S-05 (decode before taking
+the sink, cancel frames that are waited for,
+[ADR 0027](decisions/0027-cancellable-frames.md)).
 
 ## Reporting a vulnerability
 

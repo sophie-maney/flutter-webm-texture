@@ -1,6 +1,6 @@
 # 0017: One scheduler per process, ranked by visible area
 
-- **Status:** Accepted (T3.3). T4.2 added present groups, `Retarget`, and a fix for a redraw lost to a pause ([ADR 0020](0020-atlas-compositor.md)); T4.3 added group beats ([ADR 0021](0021-atlas-scope-and-content-rate.md)).
+- **Status:** Accepted (T3.3). T4.2 added present groups, `Retarget`, and a fix for a redraw lost to a pause ([ADR 0020](0020-atlas-compositor.md)); T4.3 added group beats ([ADR 0021](0021-atlas-scope-and-content-rate.md)). T6.1 made a job decode before it acquires the sink's buffer and made removal, retargeting and fewer workers cancel a frame in flight instead of waiting for it ([ADR 0027](0027-cancellable-frames.md)), which changes the waits in decisions 7–9.
 - **Date:** 2026-11-11
 
 ## Context

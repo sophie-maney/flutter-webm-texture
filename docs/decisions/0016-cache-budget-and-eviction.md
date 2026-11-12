@@ -1,6 +1,6 @@
 # 0016: Cache budget, eviction and glue wiring
 
-- **Status:** Accepted (T3.2)
+- **Status:** Accepted (T3.2). T6.1 capped one file at a quarter of the budget, at most 64 MiB, and abandons a write past it ([ADR 0026](0026-cache-file-cap.md)); decision 2's file larger than the whole budget is no longer written.
 - **Date:** 2026-11-11
 
 ## Context

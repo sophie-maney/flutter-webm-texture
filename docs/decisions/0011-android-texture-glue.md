@@ -1,6 +1,6 @@
 # 0011: Android texture glue lives in libwebm_texture.so
 
-- **Status:** Accepted (T2.2). The per-animation render thread was replaced by the core's scheduler in T3.3 ([ADR 0017](0017-scheduler.md)); the rest stands.
+- **Status:** Accepted (T2.2). The per-animation render thread was replaced by the core's scheduler in T3.3 ([ADR 0017](0017-scheduler.md)); since T6.1 the core decodes before it locks the window and `dispose` destroys the player off the main thread ([ADR 0027](0027-cancellable-frames.md)). The rest stands.
 - **Date:** 2026-11-10
 
 ## Context
