@@ -1,9 +1,8 @@
 // wt::Anim: the playback cursor behind a wt_anim handle.
 //
-// Scope: WebM (VP8/VP9, with or without alpha) and animated WebP; GIF
-// arrives in T5.2 through the same CanvasDecoder seam. Limits (wt_limits) are
-// enforced when the file is indexed (ProbeSource) and, as a guard, while
-// decoding.
+// Scope: WebM (VP8/VP9, with or without alpha), animated WebP and GIF, the
+// last two through the CanvasDecoder seam. Limits (wt_limits) are enforced
+// when the file is indexed (ProbeSource) and, as a guard, while decoding.
 //
 // Per frame, decoding: decode at source size (VpxDecoder, or a CanvasDecoder
 // whose RGBA canvas RgbaToYuva turns into full-range BT.601 YUVA) -> scale
@@ -39,6 +38,7 @@
 #include "convert/yuva.h"
 #include "decode/canvas_decoder.h"
 #include "decode/vpx_decoder.h"
+#include "demux/gif.h"
 #include "demux/source.h"
 #include "demux/webm.h"
 #include "demux/webp.h"
@@ -60,6 +60,7 @@ struct SourceIndex {
   std::vector<FrameTiming> frames;
   WebmIndex webm;  // WT_FORMAT_WEBM only.
   WebpIndex webp;  // WT_FORMAT_WEBP only.
+  GifIndex gif;    // WT_FORMAT_GIF only.
 };
 
 // Fills *out from a demuxed WebM whose status is WT_OK or (with frames)
@@ -72,12 +73,13 @@ void WebmInfo(const WebmIndex& index, wt_info* out);
 // too, so both fail identically. *out_info is zeroed on failure.
 //
 // Errors: WT_ERR_INVALID_DATA for an unknown format or malformed input,
-// WT_ERR_UNSUPPORTED for GIF (T5.2) and files the core won't play,
+// WT_ERR_UNSUPPORTED for files the core won't play,
 // WT_ERR_TRUNCATED when no complete frame exists, WT_ERR_LIMIT. A file cut
 // after its first frame succeeds with out_info->truncated set. If `index` is
-// non-null it receives the frame index on success. A WebP is a canvas of
-// `width` x `height` shown frame after frame; a still WebP is one frame. See
-// demux/webp.h for the duration policy. Thread: background thread.
+// non-null it receives the frame index on success. A WebP or GIF is a canvas
+// of `width` x `height` shown frame after frame; a still WebP is one frame.
+// See demux/webp.h and demux/gif.h for the duration policies. Thread:
+// background thread.
 wt_status ProbeSource(ByteView bytes, wt_format format, const wt_limits& limits,
                       wt_info* out_info, SourceIndex* index);
 
@@ -179,11 +181,11 @@ class Anim {
   wt_info info_{};
   wt_limits limits_{};
   // Exactly one of these exists while decoding (neither while the cache
-  // serves): decoder_ for WebM, canvas_ for the canvas formats.
+  // serves): decoder_ for WebM, canvas_ for the canvas formats (WebP, GIF).
   std::unique_ptr<VpxDecoder> decoder_;
   std::unique_ptr<CanvasDecoder> canvas_;
-  // Canvas formats at a scaled output: the source-size YUVA that RgbaToYuva
-  // writes before ScaleColor/ScaleAlpha shrink it into frame_.
+  // Canvas formats (WebP, GIF) at a scaled output: the source-size YUVA that
+  // RgbaToYuva writes before ScaleColor/ScaleAlpha shrink it into frame_.
   YuvaImage stage_;
   YuvaImage frame_;          // The current frame at the output size.
   bool have_frame_ = false;  // frame_ holds a decoded frame.

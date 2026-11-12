@@ -1,5 +1,5 @@
 // The seam between wt::Anim and the formats that decode to a full RGBA canvas
-// one frame after another: animated WebP (WebpDecoder) and, in T5.2, GIF.
+// one frame after another: animated WebP (WebpDecoder) and GIF (GifDecoder).
 // WebM keeps its own path (VpxDecoder), which yields YUVA directly.
 //
 // A canvas decoder is sequential: Next() produces frame position(), already

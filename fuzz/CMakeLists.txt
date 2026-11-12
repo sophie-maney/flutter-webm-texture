@@ -21,8 +21,13 @@ endfunction()
 wt_add_fuzzer(fuzz_probe fuzz_probe.cc)
 wt_add_fuzzer(fuzz_webm fuzz_webm.cc)
 wt_add_fuzzer(fuzz_webp fuzz_webp.cc)
+wt_add_fuzzer(fuzz_gif fuzz_gif.cc)
 wt_add_fuzzer(fuzz_sniff fuzz_sniff.cc)
 wt_add_fuzzer(fuzz_wsc fuzz_wsc.cc)
+
+# Regenerates fuzz/corpus/gif/ (see fuzz/corpus/README.md). Not a fuzzer.
+add_executable(gif_seeds gif_seeds.cc)
+set_target_properties(gif_seeds PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 
 # Regenerates fuzz/corpus/wsc/ (see fuzz/corpus/README.md). Not a fuzzer.
 add_executable(wsc_seeds wsc_seeds.cc)

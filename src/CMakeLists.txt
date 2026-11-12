@@ -57,8 +57,10 @@ set(WT_CORE_SOURCES
   cache/store.cc
   cache/wsc.cc
   convert/yuva.cc
+  decode/gif_decoder.cc
   decode/vpx_decoder.cc
   decode/webp_decoder.cc
+  demux/gif.cc
   demux/sniff.cc
   demux/source.cc
   demux/webm.cc

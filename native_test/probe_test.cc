@@ -174,10 +174,6 @@ TEST(ProbeErrorTest, CorpusErrors) {
   std::memset(&info, 0xAB, sizeof(info));
   EXPECT_EQ(Probe("garbage.bin", &info), WT_ERR_INVALID_DATA);
   EXPECT_TRUE(IsZero(info));
-
-  // Sniffed fine, decoded in T5.2.
-  std::memset(&info, 0xAB, sizeof(info));
-  EXPECT_EQ(Probe("anim_disposal.gif", &info), WT_ERR_UNSUPPORTED);
 }
 
 // T1.5 acceptance: vp9_2048.webm is WT_ERR_LIMIT at default limits, and

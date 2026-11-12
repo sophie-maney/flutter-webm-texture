@@ -13,7 +13,7 @@
 // WebP (T5.1) goes through the same checks with its own bars, because it
 // reaches the YUVA cache path from a straight-alpha RGBA canvas and 4:2:0
 // subsampling loses chroma detail that WebM sources never had (ADR 0022).
-// GIF references are not checked here until T5.2.
+// GIF (T5.2) shares the canvas path and is checked the same way (ADR 0023).
 #include <algorithm>
 #include <cstdint>
 #include <string>
@@ -209,10 +209,11 @@ TEST(GoldenTest, ScaledBucketsMatchAreaAveragedReferences) {
 // minimums 35.06 dB colour, 33.06 dB alpha).
 constexpr double kWebpMinPsnr = 40.0;
 
-Golden GoldenWebp() {
+// The one corpus file of a canvas kind ("webp" or "gif") that has references.
+Golden GoldenOfKind(const std::string& kind) {
   Golden g;
   for (const Json& f : wt_test::Manifest()["files"].array) {
-    if (f["kind"].string != "webp") continue;
+    if (f["kind"].string != kind) continue;
     g.name = f["name"].string;
     g.width = static_cast<uint32_t>(f["width"].Int());
     g.height = static_cast<uint32_t>(f["height"].Int());
@@ -224,12 +225,19 @@ Golden GoldenWebp() {
   return g;
 }
 
+Golden GoldenWebp() { return GoldenOfKind("webp"); }
+
 // Alpha comes through the canvas untouched, so it must match exactly; colour
 // carries the 4:2:0 round trip.
-void ExpectWebpGolden(const Bytes& pixels, const Bytes& ref) {
+void ExpectCanvasGolden(const Bytes& pixels, const Bytes& ref,
+                        double min_psnr) {
   ASSERT_EQ(pixels.size(), ref.size());
   EXPECT_EQ(wt_test::MaxError(pixels, ref, kAlpha), 0) << "alpha differs";
-  EXPECT_GE(wt_test::Psnr(pixels, ref, kRgb), kWebpMinPsnr);
+  EXPECT_GE(wt_test::Psnr(pixels, ref, kRgb), min_psnr);
+}
+
+void ExpectWebpGolden(const Bytes& pixels, const Bytes& ref) {
+  ExpectCanvasGolden(pixels, ref, kWebpMinPsnr);
 }
 
 TEST(WebpGoldenTest, CorpusHasReferences) {
@@ -307,6 +315,105 @@ TEST(WebpGoldenTest, ScaledBucketsMatchAreaAveragedReferences) {
       const double alpha = wt_test::Psnr(pixels, expected, kAlpha);
       EXPECT_GE(rgb, kMinBucketRgbPsnr);
       EXPECT_GE(alpha, kMinBucketAlphaPsnr);
+    }
+  }
+}
+
+// --- GIF (T5.2) -------------------------------------------------------------
+
+// anim_disposal.gif is 96x96 with every disposal method, an interlaced frame
+// and a transparent hole; its canvas is mostly pure saturated colours with
+// pixel-aligned edges, the worst case for 4:2:0.
+//
+// 1:1 meets the shared bars: measured minimum colour 50.01 dB, alpha exact.
+// At buckets the 2:1 bucket (every rect edge stays on the pixel grid) also
+// measures 50.01 dB. The 0.375 and 0.25 buckets can't: a chroma sample there
+// covers 8x8 source pixels (4:2:0 at a 4:1 or 8:3 reduction) and so mixes the
+// two colours either side of a sharp edge, which the full-resolution luma
+// then contradicts. Measured minimum 15.26 dB colour (frames 3-5 at 24x24,
+// the stripes and the cyan block against the green checkerboard); alpha stays
+// at 30.69 dB, above the shared bar. ADR 0023 has the numbers.
+constexpr double kGifMinBucketRgbPsnr = 14.0;
+
+Golden GoldenGif() { return GoldenOfKind("gif"); }
+
+TEST(GifGoldenTest, CorpusHasReferences) {
+  const Golden g = GoldenGif();
+  EXPECT_EQ(g.name, "anim_disposal.gif");
+  EXPECT_EQ(g.frames.size(), 6u);
+  EXPECT_TRUE(g.alpha);
+}
+
+TEST(GifGoldenTest, SequentialDecodeMatchesReferencesAtSourceSize) {
+  const Golden g = GoldenGif();
+  Anim anim;
+  ASSERT_EQ(OpenAnim(g.name, 0, 0, &anim), WT_OK);
+  Bytes pixels, ref;
+  for (uint32_t i : g.frames) {
+    SCOPED_TRACE("frame " + std::to_string(i));
+    ASSERT_EQ(Next(anim, &pixels), WT_OK);
+    ASSERT_TRUE(wt_test::LoadRefFrame(g.name, static_cast<int>(i), g.width,
+                                      g.height, &ref));
+    ExpectGolden(pixels, ref);
+  }
+  wt_frame_info info;
+  EXPECT_EQ(Next(anim, &pixels, WT_PIXEL_FORMAT_RGBA8888, &info), WT_END);
+}
+
+// Frames out of order: a backward seek resets the decoder and composites
+// forward from frame 0, which must reproduce each disposal exactly.
+TEST(GifGoldenTest, SeekedFramesMatchReferencesAtSourceSize) {
+  const Golden g = GoldenGif();
+  Anim anim;
+  ASSERT_EQ(OpenAnim(g.name, 0, 0, &anim), WT_OK);
+  Bytes pixels, ref;
+  const std::vector<uint32_t> order = {4, 2, 5, 0, 3, 3, 1, 5, 4, 0, 2};
+  for (uint32_t i : order) {
+    SCOPED_TRACE("frame " + std::to_string(i));
+    ASSERT_EQ(wt_anim_seek(anim.p, i), WT_OK);
+    wt_frame_info info;
+    ASSERT_EQ(Next(anim, &pixels, WT_PIXEL_FORMAT_RGBA8888, &info), WT_OK);
+    EXPECT_EQ(info.index, i);
+    ASSERT_TRUE(wt_test::LoadRefFrame(g.name, static_cast<int>(i), g.width,
+                                      g.height, &ref));
+    ExpectGolden(pixels, ref);
+  }
+}
+
+TEST(GifGoldenTest, BgraMatchesSwappedReferences) {
+  const Golden g = GoldenGif();
+  Anim anim;
+  ASSERT_EQ(OpenAnim(g.name, 0, 0, &anim), WT_OK);
+  ASSERT_EQ(wt_anim_seek(anim.p, 3), WT_OK);
+  Bytes pixels, ref;
+  ASSERT_EQ(Next(anim, &pixels, WT_PIXEL_FORMAT_BGRA8888), WT_OK);
+  ASSERT_TRUE(wt_test::LoadRefFrame(g.name, 3, g.width, g.height, &ref));
+  for (size_t p = 0; p < pixels.size(); p += 4)
+    std::swap(pixels[p], pixels[p + 2]);
+  ExpectGolden(pixels, ref);
+}
+
+TEST(GifGoldenTest, ScaledBucketsMatchAreaAveragedReferences) {
+  const Golden g = GoldenGif();
+  for (double scale : {0.5, 0.375, 0.25}) {
+    const Bucket b = BucketFor(g, scale);
+    SCOPED_TRACE(std::to_string(b.w) + "x" + std::to_string(b.h));
+    // The 2:1 bucket keeps every edge on the pixel grid (see above).
+    const double min_rgb = scale == 0.5 ? kMinPsnr : kGifMinBucketRgbPsnr;
+    Anim anim;
+    ASSERT_EQ(OpenAnim(g.name, b.w, b.h, &anim), WT_OK);
+    for (uint32_t i : g.frames) {
+      SCOPED_TRACE("frame " + std::to_string(i));
+      Bytes ref;
+      ASSERT_TRUE(wt_test::LoadRefFrame(g.name, static_cast<int>(i), g.width,
+                                        g.height, &ref));
+      const Bytes expected =
+          wt_test::AreaDownscale(ref, g.width, g.height, b.w, b.h);
+      Bytes pixels;
+      ASSERT_EQ(Next(anim, &pixels), WT_OK);
+      ASSERT_EQ(pixels.size(), expected.size());
+      EXPECT_GE(wt_test::Psnr(pixels, expected, kRgb), min_rgb);
+      EXPECT_GE(wt_test::Psnr(pixels, expected, kAlpha), kMinBucketAlphaPsnr);
     }
   }
 }
