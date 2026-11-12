@@ -175,7 +175,8 @@ Future<void> _archive(String root, String out) async {
   final log = '${r.stdout}${r.stderr}';
   stdout.write(log);
   if (r.exitCode != 0) _fail('pub publish --dry-run failed (${r.exitCode})');
-  if (log.contains('potential issue') || log.contains('warning')) {
+  if (log.contains('potential issue') ||
+      RegExp(r'Package has [1-9]\d* warning').hasMatch(log)) {
     _fail('pub publish --dry-run reported warnings');
   }
 

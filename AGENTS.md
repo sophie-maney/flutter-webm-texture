@@ -45,6 +45,7 @@ Each command works once the task that introduces it has landed (that task's ID i
 | Dart tests | `fvm flutter test` |
 | Build iOS prebuilts [T0.4] | `third_party/build/build-ios.sh` (macOS + Xcode, `brew install cmake nasm`) → `third_party/prebuilt/ios/WebmTextureDeps.xcframework` |
 | Build Android prebuilts [T0.5] | `third_party/build/build-android.sh [--with-x86]` (NDK r30 for the plugin, [ADR 0009](docs/decisions/0009-ffi-loading-and-native-wiring.md); the script itself accepts r28+, `cmake`, `nasm`) → `third_party/prebuilt/android/{include,<abi>/libwebm_texture_deps.a}` |
+| Vendor + archive [T6.4] | `fvm dart run tool/vendor_prebuilts.dart vendor` (fetch, verify, size-check the prebuilts) · `fvm dart run tool/vendor_prebuilts.dart archive --out build/release/webm_texture.tar.gz` (dry run, then the archive pub would upload) · `fvm dart pub global activate pana 0.23.19 && fvm dart pub global run pana .`. Release flow and one-time pub.dev setup: [ADR 0024](docs/decisions/0024-publish-pipeline.md) |
 | Third-party licenses [T0.4] | `third_party/build/collect-licenses.sh` → `third_party/LICENSES.md` (commit it) |
 | Fetch native libs [T0.6] | `fvm dart run tool/fetch_prebuilts.dart` |
 | Host deps [T1.1] | `tool/build_host_deps.sh` (`cmake`, `nasm` on x86_64) → `build/deps/host-core/prefix`; rerun after `versions.lock` or `test-deps.lock` changes |

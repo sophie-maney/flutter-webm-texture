@@ -1,0 +1,140 @@
+name: Release
+
+# Runs only on a version tag. It never runs on pull requests, so it adds no
+# jobs to PR CI. Tag → fetch prebuilts → vendor → dry run + archive → pana.
+# The real publish is a separate job that is off unless the repository
+# variable PUBLISH_TO_PUB_DEV is `true` and a reviewer approves the `pub-dev`
+# environment. See docs/decisions/0024-publish-pipeline.md.
+
+on:
+  push:
+    tags: ['v*']
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  FVM_HOME: ${{ github.workspace }}/.fvm_home
+  # Pinned so a new pana release can't change the score under a tagged build.
+  PANA_VERSION: 0.23.19
+  # The package scores 160/160 once pubspec.yaml is on the default branch
+  # (pana checks the repository URL against it). Lowering this needs an ADR.
+  PANA_MIN_POINTS: 160
+  FLUTTER: fvm flutter
+
+jobs:
+  build:
+    name: Vendor, pana, dry run
+    runs-on: ubuntu-latest
+    outputs:
+      archive-sha256: ${{ steps.archive.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tag matches pubspec version
+        run: |
+          version=$(sed -n 's/^version: *//p' pubspec.yaml)
+          if [ "${GITHUB_REF_NAME}" != "v${version}" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match pubspec version ${version}"
+            exit 1
+          fi
+          heading=$(grep -m1 "^## ${version}\b" CHANGELOG.md || true)
+          if [ -z "$heading" ] || echo "$heading" | grep -qi unreleased; then
+            echo "::error::CHANGELOG.md needs a released entry for ${version} (found: '${heading}')"
+            exit 1
+          fi
+
+      - name: Install fvm
+        run: |
+          curl -fsSL https://fvm.app/install.sh | bash
+          echo "$HOME/fvm/bin" >> "$GITHUB_PATH"
+
+      - name: Cache fvm SDK
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.FVM_HOME }}
+          key: fvm-${{ runner.os }}-${{ hashFiles('.fvmrc') }}
+
+      - name: Install pinned Flutter
+        run: fvm install
+
+      - run: fvm flutter pub get
+
+      # Downloads the deps-<hash> release, verifies it against SHA256SUMS,
+      # checks completeness, symlinks and per-platform sizes.
+      - name: Fetch and vendor prebuilts
+        run: fvm dart run tool/vendor_prebuilts.dart vendor
+
+      - name: Dry run and archive
+        id: archive
+        run: |
+          fvm dart run tool/vendor_prebuilts.dart archive --out build/release/webm_texture.tar.gz
+          echo "sha256=$(sha256sum build/release/webm_texture.tar.gz | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: pana
+        run: |
+          fvm dart pub global activate pana "$PANA_VERSION"
+          export PATH="$PATH:$HOME/.pub-cache/bin"
+          mkdir -p build/release
+          fvm dart pub global run pana --no-warning --json . > build/release/pana.json
+          fvm dart pub global run pana --no-warning . > build/release/pana.txt || true
+          points=$(python3 -c "import json;print(json.load(open('build/release/pana.json'))['scores']['grantedPoints'])")
+          max=$(python3 -c "import json;print(json.load(open('build/release/pana.json'))['scores']['maxPoints'])")
+          echo "### pana: ${points}/${max}" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$points" -lt "$PANA_MIN_POINTS" ]; then
+            echo "::error::pana score ${points}/${max} is below ${PANA_MIN_POINTS}"
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-${{ github.ref_name }}
+          path: build/release/
+          if-no-files-found: error
+
+  # Off by default: skipped unless PUBLISH_TO_PUB_DEV is `true` (a repository
+  # variable), and then it waits for a reviewer to approve the `pub-dev`
+  # environment. Authenticates with pub.dev's GitHub OIDC automated publishing:
+  # no long-lived token is stored anywhere.
+  publish:
+    name: Publish to pub.dev
+    needs: build
+    if: vars.PUBLISH_TO_PUB_DEV == 'true' && github.repository == 'sophie-maney/flutter-webm-texture'
+    runs-on: ubuntu-latest
+    environment: pub-dev
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      FVM_HOME: ${{ github.workspace }}/.fvm_home
+    steps:
+      - uses: actions/checkout@v4 # for .fvmrc only; the archive is unpacked outside the checkout
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-${{ github.ref_name }}
+          path: release
+
+      - name: Verify the archive is the one that was checked
+        run: |
+          echo "${{ needs.build.outputs.archive-sha256 }}  release/webm_texture.tar.gz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/pkg" && tar -xzf release/webm_texture.tar.gz -C "$RUNNER_TEMP/pkg"
+
+      - name: Install fvm
+        run: |
+          curl -fsSL https://fvm.app/install.sh | bash
+          echo "$HOME/fvm/bin" >> "$GITHUB_PATH"
+
+      - run: fvm install
+
+      # setup-dart exchanges the job's OIDC token for a pub.dev publishing
+      # token and stores it where `pub` (also behind `flutter pub`) reads it.
+      - uses: dart-lang/setup-dart@v1
+
+      - name: Publish
+        run: fvm flutter pub publish --force --directory "$RUNNER_TEMP/pkg"

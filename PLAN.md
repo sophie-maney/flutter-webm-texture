@@ -168,7 +168,7 @@ tool/                      # fetch_prebuilts, build_host_deps.sh (host tests), g
   - `flutter drive --profile` timeline budgets for scrolling a 100-sticker grid
   - memory ceilings
 - Docs, example app, `CHANGELOG`, aggregated `LICENSE`/NOTICE for all bundled libraries, iOS `PrivacyInfo.xcprivacy`, `pana` score, and a `flutter pub publish --dry-run` gate.
-- Release process: tag → CI builds prebuilts → `tool/fetch_prebuilts.dart` vendors them with sha256 → publish. A scheduled job watches upstream libvpx/libwebp CVEs and opens bump PRs.
+- Release process: tag → CI builds prebuilts → `tool/vendor_prebuilts.dart` fetches (sha256) and vendors them into the archive, checking size limits → pana → `flutter pub publish --dry-run` → publish via pub.dev OIDC behind an approval gate, off by default ([ADR 0024](docs/decisions/0024-publish-pipeline.md)). A scheduled job watches upstream libvpx/libwebp CVEs and opens bump PRs.
 
 ## Key risks
 | Risk | Mitigation |
