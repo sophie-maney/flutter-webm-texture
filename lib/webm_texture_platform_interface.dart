@@ -2,6 +2,7 @@ import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
 import 'webm_texture_method_channel.dart';
 
+/// The platform interface behind [WebmTexture].
 abstract class WebmTexturePlatform extends PlatformInterface {
   /// Constructs a WebmTexturePlatform.
   WebmTexturePlatform() : super(token: _token);
@@ -23,6 +24,7 @@ abstract class WebmTexturePlatform extends PlatformInterface {
     _instance = instance;
   }
 
+  /// The platform's version string, such as `Android 14` or `iOS 18.0`.
   Future<String?> getPlatformVersion() {
     throw UnimplementedError('platformVersion() has not been implemented.');
   }
