@@ -1,6 +1,6 @@
 # Rules for `dart pub publish`. A .pubignore replaces the root .gitignore for
 # pub, so the root .gitignore rules are repeated here, except /third_party/prebuilt/:
-# the release job (tool/vendor_prebuilts.sh) fills it and it must ship.
+# the release job (tool/vendor_prebuilts.dart) fills it and it must ship.
 
 # Miscellaneous
 *.class
