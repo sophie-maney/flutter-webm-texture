@@ -6,12 +6,20 @@
 // - The clock thread plans. It sleeps until the earliest of: a pending
 //   request, the next due frame (rounded to at most max_fps rounds a
 //   second), a retry. With nothing to play it waits without a timeout.
-// - Workers run jobs from a FIFO queue: position the cursor, acquire a sink
-//   buffer, draw, release. Each player is in the queue (or being run) at most
-//   once, so its FrameSource and sink are used by one thread at a time.
+// - Workers run jobs from a FIFO queue: position the cursor, decode the frame
+//   (FrameSource::Prepare), then acquire a sink buffer, write the frame into
+//   it and release it. Each player is in the queue (or being run) at most
+//   once, so its FrameSource and sink are used by one thread at a time. The
+//   decode, which can be a long catch-up from a keyframe, happens before the
+//   sink's buffer is taken (T6.1, S-05, ADR 0027).
 // - The public methods may be called from any thread except the scheduler's
 //   own; RemovePlayer, Retarget, RemoveGroup, SetOptions (when shrinking) and
-//   the destructor wait for frames (or presents) in flight.
+//   the destructor wait for frames (or presents) in flight. All but
+//   RemoveGroup first cancel the frame they wait for (the player's
+//   CancelFlag): a job not yet started is dropped, and one under way stops at
+//   its next cancellation point (between frames of a catch-up, before taking
+//   the sink's buffer). They wait for at most one frame's decode, or a frame
+//   write into a buffer already taken, or a cache file being finished.
 // - Workers also run presents (below), ahead of frame jobs.
 //
 // Present groups (T4.2, ADR 0020): players can belong to a Group whose
@@ -44,6 +52,7 @@
 #include <mutex>
 #include <vector>
 
+#include "api/cancel.h"
 #include "api/wt_api.h"
 #include "sched/frame_source.h"
 #include "sched/timeline.h"
@@ -106,6 +115,7 @@ class Player {
   uint64_t activated_ = 0;  // Recency: the activation counter when activated.
   bool in_flight_ = false;  // Queued or being run.
   bool executing_ = false;  // A worker took the job off the queue.
+  uint32_t worker_ = 0;     // While executing_: the worker's index.
   bool removing_ = false;
   bool parked_ = false;             // WT_NO_TARGET: wait for Redraw.
   uint64_t target_generation_ = 0;  // Bumped by Redraw.
@@ -114,8 +124,20 @@ class Player {
   uint64_t job_target_generation_ = 0;
   bool winner_ = false;  // Scratch for Rerank.
 
+  // Set under owner_->mu_ to stop the job in flight early (RemovePlayer,
+  // Retarget, SetOptions); read by that job without the lock. Reset when
+  // the next job is dispatched.
+  CancelFlag cancel_;
+
   // Touched only by the worker running this player's job.
   bool reported_error_ = false;
+  // The source holds a decoded frame no sink has taken yet (acquire found no
+  // buffer, or the job was cancelled after decoding it): prepared_frame_.
+  // The source's cursor is one past it; the timeline's is on it, so a job
+  // for the same frame writes it without decoding it again, and the first
+  // skip of a later job passes it for free.
+  bool prepared_ = false;
+  wt_frame_info prepared_frame_{};
 };
 
 // A set of players presented together. Created by Scheduler::AddGroup and
@@ -208,6 +230,9 @@ class Scheduler {
     FrameOutcome outcome;
     wt_status acquire = WT_OK;
     bool drawn_ok = false;
+    // The player's CancelFlag stopped the job: nothing was drawn and no sink
+    // was called.
+    bool cancelled = false;
     uint32_t skipped = 0;
   };
 

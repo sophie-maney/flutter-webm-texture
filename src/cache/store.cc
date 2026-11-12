@@ -9,6 +9,7 @@
 #include <atomic>
 #include <cerrno>
 #include <ctime>
+#include <deque>
 #include <mutex>
 #include <utility>
 #include <vector>
@@ -21,6 +22,15 @@ namespace {
 
 std::atomic<uint64_t> g_budget{kDefaultCacheBudget};
 std::mutex g_evict_mutex;
+
+// RefuseCacheFile's memory: paths and the cap each was refused under, oldest
+// first. Guarded by g_refused_mutex.
+struct Refused {
+  std::string path;
+  uint64_t cap = 0;
+};
+std::mutex g_refused_mutex;
+std::deque<Refused> g_refused;
 
 bool EndsWith(const std::string& s, const char* suffix) {
   const size_t n = std::char_traits<char>::length(suffix);
@@ -127,6 +137,35 @@ void Add(CacheStats* stats, const Entry& e) {
 }  // namespace
 
 uint64_t CacheBudget() { return g_budget.load(std::memory_order_relaxed); }
+
+uint64_t CacheFileCap() {
+  return std::min(CacheBudget() / 4, kMaxCacheFileBytes);
+}
+
+void RefuseCacheFile(const std::string& path, uint64_t cap) {
+  std::lock_guard<std::mutex> lk(g_refused_mutex);
+  for (Refused& r : g_refused) {
+    if (r.path == path) {
+      r.cap = std::max(r.cap, cap);
+      return;
+    }
+  }
+  if (g_refused.size() >= kMaxRefusedCacheFiles) g_refused.pop_front();
+  g_refused.push_back(Refused{path, cap});
+}
+
+bool CacheFileRefused(const std::string& path, uint64_t cap) {
+  std::lock_guard<std::mutex> lk(g_refused_mutex);
+  for (const Refused& r : g_refused) {
+    if (r.path == path) return cap <= r.cap;
+  }
+  return false;
+}
+
+void ForgetRefusedCacheFilesForTesting() {
+  std::lock_guard<std::mutex> lk(g_refused_mutex);
+  g_refused.clear();
+}
 
 void SetCacheBudget(uint64_t bytes) {
   g_budget.store(bytes, std::memory_order_relaxed);

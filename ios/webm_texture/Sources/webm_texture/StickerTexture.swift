@@ -18,7 +18,8 @@ import wt_ios
 ///   player's newest complete frame, also after foregrounding.
 /// - `attach`, `setActive`, `setPriority`, `seek` and `close` arrive on the
 ///   main thread and never decode; `close` hands the wait for a frame in
-///   flight to a background queue.
+///   flight (cancelled, so at most one frame's decode; ADR 0027) to a
+///   background queue.
 final class StickerTexture: NSObject, FlutterTexture {
   let animId: Int64
   let width: Int

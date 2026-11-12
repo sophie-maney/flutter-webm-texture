@@ -62,7 +62,8 @@ allocates more, than the index the limits are checked against:
   Browsers would show them; no real sticker has one.
 - `WebmStickers.probe(networkSource, limits: StickerLimits(maxBytes: …))`
   can't raise the limit for fetched bytes above 2 MiB. Playback never could.
-- Two medium findings need product decisions and stay open
+- Two medium findings needed product decisions and were left open here
   ([`docs/security.md`](../security.md), S-04 and S-05): a cap on cache file
   size, and keeping the sink's buffer (and the platform thread waiting on
-  it) out of long decodes.
+  it) out of long decodes. Both are fixed by a follow-up:
+  [ADR 0026](0026-cache-file-cap.md) and [ADR 0027](0027-cancellable-frames.md).

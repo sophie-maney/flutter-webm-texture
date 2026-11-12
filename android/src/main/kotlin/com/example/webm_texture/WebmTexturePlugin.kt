@@ -161,9 +161,15 @@ class WebmTexturePlugin :
 
     override fun dispose(animId: Long) {
         val anim = animations.remove(animId) ?: return
-        // Destroying the player frees its atlas slot (wt_player_destroy).
-        anim.atlas?.members?.remove(animId)
+        val atlas = anim.atlas
         anim.atlas = null
+        if (atlas != null) {
+            atlas.members.remove(animId)
+            // Leave the atlas here, on the main thread (it cancels a frame in
+            // flight rather than wait for it), so the player's destruction on
+            // a background thread can't overlap the atlas's.
+            atlas.detach(anim)
+        }
         anim.dispose()
     }
 

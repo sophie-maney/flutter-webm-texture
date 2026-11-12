@@ -37,6 +37,7 @@ add_executable(wt_native_tests
   probe_test.cc
   ref_frames.cc
   sanitizer_test.cc
+  sched_cancel_test.cc
   sched_stress_test.cc
   sched_test.cc
   slot_allocator_test.cc
@@ -49,7 +50,8 @@ target_link_libraries(wt_native_tests PRIVATE wt_core GTest::gtest_main ZLIB::ZL
 # Internal headers (demux/…) are tested directly, besides the public C ABI.
 target_include_directories(wt_native_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../src")
 target_compile_definitions(wt_native_tests PRIVATE
-  WT_TEST_ASSETS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../test_assets")
+  WT_TEST_ASSETS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../test_assets"
+  WT_FUZZ_CORPUS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../fuzz/corpus")
 target_compile_options(wt_native_tests PRIVATE -Wall -Wextra $<$<BOOL:${WT_WERROR}>:-Werror>)
 # gif_test.cc calls wt::GifDecoder's virtual methods directly. The core is
 # built without RTTI, so no typeinfo exists for it, and GCC's UBSan vptr check

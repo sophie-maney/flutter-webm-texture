@@ -43,10 +43,16 @@ class AnimSource final : public wt::FrameSource {
     return anim_->anim->frame_duration_ms(index);
   }
   wt_status Seek(uint32_t index) override { return anim_->anim->Seek(index); }
-  wt_status Skip() override { return anim_->anim->SkipFrame(nullptr); }
-  wt_status Draw(const wt_buffer& dst, wt_frame_info* out_frame) override {
-    return wt_anim_next_frame(anim_, dst.pixels, dst.size, dst.stride,
-                              dst.format, out_frame);
+  wt_status Skip(const wt::CancelFlag& cancel) override {
+    return anim_->anim->SkipFrame(nullptr, &cancel);
+  }
+  wt_status Prepare(const wt::CancelFlag& cancel,
+                    wt_frame_info* out_frame) override {
+    return anim_->anim->PrepareFrame(out_frame, &cancel);
+  }
+  wt_status Write(const wt_buffer& dst) override {
+    return anim_->anim->WriteFrame(dst.pixels, dst.size, dst.stride,
+                                   dst.format);
   }
 
  private:

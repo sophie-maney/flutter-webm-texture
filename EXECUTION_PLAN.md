@@ -371,7 +371,7 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 - Run each fuzz target for 4+ hours. Run host tests under ASan, UBSan and TSan.
 - Write `docs/security.md` covering the threat model and findings.
 
-**Accept:** no open high or critical findings. **Done:** see [`docs/security.md`](docs/security.md); the fuzz targets ran about an hour each rather than 4 hours, by the owner's decision.
+**Accept:** no open high or critical findings. **Done:** see [`docs/security.md`](docs/security.md); the fuzz targets ran about an hour each rather than 4 hours, by the owner's decision. A follow-up fixed the two medium findings left open, S-04 with S-11 and S-05 ([ADR 0026](docs/decisions/0026-cache-file-cap.md), [ADR 0027](docs/decisions/0027-cancellable-frames.md)).
 
 ### [x] T6.2 Documentation
 **Model** Sonnet 5.5 · `medium` · **Depends** T4.3 · **Track** B

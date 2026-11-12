@@ -145,14 +145,30 @@ decoded from the source.
    at the next data offset. Its table entry is kept in memory.
 3. After the last frame, the table goes in at offset 64, the header at offset
    0, then `fsync`, `close`, and `rename` over the final path. Last, the
-   directory is fsynced, best effort.
-4. Playback switches to reading the new file, and the decoder is freed.
+   directory is fsynced, best effort. If the frame was decoded by a call
+   that is being cancelled (a scheduler job for a player that is being
+   removed or moved, [ADR 0027](decisions/0027-cancellable-frames.md)),
+   this step waits for the animation's next call.
+4. Playback switches to reading the new file, and the decoder is freed. If
+   the new file can't be opened and mapped again, the animation stops
+   caching instead (T6.1, S-11).
+
+**Size cap** ([ADR 0026](decisions/0026-cache-file-cap.md)). A file may be at
+most a quarter of the disk budget, and never more than 64 MiB (50 MiB at the
+default budget). Frames are checked as they are compressed: a frame that
+would take the file past the cap abandons it. The writer doesn't even start
+when the smallest file the animation could make (every frame at LZ4's best
+ratio, `frame_bytes / 256` bytes) is over the cap. Either way the animation
+stops caching for its life, and the process remembers the file (by path, for
+up to 256 paths) so later animations of the same sticker at that size don't
+write it again unless the budget has grown.
 
 The writer is abandoned, and its temporary file unlinked, if:
 
 - the pass is broken by a seek to anything other than the next frame;
 - a frame fails to decode (the file is then not cached for this animation);
-- a write fails, for example because the disk is full; or
+- a write fails, for example because the disk is full;
+- the file would pass the size cap (above); or
 - the animation is destroyed first.
 
 A seek back to frame 0 restarts writing. A failure to create the temporary
@@ -186,8 +202,10 @@ The cache directory is capped by a process-wide disk budget (default 200 MiB,
   crash. A writer that loses its file anyway fails its `Finish`, which stops
   caching for that animation; it keeps decoding.
 - **Open files.** Deleting a file doesn't disturb animations that mapped it.
-  An animation whose own new file is evicted at once (it alone exceeds the
-  budget) keeps playing from its mapping.
+  An animation whose own new file is evicted keeps playing from its mapping.
+- **One file can't flush the rest.** No file is larger than a quarter of the
+  budget (the size cap above), and an abandoned write evicts nothing, so a
+  new file pushes out at most a quarter of the budget's worth of older ones.
 - **Scan bound.** At most 65 536 cache files are listed per scan; files beyond
   that are deleted outright.
 - **`clearCache`.** `wt_cache_clear` deletes every cache file and temporary.

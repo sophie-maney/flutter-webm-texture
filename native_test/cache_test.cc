@@ -2,8 +2,10 @@
 // synthetic frames (round trip, damaged and partial files, mismatches), and
 // the cache inside wt::Anim and wt_anim_create_cached on the corpus (write on
 // the first pass, read afterwards, delete and re-decode a bad file).
+#include <sys/stat.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
@@ -17,6 +19,7 @@
 #include "anim_util.h"
 #include "api/anim.h"
 #include "cache/crc32.h"
+#include "cache/store.h"
 #include "cache/wsc.h"
 #include "convert/yuva.h"
 #include "demux/sniff.h"
@@ -62,12 +65,13 @@ class TempDir {
   std::string File(const std::string& name) const {
     return (path_ / name).string();
   }
-  // Names of everything in the directory.
+  // Names of everything in the directory, sorted.
   std::vector<std::string> List() const {
     std::vector<std::string> names;
     for (const auto& e : fs::directory_iterator(path_)) {
       names.push_back(e.path().filename().string());
     }
+    std::sort(names.begin(), names.end());
     return names;
   }
 
@@ -169,7 +173,8 @@ Synthetic MakeSynthetic(uint32_t w, uint32_t h, bool alpha, uint32_t count,
 
 wt_status WriteSynthetic(const Synthetic& s, const std::string& path) {
   std::unique_ptr<WscWriter> writer;
-  wt_status st = WscWriter::Create(path.c_str(), s.params, s.color, &writer);
+  wt_status st =
+      WscWriter::Create(path.c_str(), s.params, s.color, UINT64_MAX, &writer);
   if (st != WT_OK) return st;
   for (size_t i = 0; i < s.frames.size(); ++i) {
     st = writer->Append(s.frames[i]->view(), s.durations[i], s.pts[i]);
@@ -262,8 +267,10 @@ TEST(WscTest, TwoWritersOneFile) {
   const std::string path = dir.File("a.wsc");
   const Synthetic s = MakeSynthetic(48, 48, true, 3);
   std::unique_ptr<WscWriter> a, b;
-  ASSERT_EQ(WscWriter::Create(path.c_str(), s.params, s.color, &a), WT_OK);
-  ASSERT_EQ(WscWriter::Create(path.c_str(), s.params, s.color, &b), WT_OK);
+  ASSERT_EQ(WscWriter::Create(path.c_str(), s.params, s.color, UINT64_MAX, &a),
+            WT_OK);
+  ASSERT_EQ(WscWriter::Create(path.c_str(), s.params, s.color, UINT64_MAX, &b),
+            WT_OK);
   for (size_t i = 0; i < s.frames.size(); ++i) {
     ASSERT_EQ(a->Append(s.frames[i]->view(), s.durations[i], s.pts[i]), WT_OK);
     ASSERT_EQ(b->Append(s.frames[i]->view(), s.durations[i], s.pts[i]), WT_OK);
@@ -282,22 +289,23 @@ TEST(WscTest, WriterErrors) {
   const std::string path = dir.File("a.wsc");
   std::unique_ptr<WscWriter> w;
 
-  EXPECT_EQ(WscWriter::Create(nullptr, s.params, s.color, &w),
+  EXPECT_EQ(WscWriter::Create(nullptr, s.params, s.color, UINT64_MAX, &w),
             WT_ERR_INVALID_ARGUMENT);
   WscParams bad = s.params;
   bad.frame_count = 0;
-  EXPECT_EQ(WscWriter::Create(path.c_str(), bad, s.color, &w),
+  EXPECT_EQ(WscWriter::Create(path.c_str(), bad, s.color, UINT64_MAX, &w),
             WT_ERR_INVALID_ARGUMENT);
   bad = s.params;
   bad.width = YuvaImage::kMaxDimension + 1;
-  EXPECT_EQ(WscWriter::Create(path.c_str(), bad, s.color, &w),
+  EXPECT_EQ(WscWriter::Create(path.c_str(), bad, s.color, UINT64_MAX, &w),
             WT_ERR_INVALID_ARGUMENT);
   EXPECT_EQ(WscWriter::Create(dir.File("missing/a.wsc").c_str(), s.params,
-                              s.color, &w),
+                              s.color, UINT64_MAX, &w),
             WT_ERR_IO);
   EXPECT_EQ(w, nullptr);
 
-  ASSERT_EQ(WscWriter::Create(path.c_str(), s.params, s.color, &w), WT_OK);
+  ASSERT_EQ(WscWriter::Create(path.c_str(), s.params, s.color, UINT64_MAX, &w),
+            WT_OK);
   // Wrong size, no alpha for an alpha file, zero duration.
   YuvaImage small;
   ASSERT_EQ(small.Allocate(8, 16, true), WT_OK);
@@ -326,7 +334,8 @@ TEST(WscTest, OpaqueFileIgnoresViewAlpha) {
   with_alpha.set_color(s.color);
   std::unique_ptr<WscWriter> w;
   const std::string path = dir.File("a.wsc");
-  ASSERT_EQ(WscWriter::Create(path.c_str(), s.params, s.color, &w), WT_OK);
+  ASSERT_EQ(WscWriter::Create(path.c_str(), s.params, s.color, UINT64_MAX, &w),
+            WT_OK);
   ASSERT_EQ(w->Append(with_alpha.view(), s.durations[0], s.pts[0]), WT_OK);
   ASSERT_EQ(w->Finish(), WT_OK);
   std::unique_ptr<WscReader> reader;
@@ -471,15 +480,19 @@ struct CorpusAnim {
   std::unique_ptr<Anim> anim;
 };
 
-wt_status MakeAnim(const std::string& name, uint32_t w, uint32_t h,
-                   const std::string& cache_path, CorpusAnim* out) {
-  const std::string path = (kAssets / name).string();
+wt_status MakeAnimFromFile(const std::string& path, uint32_t w, uint32_t h,
+                           const std::string& cache_path, CorpusAnim* out) {
   wt_status s = ByteSource::OpenFile(path.c_str(), UINT64_MAX, &out->source);
   if (s != WT_OK) return s;
   const ByteView bytes = out->source->whole();
   return Anim::Create(bytes, wt::Sniff(bytes), DefaultLimits(), w, h,
                       cache_path.empty() ? nullptr : cache_path.c_str(),
                       &out->anim);
+}
+
+wt_status MakeAnim(const std::string& name, uint32_t w, uint32_t h,
+                   const std::string& cache_path, CorpusAnim* out) {
+  return MakeAnimFromFile((kAssets / name).string(), w, h, cache_path, out);
 }
 
 // Plays from the cursor to WT_END.
@@ -765,6 +778,331 @@ TEST_F(AnimCacheTest, DirectoryInTheWayStillPlays) {
   EXPECT_EQ(a.anim->cache_mode(), Mode::kNone);  // The rename failed.
   EXPECT_EQ(dir_.List(), std::vector<std::string>{"c.wsc"});
   EXPECT_TRUE(fs::is_directory(path_));
+}
+
+// --- File size cap (T6.1, S-04 and S-11, ADR 0026) ---------------------------
+
+TEST(WscCapTest, WriterStopsAtItsCap) {
+  TempDir dir;
+  const Synthetic s = MakeSynthetic(64, 48, true, 6);
+  const std::string path = dir.File("c.wsc");
+  ASSERT_EQ(WriteSynthetic(s, path), WT_OK);
+  const uint64_t full = fs::file_size(path);
+  fs::remove(path);
+
+  // A file of exactly the cap is written.
+  std::unique_ptr<WscWriter> w;
+  ASSERT_EQ(WscWriter::Create(path.c_str(), s.params, s.color, full, &w),
+            WT_OK);
+  EXPECT_EQ(w->max_file_size(), full);
+  for (size_t i = 0; i < s.frames.size(); ++i) {
+    ASSERT_EQ(w->Append(s.frames[i]->view(), s.durations[i], s.pts[i]), WT_OK);
+  }
+  ASSERT_EQ(w->Finish(), WT_OK);
+  EXPECT_EQ(fs::file_size(path), full);
+  fs::remove(path);
+
+  // One byte less, and the last frame is refused: the file is abandoned and
+  // its temporary deleted, and the writer only fails from then on.
+  ASSERT_EQ(WscWriter::Create(path.c_str(), s.params, s.color, full - 1, &w),
+            WT_OK);
+  for (size_t i = 0; i + 1 < s.frames.size(); ++i) {
+    ASSERT_EQ(w->Append(s.frames[i]->view(), s.durations[i], s.pts[i]), WT_OK);
+  }
+  EXPECT_EQ(dir.List().size(), 1u);  // The temporary.
+  const size_t last = s.frames.size() - 1;
+  EXPECT_EQ(w->Append(s.frames[last]->view(), s.durations[last], s.pts[last]),
+            WT_ERR_LIMIT);
+  EXPECT_TRUE(dir.List().empty());
+  EXPECT_EQ(w->Append(s.frames[last]->view(), s.durations[last], s.pts[last]),
+            WT_ERR_IO);
+  EXPECT_EQ(w->Finish(), WT_ERR_IO);
+  EXPECT_TRUE(dir.List().empty());
+}
+
+TEST(WscCapTest, AFileThatCantFitAtAnyRatioIsNeverStarted) {
+  TempDir dir;
+  const Synthetic s = MakeSynthetic(64, 48, true, 6);
+  const std::string path = dir.File("c.wsc");
+  const uint64_t min = wt::WscMinFileSize(s.params);
+  ASSERT_GT(min, 0u);
+  std::unique_ptr<WscWriter> w;
+  EXPECT_EQ(WscWriter::Create(path.c_str(), s.params, s.color, min - 1, &w),
+            WT_ERR_LIMIT);
+  EXPECT_EQ(w, nullptr);
+  EXPECT_TRUE(dir.List().empty());
+  EXPECT_EQ(WscWriter::Create(path.c_str(), s.params, s.color, min, &w), WT_OK);
+}
+
+// WscMinFileSize may refuse a write up front only because nothing can
+// compress below it: LZ4's best case (all-zero frames at the largest size)
+// stays above it.
+TEST(WscCapTest, MinFileSizeIsBelowTheBestCompression) {
+  TempDir dir;
+  for (const bool alpha : {false, true}) {
+    for (const uint32_t side : {1u, 16u, 1024u}) {
+      WscParams params;
+      params.width = side;
+      params.height = side;
+      params.has_alpha = alpha;
+      params.frame_count = 3;
+      YuvaImage zero;
+      ASSERT_EQ(zero.Allocate(side, side, alpha), WT_OK);
+      std::memset(zero.data(), 0, zero.data_size());
+      const std::string path = dir.File("z.wsc");
+      std::unique_ptr<WscWriter> w;
+      ASSERT_EQ(WscWriter::Create(path.c_str(), params, wt::YuvColor(),
+                                  UINT64_MAX, &w),
+                WT_OK);
+      for (uint32_t i = 0; i < params.frame_count; ++i) {
+        ASSERT_EQ(w->Append(zero.view(), 10, int64_t{i} * 10), WT_OK);
+      }
+      ASSERT_EQ(w->Finish(), WT_OK);
+      EXPECT_GE(fs::file_size(path), wt::WscMinFileSize(params))
+          << side << (alpha ? " alpha" : "");
+      EXPECT_LE(fs::file_size(path), wt::WscMaxFileSize(params));
+    }
+  }
+}
+
+TEST(WscCapTest, CapIsAQuarterOfTheBudgetUpTo64MiB) {
+  const uint64_t saved = wt_cache_get_budget();
+  wt_cache_set_budget(wt::kDefaultCacheBudget);
+  EXPECT_EQ(wt::CacheFileCap(), uint64_t{50} << 20);
+  wt_cache_set_budget(UINT64_MAX);
+  EXPECT_EQ(wt::CacheFileCap(), uint64_t{64} << 20);
+  wt_cache_set_budget(uint64_t{1} << 30);
+  EXPECT_EQ(wt::CacheFileCap(), uint64_t{64} << 20);
+  wt_cache_set_budget(1000);
+  EXPECT_EQ(wt::CacheFileCap(), 250u);
+  wt_cache_set_budget(0);
+  EXPECT_EQ(wt::CacheFileCap(), 0u);
+  wt_cache_set_budget(saved);
+}
+
+TEST(WscCapTest, RefusalsAreRememberedPerPathAndCap) {
+  wt::ForgetRefusedCacheFilesForTesting();
+  EXPECT_FALSE(wt::CacheFileRefused("/c/a.wsc", 100));
+  wt::RefuseCacheFile("/c/a.wsc", 100);
+  EXPECT_TRUE(wt::CacheFileRefused("/c/a.wsc", 100));
+  EXPECT_TRUE(wt::CacheFileRefused("/c/a.wsc", 50));
+  EXPECT_FALSE(wt::CacheFileRefused("/c/a.wsc", 101));  // The budget grew.
+  EXPECT_FALSE(wt::CacheFileRefused("/c/b.wsc", 1));
+  // Bounded: the oldest refusal is forgotten first.
+  for (size_t i = 0; i < wt::kMaxRefusedCacheFiles; ++i) {
+    wt::RefuseCacheFile("/c/n" + std::to_string(i) + ".wsc", 1);
+  }
+  EXPECT_FALSE(wt::CacheFileRefused("/c/a.wsc", 1));
+  EXPECT_TRUE(wt::CacheFileRefused("/c/n0.wsc", 1));
+  wt::ForgetRefusedCacheFilesForTesting();
+  EXPECT_FALSE(wt::CacheFileRefused("/c/n0.wsc", 1));
+}
+
+// The review's crafted file (S-04), made smaller: a 64 x 64 VP9 keyframe of
+// noise with alpha, then 599 frames repeating it (10 s at 60 fps, 35 KB).
+// ADR 0026 has the ffmpeg commands. Scaled to 512 x 512 (the largest bucket)
+// none of its frames compress: uncapped, its cache file was 368 MB
+// (WscMaxFileSize: 395 MB), and as the newest file, eviction then deleted
+// every other file and then it.
+const std::string kNoiseClip =
+    (fs::path(WT_FUZZ_CORPUS_DIR) / "webm" / "noise_keyframe_static.webm")
+        .string();
+
+// Sets the budget for one test and restores it.
+class ScopedBudget {
+ public:
+  explicit ScopedBudget(uint64_t budget) : saved_(wt_cache_get_budget()) {
+    wt_cache_set_budget(budget);
+  }
+  ~ScopedBudget() { wt_cache_set_budget(saved_); }
+
+ private:
+  uint64_t saved_;
+};
+
+struct FileState {
+  uint64_t size = 0;
+  int64_t mtime_ns = 0;
+  uint64_t inode = 0;
+};
+
+FileState StatFile(const std::string& path) {
+  struct stat st;
+  FileState f;
+  if (stat(path.c_str(), &st) != 0) return f;
+  f.size = static_cast<uint64_t>(st.st_size);
+#ifdef __APPLE__
+  f.mtime_ns =
+      int64_t{st.st_mtimespec.tv_sec} * 1000000000 + st.st_mtimespec.tv_nsec;
+#else
+  f.mtime_ns = int64_t{st.st_mtim.tv_sec} * 1000000000 + st.st_mtim.tv_nsec;
+#endif
+  f.inode = static_cast<uint64_t>(st.st_ino);
+  return f;
+}
+
+// The largest writer temporary in dir (0: none).
+uint64_t LargestTemp(const TempDir& dir) {
+  uint64_t largest = 0;
+  for (const std::string& n : dir.List()) {
+    if (n.find(".tmp") != std::string::npos) {
+      largest = std::max<uint64_t>(largest, fs::file_size(dir.path() / n));
+    }
+  }
+  return largest;
+}
+
+uint64_t Fnv1a(const Bytes& b) {
+  uint64_t h = 1469598103934665603ull;
+  for (uint8_t c : b) h = (h ^ c) * 1099511628211ull;
+  return h;
+}
+
+TEST(AnimCacheCapTest, CraftedFileStopsAtTheCapAndEvictsNothing) {
+  wt::ForgetRefusedCacheFilesForTesting();
+  ScopedBudget budget(wt::kDefaultCacheBudget);
+  const uint64_t cap = wt::CacheFileCap();
+  ASSERT_EQ(cap, uint64_t{50} << 20);
+  TempDir dir;
+
+  // Other stickers' cache files, which the write must not push out.
+  const std::vector<std::string> others = {"a.wsc", "b.wsc", "c.wsc"};
+  for (size_t i = 0; i < others.size(); ++i) {
+    CorpusAnim a;
+    ASSERT_EQ(
+        MakeAnim(kClip, kSize * static_cast<uint32_t>(i + 1),
+                 kSize * static_cast<uint32_t>(i + 1), dir.File(others[i]), &a),
+        WT_OK);
+    PlayToEnd(a.anim.get());
+  }
+  ASSERT_EQ(dir.List().size(), others.size());
+  std::vector<FileState> before;
+  for (const std::string& n : others) before.push_back(StatFile(dir.File(n)));
+
+  const std::string path = dir.File("noise.wsc");
+  CorpusAnim crafted;
+  ASSERT_EQ(MakeAnimFromFile(kNoiseClip, 512, 512, path, &crafted), WT_OK);
+  Anim* anim = crafted.anim.get();
+  ASSERT_EQ(anim->info().frame_count, 600u);
+  wt::WscParams params;
+  params.width = 512;
+  params.height = 512;
+  params.has_alpha = true;
+  params.frame_count = 600;
+  EXPECT_GT(wt::WscMaxFileSize(params), uint64_t{390} * 1000 * 1000);
+
+  // One pass: every frame plays, the temporary never passes the cap, and
+  // it is gone once the cap is reached.
+  Bytes px(size_t{512} * 512 * 4);
+  std::vector<uint64_t> first_loop;
+  uint64_t peak = 0;
+  for (uint32_t i = 0; i < 600; ++i) {
+    ASSERT_EQ(anim->NextFrame(px.data(), px.size(), 512 * 4,
+                              WT_PIXEL_FORMAT_RGBA8888, nullptr),
+              WT_OK)
+        << i;
+    first_loop.push_back(Fnv1a(px));
+    peak = std::max(peak, LargestTemp(dir));
+  }
+  EXPECT_LE(peak, cap);
+  // It really got there: within one incompressible frame of the cap.
+  EXPECT_GT(peak, cap - wt::WscFrameBytes(512, 512, true) * 2);
+  EXPECT_EQ(anim->cache_mode(), Mode::kNone);
+  // No file, no temporary, and every other file untouched.
+  EXPECT_EQ(dir.List(), others) << "noise.wsc or a temporary was left";
+  for (size_t i = 0; i < others.size(); ++i) {
+    const FileState now = StatFile(dir.File(others[i]));
+    EXPECT_EQ(now.size, before[i].size) << others[i];
+    EXPECT_EQ(now.mtime_ns, before[i].mtime_ns) << others[i];
+    EXPECT_EQ(now.inode, before[i].inode) << others[i];
+  }
+
+  // It still plays, by decoding, and never writes again.
+  ASSERT_EQ(anim->Seek(0), WT_OK);
+  for (uint32_t i = 0; i < 120; ++i) {
+    ASSERT_EQ(anim->NextFrame(px.data(), px.size(), 512 * 4,
+                              WT_PIXEL_FORMAT_RGBA8888, nullptr),
+              WT_OK);
+    EXPECT_EQ(Fnv1a(px), first_loop[i]) << i;
+    ASSERT_EQ(LargestTemp(dir), 0u) << i;
+  }
+  EXPECT_EQ(anim->cache_mode(), Mode::kNone);
+
+  // Neither does another animation of the same sticker at that size.
+  CorpusAnim again;
+  ASSERT_EQ(MakeAnimFromFile(kNoiseClip, 512, 512, path, &again), WT_OK);
+  EXPECT_EQ(again.anim->cache_mode(), Mode::kPending);
+  ASSERT_EQ(again.anim->NextFrame(px.data(), px.size(), 512 * 4,
+                                  WT_PIXEL_FORMAT_RGBA8888, nullptr),
+            WT_OK);
+  EXPECT_EQ(Fnv1a(px), first_loop[0]);
+  EXPECT_EQ(again.anim->cache_mode(), Mode::kNone);
+  EXPECT_EQ(dir.List(), others);
+}
+
+// Every corpus clip is still cached at the largest bucket (512 on the longer
+// side, as StickerBuckets.forSize), under the default budget's cap.
+TEST(AnimCacheCapTest, CorpusIsStillCachedAtTheLargestBucket) {
+  wt::ForgetRefusedCacheFilesForTesting();
+  ScopedBudget budget(wt::kDefaultCacheBudget);
+  struct Clip {
+    const char* name;
+    uint32_t w, h;
+  };
+  const Clip clips[] = {
+      {"anim.webp", 512, 512},
+      {"anim_disposal.gif", 512, 512},
+      {"vp9_alpha_512.webm", 512, 512},
+      {"vp9_opaque_256.webm", 512, 512},
+      {"vp8_alpha_256.webm", 512, 512},
+      {"vp9_alpha_vfr.webm", 512, 512},
+      {"vp9_odd_301x199.webm", 512, 338},
+      {"vp9_single_frame.webm", 512, 512},
+      {"vp9_with_audio.webm", 512, 512},
+      {"truncated.webm", 512, 512},
+  };
+  TempDir dir;
+  for (const Clip& c : clips) {
+    SCOPED_TRACE(c.name);
+    const std::string path = dir.File(std::string(c.name) + ".wsc");
+    {
+      CorpusAnim a;
+      ASSERT_EQ(MakeAnim(c.name, c.w, c.h, path, &a), WT_OK);
+      Bytes px(size_t{c.w} * c.h * 4);
+      while (a.anim->NextFrame(px.data(), px.size(), c.w * 4,
+                               WT_PIXEL_FORMAT_RGBA8888, nullptr) == WT_OK) {
+      }
+      EXPECT_EQ(a.anim->cache_mode(), Mode::kReading);
+    }
+    ASSERT_TRUE(fs::exists(path));
+    EXPECT_LE(fs::file_size(path), wt::CacheFileCap());
+    CorpusAnim b;
+    ASSERT_EQ(MakeAnim(c.name, c.w, c.h, path, &b), WT_OK);
+    EXPECT_EQ(b.anim->cache_mode(), Mode::kReading);
+  }
+}
+
+// S-11: a file that can't be mapped once written stops caching for that
+// animation, instead of being written again every loop.
+TEST(AnimCacheCapTest, AFailedReopenStopsCaching) {
+  TempDir dir;
+  const std::string path = dir.File("c.wsc");
+  const Played ref = Reference(kClip, kSize, kSize);
+  CorpusAnim a;
+  ASSERT_EQ(MakeAnim(kClip, kSize, kSize, path, &a), WT_OK);
+  a.anim->FailCacheReopenForTesting();
+  ExpectSamePlayback(PlayToEnd(a.anim.get()), ref);
+  EXPECT_EQ(a.anim->cache_mode(), Mode::kNone);
+  ASSERT_TRUE(fs::exists(path));  // Written, just not mapped.
+  const FileState written = StatFile(path);
+  for (int loop = 0; loop < 2; ++loop) {
+    ASSERT_EQ(a.anim->Seek(0), WT_OK);
+    ExpectSamePlayback(PlayToEnd(a.anim.get()), ref);
+  }
+  const FileState now = StatFile(path);
+  EXPECT_EQ(now.inode, written.inode) << "written again";
+  EXPECT_EQ(now.mtime_ns, written.mtime_ns) << "written again";
+  EXPECT_EQ(dir.List(), std::vector<std::string>{"c.wsc"});
 }
 
 // --- Through the C ABI -------------------------------------------------------

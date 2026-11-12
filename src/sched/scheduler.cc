@@ -116,6 +116,10 @@ Scheduler::~Scheduler() {
   {
     std::lock_guard<std::mutex> lk(mu_);
     quit_ = true;
+    // Nothing will show what they draw.
+    for (Player* p : players_) {
+      if (p->executing_) p->cancel_.Cancel();
+    }
   }
   clock_cv_.notify_all();
   work_cv_.notify_all();
@@ -165,6 +169,13 @@ wt_status Scheduler::SetOptions(const wt_sched_options& options) {
     max_concurrent_ = options.max_concurrent;
     worker_target_ = options.worker_count;
     ranks_dirty_ = true;
+    // Workers past the new count stop their frame early rather than finish
+    // a long decode first; the clock gives it to the workers that stay.
+    for (Player* p : players_) {
+      if (p->executing_ && p->worker_ >= options.worker_count) {
+        p->cancel_.Cancel();
+      }
+    }
   }
   clock_cv_.notify_one();
   work_cv_.notify_all();
@@ -225,6 +236,8 @@ void Scheduler::RemovePlayer(Player* p) {
   {
     std::unique_lock<std::mutex> lk(mu_);
     p->removing_ = true;
+    // A job under way stops at its next cancellation point (ADR 0027).
+    p->cancel_.Cancel();
     if (p->in_flight_ && !p->executing_) {
       queue_.erase(std::find(queue_.begin(), queue_.end(), p));
       p->in_flight_ = false;
@@ -316,6 +329,16 @@ wt_status Scheduler::Retarget(Player* p, const wt_sink& sink, Group* group,
     }
     // Round() leaves the player alone from here on, and Finish wakes us.
     p->retargeting_ = true;
+    // The frame in flight was meant for the old target: stop it early, or
+    // drop it if no worker took it yet. The redraw below plans it again.
+    p->cancel_.Cancel();
+    if (p->in_flight_ && !p->executing_) {
+      queue_.erase(std::find(queue_.begin(), queue_.end(), p));
+      p->in_flight_ = false;
+      if (p->group_ != nullptr) {
+        CompleteBatch(p->group_, p->job_round_, SchedClock::now());
+      }
+    }
     done_cv_.wait(lk, [p] { return !p->in_flight_; });
     if (previous != nullptr) *previous = p->sink_;
     Group* left = p->group_;
@@ -568,6 +591,7 @@ TimePoint Scheduler::Round(TimePoint now) {
 }
 
 void Scheduler::Dispatch(Player* p, const FrameJob& job) {
+  p->cancel_.Reset();  // Meant for an earlier job.
   p->job_ = job;
   p->job_target_generation_ = p->target_generation_;
   p->job_round_ = round_seq_;
@@ -637,6 +661,7 @@ void Scheduler::WorkerLoop(uint32_t index) {
       Player* p = queue_.front();
       queue_.pop_front();
       p->executing_ = true;
+      p->worker_ = index;
       const FrameJob job = p->job_;
       lk.unlock();
       const JobResult result = Execute(p, job);
@@ -657,24 +682,46 @@ void Scheduler::Report(Player* p, wt_status status) {
 Scheduler::JobResult Scheduler::Execute(Player* p, const FrameJob& job) {
   JobResult r;
   FrameSource& src = *p->source_;
+  const CancelFlag& cancel = p->cancel_;
   const uint32_t frames = src.frame_count();
   const bool loop = p->timeline_.loop();  // Immutable.
   uint32_t cursor = job.from;
   wt_status skip_error = WT_OK;
+  // Ends the job early: nothing drawn, no sink called, the cursor where the
+  // source left it (ADR 0027).
+  const auto cancelled = [&]() {
+    r.cancelled = true;
+    r.outcome.drawn = false;
+    r.outcome.cursor = cursor;
+    r.outcome.cursor_known = true;
+    if (skip_error != WT_OK) Report(p, skip_error);
+    return r;
+  };
   if (!job.seek) {
     for (uint32_t i = 0; i < job.skips; ++i) {
+      if (cancel.cancelled()) return cancelled();
       if (cursor >= frames) {
-        if (!loop || src.Seek(0) != WT_OK) break;
+        if (!loop) break;
+        p->prepared_ = false;
+        if (src.Seek(0) != WT_OK) break;
         cursor = 0;
       }
-      const wt_status s = src.Skip();
-      if (s == WT_END) break;  // Out of step; the seek below fixes it.
-      ++cursor;                // Errors advance the cursor too.
+      wt_status s = WT_OK;
+      if (p->prepared_) {
+        // Decoding it already moved the source past it.
+        p->prepared_ = false;
+      } else {
+        s = src.Skip(cancel);
+        if (s == kCancelled) return cancelled();
+        if (s == WT_END) break;  // Out of step; the seek below fixes it.
+      }
+      ++cursor;  // Errors advance the cursor too.
       ++r.skipped;
       if (s < 0 && skip_error == WT_OK) skip_error = s;
     }
   }
   if (job.seek || cursor != job.target) {
+    p->prepared_ = false;
     const wt_status s = src.Seek(job.target);
     if (s != WT_OK) {
       // The target is always in range, so this is a bug; don't retry it.
@@ -688,14 +735,38 @@ Scheduler::JobResult Scheduler::Execute(Player* p, const FrameJob& job) {
   r.outcome.cursor_known = true;
   if (skip_error != WT_OK) Report(p, skip_error);
 
+  // Decode before taking the sink's buffer: a catch-up can be long, and
+  // the buffer (a locked window on Android, which a platform thread may be
+  // waiting for) is held only for the write below (T6.1, S-05).
+  if (!p->prepared_) {
+    if (cancel.cancelled()) return cancelled();
+    wt_frame_info frame{};
+    const wt_status s = src.Prepare(cancel, &frame);
+    if (s == kCancelled) return cancelled();
+    if (s != WT_OK) {
+      // A frame that fails to decode uses up its turn: the previous one
+      // stays on screen, and the cursor moved past it.
+      if (s != WT_END) ++cursor;
+      r.outcome.drawn = true;
+      r.outcome.cursor = cursor;
+      Report(p, s < 0 ? s : WT_ERR_INTERNAL);
+      return r;
+    }
+    p->prepared_ = true;
+    p->prepared_frame_ = frame;
+  }
+  // The last cancellation point: a buffer, once taken, gets a whole frame.
+  if (cancel.cancelled()) return cancelled();
   wt_buffer buffer{};
   r.acquire = p->sink_.acquire(p->sink_.context, &buffer);
-  if (r.acquire != WT_OK) return r;
-  wt_frame_info frame{};
-  wt_status s = src.Draw(buffer, &frame);
-  // A rejected buffer doesn't advance the cursor; everything else does.
-  if (s != WT_ERR_INVALID_ARGUMENT) ++cursor;
-  if (s == WT_END) s = WT_ERR_INTERNAL;  // The cursor was just positioned.
+  if (r.acquire != WT_OK) return r;  // The frame stays prepared.
+  const wt_frame_info frame = p->prepared_frame_;
+  const wt_status s = src.Write(buffer);
+  // A rejected buffer doesn't use up the frame; everything else does.
+  if (s != WT_ERR_INVALID_ARGUMENT) {
+    p->prepared_ = false;
+    ++cursor;
+  }
   p->sink_.release(p->sink_.context, s, &frame);
   r.outcome.drawn = true;
   r.outcome.cursor = cursor;
@@ -715,6 +786,10 @@ void Scheduler::Finish(Player* p, const FrameJob& job, const JobResult& r,
   const bool redrawn = p->target_generation_ != p->job_target_generation_;
   if (redrawn) {
     // Redraw already cleared parked_ and retry_at_.
+  } else if (r.cancelled) {
+    // Stopped for a removal, a retarget or a worker going away: whoever
+    // carries on (the clock, another worker) may try again at once.
+    p->retry_at_ = TimePoint::min();
   } else if (r.acquire == WT_NO_TARGET) {
     p->parked_ = true;
   } else if (r.acquire == WT_BUSY) {

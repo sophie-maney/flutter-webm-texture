@@ -320,7 +320,8 @@ static void ReportError(void *context, wt_status status);
     player = _player;
     _player = nullptr;
   }
-  // Waits for a frame in flight; no sink callback runs after this.
+  // Cancels the frame in flight and waits for it to stop; no sink callback
+  // runs after this.
   wt_player_destroy(player);
   CVPixelBufferRef latest;
   {

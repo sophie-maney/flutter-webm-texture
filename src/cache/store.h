@@ -22,6 +22,11 @@
 //   its directory down to it, serialised by a mutex, so concurrent writers
 //   can't overshoot together. Several processes are tolerated: every
 //   deletion shrugs off ENOENT.
+// - One file may take at most CacheFileCap(): a quarter of the budget, and
+//   never more than 64 MiB (T6.1, S-04, ADR 0026). A write that passes it is
+//   abandoned before it is finished, so it leaves no file and evicts
+//   nothing, and the process remembers not to write that file again
+//   (RefuseCacheFile).
 //
 // Thread: background thread (directory scans and unlinks). Everything here is
 // safe to call concurrently.
@@ -37,6 +42,13 @@ namespace wt {
 
 // 200 MiB, PLAN.md "Frame cache".
 constexpr uint64_t kDefaultCacheBudget = uint64_t{200} << 20;
+
+// The most one cache file may take whatever the budget (ADR 0026): 3 s of
+// camera-like 512 x 512 content at 60 fps writes about 42 MB.
+constexpr uint64_t kMaxCacheFileBytes = uint64_t{64} << 20;
+
+// Files RefuseCacheFile remembers at most; the oldest is forgotten first.
+constexpr size_t kMaxRefusedCacheFiles = 256;
 
 // How long a writer temporary may sit untouched before eviction deletes it.
 constexpr int64_t kStrayTempAgeSeconds = 3600;
@@ -55,6 +67,22 @@ struct CacheStats {
 // kDefaultCacheBudget; UINT64_MAX means unlimited.
 uint64_t CacheBudget();
 void SetCacheBudget(uint64_t bytes);
+
+// The most bytes one cache file may take under the current budget:
+// min(CacheBudget() / 4, kMaxCacheFileBytes). 0 with a budget under 4 bytes.
+uint64_t CacheFileCap();
+
+// Remembers, for the life of the process, that the cache file at `path`
+// didn't fit in `cap` bytes, so later animations of the same sticker at the
+// same size decode without writing (and throwing away) it again.
+void RefuseCacheFile(const std::string& path, uint64_t cap);
+
+// Whether `path` was refused under a cap of at least `cap`. A larger cap
+// (the budget grew) lets it try again.
+bool CacheFileRefused(const std::string& path, uint64_t cap);
+
+// Tests only: forgets every refusal.
+void ForgetRefusedCacheFilesForTesting();
 
 // Counts the cache files in dir. A directory that doesn't exist holds
 // nothing (WT_OK, zeros); WT_ERR_IO for any other failure to read it.

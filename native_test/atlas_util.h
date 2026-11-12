@@ -69,31 +69,35 @@ class PatternSource final : public wt::FrameSource {
     cursor_ = index;
     return WT_OK;
   }
-  wt_status Skip() override {
+  wt_status Skip(const wt::CancelFlag&) override {
     Exclusive::Scope scope(&log_->exclusive);
     if (cursor_ >= frame_count()) return WT_END;
     ++cursor_;
     return WT_OK;
   }
-  wt_status Draw(const wt_buffer& dst, wt_frame_info* out) override {
+  wt_status Prepare(const wt::CancelFlag&, wt_frame_info* out) override {
     Exclusive::Scope scope(&log_->exclusive);
     std::memset(out, 0, sizeof(*out));
     if (cursor_ >= frame_count()) return WT_END;
+    prepared_ = cursor_++;
+    out->index = prepared_;
+    out->duration_ms = durations_[prepared_];
+    return WT_OK;
+  }
+  wt_status Write(const wt_buffer& dst) override {
+    Exclusive::Scope scope(&log_->exclusive);
     const size_t row = size_t{width_} * 4;
     if (dst.pixels == nullptr || dst.stride < row ||
         dst.size < size_t{dst.stride} * (height_ - 1) + row) {
       return WT_ERR_INVALID_ARGUMENT;
     }
-    const uint32_t index = cursor_++;
-    const uint32_t value = Pattern(tag_, index);
+    const uint32_t value = Pattern(tag_, prepared_);
     for (uint32_t y = 0; y < height_; ++y) {
       uint8_t* p = dst.pixels + size_t{y} * dst.stride;
       for (uint32_t x = 0; x < width_; ++x) std::memcpy(p + x * 4, &value, 4);
     }
     log_->draws.fetch_add(1);
-    log_->last_drawn.store(index);
-    out->index = index;
-    out->duration_ms = durations_[index];
+    log_->last_drawn.store(prepared_);
     return WT_OK;
   }
 
@@ -104,6 +108,7 @@ class PatternSource final : public wt::FrameSource {
   const std::vector<uint32_t> durations_;
   const std::shared_ptr<Log> log_;
   uint32_t cursor_ = 0;
+  uint32_t prepared_ = 0;  // The frame Prepare kept for Write.
 };
 
 // A wt_atlas_target over `count` buffers of width x height that it hands out

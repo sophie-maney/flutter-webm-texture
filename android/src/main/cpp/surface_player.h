@@ -5,10 +5,14 @@
 //
 // Threads:
 // - Create runs on a background thread (the caller made the anim there).
-// - SetWindow, SetActive, SetPriority, SeekTo and the destructor run on the
-//   platform main thread. None of them decodes; SetWindow and the destructor
-//   wait for at most one in-flight frame write so the window is never used
-//   after they return.
+// - SetWindow, SetActive, SetPriority and SeekTo run on the platform main
+//   thread. None of them decodes. SetWindow waits for at most one frame being
+//   written into the old window (lock, YUV to RGBA, post), so the window is
+//   never used after it returns; the core decodes before it acquires the
+//   window (T6.1, S-05, ADR 0027), so that wait never includes a decode.
+// - The destructor runs on a background thread (nativeDestroy), after
+//   SetWindow(nullptr): it cancels the frame in flight and waits for it to
+//   stop.
 // - The sink callbacks run on scheduler workers, one at a time.
 #ifndef WEBM_TEXTURE_ANDROID_SURFACE_PLAYER_H_
 #define WEBM_TEXTURE_ANDROID_SURFACE_PLAYER_H_
@@ -42,8 +46,9 @@ class SurfacePlayer {
                                                ErrorCallback on_error,
                                                wt_status* out_status);
 
-  // Takes the player off the scheduler (waiting for a frame in flight),
-  // destroys the anim and releases the window.
+  // Takes the player off the scheduler (cancelling the frame in flight and
+  // waiting for it to stop), destroys the anim and releases the window.
+  // Background thread.
   ~SurfacePlayer();
 
   SurfacePlayer(const SurfacePlayer&) = delete;
@@ -79,7 +84,7 @@ class SurfacePlayer {
 
   // wt_sink. Acquire locks window_mu_ and, on WT_OK, leaves it locked for
   // Release (same worker thread), so a lock-write-post is atomic with
-  // respect to SetWindow.
+  // respect to SetWindow. The frame is already decoded when Acquire runs.
   static wt_status Acquire(void* context, wt_buffer* out);
   static void Release(void* context, wt_status status,
                       const wt_frame_info* frame);
@@ -92,8 +97,8 @@ class SurfacePlayer {
   const ErrorCallback on_error_;
   wt_player* player_ = nullptr;
 
-  // Guards window_. Held by a worker for the length of one lock-write-post,
-  // so SetWindow(nullptr) can't return mid-write.
+  // Guards window_. Held by a worker for the length of one lock-write-post
+  // (no decode), so SetWindow(nullptr) can't return mid-write.
   std::mutex window_mu_;
   ANativeWindow* window_ = nullptr;
   // Worker only (callbacks are serialised): a surface failure was reported

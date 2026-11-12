@@ -9,9 +9,11 @@
 // onFrame handler).
 //
 // Threads:
-// - WTAtlas's methods run on the main thread. -attachPlayer:, -detachPlayer:
-//   and -setPage:target:height: wait for at most one frame or present in
-//   flight; -close waits for all of them.
+// - WTAtlas's methods run on the main thread. -attachPlayer: and
+//   -detachPlayer: cancel the player's frame in flight and wait for it to
+//   stop (at most one frame's decode, or a frame already being written:
+//   T6.1, S-05, ADR 0027); -setPage:target:height: waits for a present in
+//   flight; -close does both for every player and page.
 // - WTAtlasPage's onFrame handler runs on scheduler workers; it must not
 //   keep the page's texture alive (capture it weakly). -copyLatestFrame may
 //   be called from any thread (Flutter's raster thread).

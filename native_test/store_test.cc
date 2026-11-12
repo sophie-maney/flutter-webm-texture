@@ -358,33 +358,52 @@ class CacheBudgetTest : public testing::Test {
   uint64_t one_ = 0;
 };
 
+// A file may take a quarter of the budget (CacheFileCap, ADR 0026), so the
+// budgets below hold four files.
 TEST_F(CacheBudgetTest, FinishedWritesEvictTheOldestFile) {
   TempDir dir;
-  wt_cache_set_budget(one_ * 2 + one_ / 2);  // Room for two files.
-  const std::string a = dir.File("a.wsc"), b = dir.File("b.wsc"),
-                    c = dir.File("c.wsc");
-  PlayCached(a);
-  dir.Age("a.wsc", 300);
-  PlayCached(b);
-  dir.Age("b.wsc", 200);
-  EXPECT_EQ(dir.List(), (Names{"a.wsc", "b.wsc"}));
-  PlayCached(c);  // The third write pushes out the least recently used.
-  EXPECT_EQ(dir.List(), (Names{"b.wsc", "c.wsc"}));
+  wt_cache_set_budget(one_ * 4 + one_ / 2);  // Room for four files.
+  const std::vector<std::string> names = {"a.wsc", "b.wsc", "c.wsc", "d.wsc"};
+  for (size_t i = 0; i < names.size(); ++i) {
+    PlayCached(dir.File(names[i]));
+    dir.Age(names[i], 400 - 100 * static_cast<int>(i));
+  }
+  EXPECT_EQ(dir.List(), Names(names.begin(), names.end()));
+  PlayCached(dir.File("e.wsc"));  // The fifth pushes out the oldest.
+  EXPECT_EQ(dir.List(), (Names{"b.wsc", "c.wsc", "d.wsc", "e.wsc"}));
 }
 
 TEST_F(CacheBudgetTest, ACacheHitCountsAsUse) {
   TempDir dir;
-  wt_cache_set_budget(one_ * 2 + one_ / 2);
-  PlayCached(dir.File("a.wsc"));
-  dir.Age("a.wsc", 300);
-  PlayCached(dir.File("b.wsc"));
-  dir.Age("b.wsc", 200);
+  wt_cache_set_budget(one_ * 4 + one_ / 2);
+  const std::vector<std::string> names = {"a.wsc", "b.wsc", "c.wsc", "d.wsc"};
+  for (size_t i = 0; i < names.size(); ++i) {
+    PlayCached(dir.File(names[i]));
+    dir.Age(names[i], 400 - 100 * static_cast<int>(i));
+  }
   // Reading a.wsc makes it the most recently used.
   const auto before = fs::last_write_time(dir.File("a.wsc"));
   PlayCached(dir.File("a.wsc"));
   EXPECT_GT(fs::last_write_time(dir.File("a.wsc")), before);
-  PlayCached(dir.File("c.wsc"));
-  EXPECT_EQ(dir.List(), (Names{"a.wsc", "c.wsc"}));
+  PlayCached(dir.File("e.wsc"));
+  EXPECT_EQ(dir.List(), (Names{"a.wsc", "c.wsc", "d.wsc", "e.wsc"}));
+}
+
+// A file over a quarter of the budget is never finished: nothing is left and
+// nothing else is evicted for it, and the animation plays by decoding.
+TEST_F(CacheBudgetTest, AFileOverAQuarterOfTheBudgetIsntWritten) {
+  wt::ForgetRefusedCacheFilesForTesting();
+  TempDir dir;
+  wt_cache_set_budget(one_ * 4 + one_ / 2);
+  PlayCached(dir.File("a.wsc"));
+  PlayCached(dir.File("b.wsc"));
+  wt_cache_set_budget(one_ * 4 - 4);  // Cap: one byte short of a file.
+  EXPECT_GT(PlayCached(dir.File("c.wsc")), 0u);
+  EXPECT_EQ(dir.List(), (Names{"a.wsc", "b.wsc"}));
+  // A budget that fits it again lets it try again.
+  wt_cache_set_budget(one_ * 4);
+  EXPECT_GT(PlayCached(dir.File("c.wsc")), 0u);
+  EXPECT_EQ(dir.List(), (Names{"a.wsc", "b.wsc", "c.wsc"}));
 }
 
 TEST_F(CacheBudgetTest, ABudgetSmallerThanAFileKeepsNothingButStillPlays) {
@@ -404,13 +423,18 @@ TEST_F(CacheBudgetTest, UnlimitedBudgetKeepsEverything) {
   EXPECT_EQ(dir.List().size(), 3u);
 }
 
-// Two animations write different files at once under a budget that holds
-// one; whatever the interleaving, at most one file is left, no temporary
-// survives, and both animations play every frame.
+// Two animations write different files at once into a directory with three
+// older files, under a budget that holds four; whatever the interleaving, at
+// most four files are left, no temporary survives, and both animations play
+// every frame.
 TEST_F(CacheBudgetTest, TwoAnimationsWritingConcurrently) {
   for (int round = 0; round < 8; ++round) {
     TempDir dir;
-    wt_cache_set_budget(one_ + one_ / 2);
+    wt_cache_set_budget(one_ * 4 + one_ / 2);
+    for (const char* n : {"x.wsc", "y.wsc", "z.wsc"}) {
+      PlayCached(dir.File(n));
+      dir.Age(n, 300);
+    }
     std::atomic<size_t> frames[2] = {0, 0};
     std::thread t0([&] { frames[0] = PlayCached(dir.File("a.wsc")); });
     std::thread t1([&] { frames[1] = PlayCached(dir.File("b.wsc")); });
@@ -419,7 +443,7 @@ TEST_F(CacheBudgetTest, TwoAnimationsWritingConcurrently) {
     EXPECT_GT(frames[0].load(), 0u);
     EXPECT_EQ(frames[0].load(), frames[1].load());
     const Names left = dir.List();
-    EXPECT_LE(left.size(), 1u);
+    EXPECT_LE(left.size(), 4u);
     for (const std::string& n : left) {
       EXPECT_EQ(n.find(".tmp"), std::string::npos) << n;
     }
@@ -453,7 +477,7 @@ TEST_F(CacheBudgetTest, TwoAnimationsWritingTheSameFile) {
 // leave the directory over budget once everyone is done.
 TEST_F(CacheBudgetTest, WritersAndExplicitEvictionsRace) {
   TempDir dir;
-  wt_cache_set_budget(one_ * 2);
+  wt_cache_set_budget(one_ * 4);
   std::atomic<bool> stop{false};
   std::thread evictor([&] {
     while (!stop) {
@@ -479,7 +503,8 @@ TEST_F(CacheBudgetTest, WritersAndExplicitEvictionsRace) {
   EXPECT_GT(played.load(), 0u);
   wt_cache_stats after{};
   ASSERT_EQ(wt_cache_evict(dir.str().c_str(), &after), WT_OK);
-  EXPECT_LE(after.total_bytes, one_ * 2);
+  EXPECT_GT(after.file_count, 0u);
+  EXPECT_LE(after.total_bytes, one_ * 4);
 }
 
 }  // namespace

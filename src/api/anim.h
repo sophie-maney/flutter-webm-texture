@@ -23,6 +23,19 @@
 // frame, is deleted and playback carries on by decoding (the next full pass
 // writes a fresh one). Cache I/O problems never fail a frame.
 //
+// A file may be at most CacheFileCap() bytes (cache/store.h; ADR 0026). A
+// write that passes it is abandoned, its temporary file deleted, and the
+// animation, like every later one for the same file in this process, stops
+// caching; so does one that can't map the file it just wrote (T6.1, S-04 and
+// S-11). Nothing is evicted for a write that didn't finish.
+//
+// Cancellation (T6.1, S-05, ADR 0027): PrepareFrame and SkipFrame take an
+// optional CancelFlag. A catch-up checks it before each frame it decodes and,
+// once it is set, returns kCancelled having moved nothing; the next call
+// resumes the catch-up where it stopped. A cache file completed by a
+// cancelled call isn't finished (fsynced, renamed, evicted for) until the
+// next call that isn't cancelled.
+//
 // Thread: background thread. Not thread-safe (see wt_api.h, Threading).
 #ifndef WT_API_ANIM_H_
 #define WT_API_ANIM_H_
@@ -33,6 +46,7 @@
 #include <string>
 #include <vector>
 
+#include "api/cancel.h"
 #include "api/wt_api.h"
 #include "cache/wsc.h"
 #include "convert/yuva.h"
@@ -122,9 +136,23 @@ class Anim {
 
   // See wt_anim_next_frame. The cursor advances on errors too, so a broken
   // frame doesn't stall playback. An invalid buffer is rejected before any
-  // decoding and doesn't advance it.
+  // decoding and doesn't advance it. PrepareFrame then WriteFrame.
   wt_status NextFrame(uint8_t* dst, size_t dst_size, uint32_t stride,
                       wt_pixel_format format, wt_frame_info* out_frame);
+
+  // NextFrame in two steps, so the scheduler can decode before it holds a
+  // buffer (ADR 0027). PrepareFrame decodes the frame at the cursor (or
+  // reads it from the cache) into the animation's own YUVA frame and
+  // advances the cursor, on errors too; WT_END after the last frame.
+  // WriteFrame converts that frame into dst, as often as asked, until the
+  // next call that moves the cursor; WT_ERR_INVALID_ARGUMENT for a buffer
+  // that doesn't fit (as NextFrame), WT_ERR_INTERNAL before any frame.
+  // With `cancel` set, PrepareFrame may return kCancelled (see the file
+  // comment).
+  wt_status PrepareFrame(wt_frame_info* out_frame,
+                         const CancelFlag* cancel = nullptr);
+  wt_status WriteFrame(uint8_t* dst, size_t dst_size, uint32_t stride,
+                       wt_pixel_format format) const;
 
   // Moves the cursor past one frame without writing pixels: what NextFrame
   // does minus the conversion into a buffer. While decoding, the frame is
@@ -132,8 +160,14 @@ class Anim {
   // writer, so a pass with skipped frames still writes the cache; read from
   // the cache, a skip costs nothing. Returns WT_END after the last frame,
   // and like NextFrame advances the cursor on errors. The scheduler skips
-  // frames that are already late (sched/timeline.h).
-  wt_status SkipFrame(wt_frame_info* out_frame);
+  // frames that are already late (sched/timeline.h). Cancels like
+  // PrepareFrame.
+  wt_status SkipFrame(wt_frame_info* out_frame,
+                      const CancelFlag* cancel = nullptr);
+
+  // Tests only: the next finished cache file is treated as if it couldn't
+  // be mapped again (T6.1, S-11).
+  void FailCacheReopenForTesting() { fail_reopen_for_testing_ = true; }
 
  private:
   Anim() = default;
@@ -148,15 +182,18 @@ class Anim {
   wt_status DecodeCanvasFrame(bool present);
   // DecodeAt for a canvas decoder: seeks it to `index` by resetting and
   // decoding forward.
-  wt_status CatchUpCanvas(uint32_t index);
+  wt_status CatchUpCanvas(uint32_t index, const CancelFlag* cancel);
   bool has_decoder() const { return decoder_ != nullptr || canvas_ != nullptr; }
   // Decodes frame `index` into frame_, catching up from a seek first, and
-  // streams it to the cache writer when one is open.
-  wt_status DecodeAt(uint32_t index);
+  // streams it to the cache writer when one is open. kCancelled before the
+  // catch-up reached `index`.
+  wt_status DecodeAt(uint32_t index, const CancelFlag* cancel);
   // Takes the frame at the cursor and advances it: reads it from the cache
   // into frame_ when need_pixels (otherwise a cache hit reads nothing), or
-  // decodes it (DecodeAt). Fills *out_frame on success when non-null.
-  wt_status Advance(bool need_pixels, wt_frame_info* out_frame);
+  // decodes it (DecodeAt). Fills *out_frame on success when non-null. On
+  // kCancelled the cursor stays.
+  wt_status Advance(bool need_pixels, const CancelFlag* cancel,
+                    wt_frame_info* out_frame);
   // Creates the decoder if there is none (the cache made it unnecessary so
   // far), ready to decode up to frame `target`.
   wt_status EnsureDecoder(uint32_t target);
@@ -171,8 +208,12 @@ class Anim {
   // Deletes the cache file and stops reading it.
   void DropCache();
   // Passes frame `index`, now in frame_, to the writer (starting one at
-  // frame 0); finishes the file after the last frame and switches to it.
-  void WriteCache(uint32_t index);
+  // frame 0); finishes the file after the last frame (FinishCache) unless
+  // cancel is set, in which case the next Advance does.
+  void WriteCache(uint32_t index, const CancelFlag* cancel);
+  // Finishes the full writer's file, switches to reading it, and evicts
+  // the directory down to the budget. Stops caching if either fails.
+  void FinishCache();
   // Stops caching for the rest of this Anim's life.
   void DisableCache();
 
@@ -204,6 +245,7 @@ class Anim {
   uint32_t source_crc_ = 0;
   std::unique_ptr<WscReader> reader_;
   std::unique_ptr<WscWriter> writer_;
+  bool fail_reopen_for_testing_ = false;
 };
 
 }  // namespace wt

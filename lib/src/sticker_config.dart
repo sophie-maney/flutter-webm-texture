@@ -35,6 +35,8 @@ class StickerConfig {
 
   /// The most disk the frame cache may use, in bytes. The least recently used
   /// files are deleted to stay within it: at startup and after each write.
+  /// One sticker's file may take at most a quarter of it, and never more than
+  /// 64 MiB; a sticker whose frames need more plays without a cache file.
   /// Zero keeps nothing on disk.
   final int diskBudgetBytes;
 
