@@ -293,6 +293,6 @@ the files they use.
 ## License
 
 This package is licensed under the terms in [LICENSE](LICENSE). The
-third-party libraries it bundles (libvpx, libwebp, giflib, libyuv, lz4) carry
-their own licenses, collected in
+third-party libraries it bundles (libvpx, libwebm, libwebp, giflib, libyuv,
+lz4) carry their own licenses, collected in
 [third_party/LICENSES.md](third_party/LICENSES.md).
