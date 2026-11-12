@@ -1,0 +1,67 @@
+# Rules for `dart pub publish`. A .pubignore replaces the root .gitignore for
+# pub, so the root .gitignore rules are repeated here, except /third_party/prebuilt/:
+# the release job (tool/vendor_prebuilts.sh) fills it and it must ship.
+
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# Flutter/Dart/Pub related
+/pubspec.lock
+**/doc/api/
+.dart_tool/
+.flutter-plugins-dependencies
+/build/
+/coverage/
+.fvm/
+build/
+.swiftpm/
+
+# Not for consumers -----------------------------------------------------------
+/.github/
+/.fvmrc
+/AGENTS.md
+/PLAN.md
+/EXECUTION_PLAN.md
+/CMakeLists.txt
+/native_test/
+/fuzz/
+/spikes/
+/test_assets/
+/docs/spikes/
+/docs/screenshots/
+/third_party/build/
+/third_party/test-deps.lock
+/tool/
+/example/spike_b/
+/example/spike_c/
+/example/integration_test/
+/example/test/
+/example/test_assets
+/example/pubspec.lock
+/test/
+/pigeons/
+/ffigen.yaml
+/android/src/test/
+# iOS reads the xcframework through the ios/webm_texture/Frameworks symlink,
+# which pub resolves, so a second copy would only double the size.
+/third_party/prebuilt/ios/
+# docs/ holds ADRs, spike reports and the cache format; pub warns about the
+# plural name and pub.dev resolves the README's relative links against the
+# repository anyway.
+/docs/
