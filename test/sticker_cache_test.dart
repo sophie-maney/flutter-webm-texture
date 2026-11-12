@@ -93,6 +93,16 @@ void main() {
       expect(native.applied, isEmpty);
     });
 
+    // T6.1 (S-05): StickerConfig only asserts the budget, and release builds
+    // drop asserts; over FFI -1 would be UINT64_MAX, i.e. never evict. Fails
+    // before the native library is loaded, so it runs without one.
+    test('a negative budget is refused at the FFI boundary', () async {
+      await expectLater(
+        const FfiCacheNative().applyBudget('/fake/cache', -1),
+        throwsA(isA<RangeError>()),
+      );
+    });
+
     test('WebmStickers delegates to the runtime\'s cache', () async {
       StickerRuntime.debugOverride = StickerRuntime(
         cache: cache,

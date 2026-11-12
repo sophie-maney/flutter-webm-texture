@@ -88,6 +88,9 @@ class StickerInfo {
 
 /// Safety limits applied to untrusted sticker input. A null field keeps the
 /// native default (`wt_limits_init_default`): 1024 px, 10 s, 2 MiB, 600 frames.
+/// A field must be at least 1 (and [maxDimension], [maxFrames] and
+/// [maxDuration] in milliseconds at most 2^32 - 1), or using the limits
+/// throws a [RangeError].
 class StickerLimits {
   /// Creates limits; any null field keeps its default.
   const StickerLimits({

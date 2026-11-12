@@ -169,7 +169,9 @@ typedef struct wt_limits {
      plus margin. */
   uint64_t max_total_pixels;
   /* Largest accepted width or height, in pixels, of the source and of the
-     output. Default 1024, which matches libvpx's --size-limit. */
+     output. Default 1024, which matches libvpx's --size-limit (VP9 only;
+     the core holds every VP8/VP9 keyframe to the track's size). A GIF frame
+     rect may cover at most max_dimension squared pixels. */
   uint32_t max_dimension;
   /* Most frames in one animation. Default 600 (10 s at 60 fps). */
   uint32_t max_frames;
@@ -452,7 +454,9 @@ WT_API wt_status wt_cache_file_path(const char* dir, const char* source_key,
                                     size_t out_size);
 
 /*
- * Counts the cache files in dir.
+ * Counts the cache files in dir. Like every function here, it deletes the
+ * files a listing finds past the 65,536th, so a flooded directory can't make
+ * a scan unbounded.
  * Thread: background thread (reads the directory).
  */
 WT_API wt_status wt_cache_get_stats(const char* dir, wt_cache_stats* out_stats);

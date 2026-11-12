@@ -25,7 +25,8 @@
 //     frames x canvas area, and max_duration_ms on the summed durations.
 //     A frame's rect can be up to 65535 x 65535 whatever the canvas, so the
 //     sum of the rect areas (the pixels the LZW decoder must produce) is
-//     held to max_total_pixels too.
+//     held to max_total_pixels too, and each rect's area to max_dimension
+//     squared, one frame's worth as for WebM and WebP (T6.1, S-02).
 //   - A file that ends before its trailer keeps its complete frames, with
 //     `truncated` set; no complete frame is WT_ERR_TRUNCATED. A structural
 //     error (bad record type, LZW code size outside 2..8) is

@@ -40,6 +40,13 @@ regression input, named after what it triggers.
   done
   ```
 
+- `vp8_oversized_keyframe.webm` (T6.1, S-01 in `docs/security.md`): a
+  16 x 16 VP8 track with alpha whose keyframes claim 16383 x 16383, the size
+  libvpx's VP8 decoder allocated four frame buffers for. Written by a short
+  script for the review; it is 811 bytes: an EBML header, one track, and one
+  BlockGroup per frame whose Block and BlockAdditional hold the 10-byte VP8
+  keyframe header plus zeroed partitions (then three inter frames).
+
 `fuzz/webm.dict` lists the EBML IDs and strings the demuxer looks for.
 
 ## `wsc/` (`fuzz_wsc`)
@@ -91,6 +98,9 @@ build/fuzz/gif_seeds fuzz/corpus/gif
 - `short_lzw_no_trailer.gif`: an LZW stream that ends early (a decode error)
   and no trailer (a truncated file).
 - `huge_rect_no_palette.gif`: a 65535 x 65535 rect and no colour map.
+- `big_rect_then_error.gif` (T6.1, S-02): a 256 x 256 rect on a 1 x 1
+  canvas, then a frame whose LZW stream ends early, so every later frame
+  replays the big one.
 
 `fuzz/gif.dict` lists the block introducers, extension labels and header
 bytes the demuxer looks for.

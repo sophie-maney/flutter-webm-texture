@@ -2,8 +2,15 @@ import 'dart:collection';
 
 import 'package:flutter/services.dart';
 
+import 'gen/wt_bindings.g.dart' show WT_ERR_LIMIT;
 import 'sha1.dart';
+import 'sticker_info.dart';
 import 'sticker_source.dart';
+
+/// The core's default `max_bytes` (`wt_limits_init_default`), which playback
+/// always uses. Fetched bytes over it are refused before they are hashed or
+/// cached, since the core would refuse them anyway.
+const int maxFetchedStickerBytes = 2 << 20;
 
 /// Turns any [StickerSource] into a [ResolvedSticker]: loads assets, calls
 /// the [StickerFetcher] for network sources, and names the content.
@@ -29,6 +36,19 @@ class StickerResolver {
   /// Resolves [source]. Concurrent calls for an equal source share one load.
   /// Failures aren't cached, so a retry fetches again.
   Future<ResolvedSticker> resolve(StickerSource source) {
+    // A NUL would end the key or the path early in the native glue (iOS
+    // passes them as C strings), so two different keys could share a cache
+    // file.
+    final name = switch (source) {
+      FileStickerSource(:final path) => path,
+      BytesStickerSource(:final key) || NetworkStickerSource(:final key) => key,
+      AssetStickerSource() => null,
+    };
+    if (name != null && name.contains('\u0000')) {
+      return Future.error(
+        ArgumentError.value(name, 'source', 'must not contain NUL'),
+      );
+    }
     switch (source) {
       case FileStickerSource(:final path):
         return Future.value(ResolvedSticker('file:$path', source));
@@ -70,10 +90,19 @@ class StickerResolver {
         }
         final result = await fetcher.fetch(Uri.parse(url), headers: headers);
         return switch (result) {
+          FileFetchResult(:final path) when path.contains('\u0000') =>
+            throw ArgumentError.value(path, 'path', 'must not contain NUL'),
           FileFetchResult(:final path) => ResolvedSticker(
             key != null ? 'key:$key' : 'file:$path',
             StickerSource.file(path),
           ),
+          BytesFetchResult(:final data)
+              when data.length > maxFetchedStickerBytes =>
+            throw StickerException(
+              WT_ERR_LIMIT,
+              'WT_ERR_LIMIT',
+              '${data.length} bytes, over $maxFetchedStickerBytes',
+            ),
           BytesFetchResult(:final data) => _fromBytes(data, key),
         };
       case FileStickerSource() || BytesStickerSource():

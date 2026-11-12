@@ -62,6 +62,8 @@ class VpxDecoder::Context {
 
   wt_status Init(wt_codec codec, uint32_t width, uint32_t height) {
     codec_ = codec;
+    width_ = width;
+    height_ = height;
     vpx_codec_dec_cfg_t cfg;
     std::memset(&cfg, 0, sizeof(cfg));
     // One thread per context: the scheduler parallelises across
@@ -78,11 +80,18 @@ class VpxDecoder::Context {
     return WT_OK;
   }
 
-  enum class Result { kDecoded, kSkipped, kFailed, kNoMemory };
+  enum class Result { kDecoded, kSkipped, kFailed, kWrongSize, kNoMemory };
 
   // Decodes one packet unless the context is waiting for a keyframe and this
   // isn't one. On kDecoded, *img is the last shown image or null when the
   // packet showed none (superframes may also carry hidden frames).
+  //
+  // A keyframe whose coded size isn't the track's is refused before libvpx
+  // sees it (T6.1, S-01). libvpx's --size-limit only guards VP9: VP8 sizes
+  // its four frame buffers from the keyframe header (up to 16383 x 16383,
+  // ~400 MB each) before decoding a byte. VP8 inter frames can't change the
+  // size, so this bounds every VP8 allocation by the track's size (which the
+  // demuxer held to max_dimension); VP9 stays under --size-limit anyway.
   Result Decode(ByteView data, const vpx_image_t** img) {
     *img = nullptr;
     if (data.size == 0 || data.size > UINT_MAX) {
@@ -90,16 +99,19 @@ class VpxDecoder::Context {
       return Result::kFailed;
     }
     const unsigned int size = static_cast<unsigned int>(data.size);
-    if (need_keyframe_) {
-      vpx_codec_stream_info_t si;
-      std::memset(&si, 0, sizeof(si));
-      si.sz = sizeof(si);
-      if (vpx_codec_peek_stream_info(Iface(codec_), data.data, size, &si) !=
-              VPX_CODEC_OK ||
-          !si.is_kf) {
-        return Result::kSkipped;
-      }
+    vpx_codec_stream_info_t si;
+    std::memset(&si, 0, sizeof(si));
+    si.sz = sizeof(si);
+    // VP8 inter frames don't peek (VPX_CODEC_UNSUP_BITSTREAM): not keyframes.
+    const bool keyframe =
+        vpx_codec_peek_stream_info(Iface(codec_), data.data, size, &si) ==
+            VPX_CODEC_OK &&
+        si.is_kf;
+    if (keyframe && (si.w != width_ || si.h != height_)) {
+      need_keyframe_ = true;
+      return Result::kWrongSize;
     }
+    if (need_keyframe_ && !keyframe) return Result::kSkipped;
     const vpx_codec_err_t err =
         vpx_codec_decode(&ctx_, data.data, size, nullptr, 0);
     if (err != VPX_CODEC_OK) {
@@ -120,6 +132,8 @@ class VpxDecoder::Context {
  private:
   vpx_codec_ctx_t ctx_;
   wt_codec codec_ = WT_CODEC_UNKNOWN;
+  uint32_t width_ = 0;  // The track's size, which every keyframe must have.
+  uint32_t height_ = 0;
   bool ready_ = false;
   bool need_keyframe_ = true;
 };
@@ -151,23 +165,29 @@ wt_status VpxDecoder::Decode(ByteView color, ByteView alpha, Output* out) {
   if (color_ == nullptr) return WT_ERR_INTERNAL;
 
   const vpx_image_t* img = nullptr;
-  switch (color_->Decode(color, &img)) {
+  const Context::Result r = color_->Decode(color, &img);
+  switch (r) {
     case Context::Result::kDecoded:
       break;
     case Context::Result::kNoMemory:
       return WT_ERR_NO_MEMORY;
     case Context::Result::kSkipped:
     case Context::Result::kFailed:
+    case Context::Result::kWrongSize:
       // The alpha frame belongs to a colour frame we can't show; its stream
       // must restart at a keyframe too, or it drifts out of step.
       if (alpha_ != nullptr) alpha_->RequireKeyframe();
-      return WT_ERR_DECODE;
+      return r == Context::Result::kWrongSize ? WT_ERR_INVALID_DATA
+                                              : WT_ERR_DECODE;
   }
 
   YuvaView view;
   if (img != nullptr) {
     const wt_status s = CheckImage(*img, width_, height_);
     if (s != WT_OK) {
+      // Wait for a keyframe of the right size rather than decode inter frames
+      // at the wrong one (a VP9 frame can change size against its refs).
+      color_->RequireKeyframe();
       if (alpha_ != nullptr) alpha_->RequireKeyframe();  // It misses a packet.
       return s;
     }

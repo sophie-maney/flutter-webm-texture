@@ -108,5 +108,14 @@ int main(int argc, char** argv) {
   g.global_palette.clear();
   ok = Write(dir, "huge_rect_no_palette.gif", wt_test::WriteGif(g)) && ok;
 
+  // T6.1 (S-02): a big rect on a 1 x 1 canvas, then a decode error, so every
+  // later frame replays the big one.
+  g = File(1, 1);
+  g.frames = {Frame(0, 0, 256, 256), Frame(0, 0, 8, 8)};
+  g.frames[1].drop_pixels = 5;
+  g.frames[1].min_code_size = 3;
+  for (int i = 0; i < 8; ++i) g.frames.push_back(Frame(0, 0, 1, 1));
+  ok = Write(dir, "big_rect_then_error.gif", wt_test::WriteGif(g)) && ok;
+
   return ok ? 0 : 1;
 }

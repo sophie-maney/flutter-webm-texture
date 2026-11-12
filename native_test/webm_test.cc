@@ -12,6 +12,7 @@
 #include <string>
 #include <vector>
 
+#include "convert/yuva.h"
 #include "gtest/gtest.h"
 #include "manifest.h"
 #include "wt_api.h"
@@ -579,6 +580,36 @@ TEST(WebmDemuxTest, DimensionLimit) {
       WT_ERR_LIMIT);
 }
 
+// T6.1 (S-03): a caller may raise max_dimension, but never past what a frame
+// can be decoded at (YuvaImage::kMaxDimension), as WebP and GIF already
+// enforce. Before the fix a 2^31 x 2^31 track (2^62 px a frame) under a
+// budget of 3 x 2^62 px indexed 5 frames: the 4th frame's (4 x 2^62)
+// product in Push() wrapped to 0.
+TEST(WebmDemuxTest, RaisedDimensionLimitStopsAtTheDecodableSize) {
+  wt::WebmIndex index;
+  const Bytes cluster = Cluster(0, SimpleBlock(1, 0));
+  wt_limits wide = DefaultLimits();
+  wide.max_dimension = UINT32_MAX;
+  const uint32_t max = wt::YuvaImage::kMaxDimension;
+  EXPECT_EQ(Demux(File(VideoTrack(1, "V_VP9", max, 16), cluster), &index, wide),
+            WT_OK);
+  EXPECT_EQ(
+      Demux(File(VideoTrack(1, "V_VP9", max + 1, 16), cluster), &index, wide),
+      WT_ERR_LIMIT);
+  EXPECT_EQ(
+      Demux(File(VideoTrack(1, "V_VP9", 16, max + 1), cluster), &index, wide),
+      WT_ERR_LIMIT);
+
+  const uint64_t side = uint64_t{1} << 31;
+  wide.max_total_pixels = 3 * (uint64_t{1} << 62);
+  Bytes five;
+  for (int16_t i = 0; i < 5; ++i) five = Cat({five, SimpleBlock(1, i)});
+  EXPECT_EQ(Demux(File(VideoTrack(1, "V_VP9", side, side), Cluster(0, five)),
+                  &index, wide),
+            WT_ERR_LIMIT);
+  EXPECT_TRUE(index.frames.empty());
+}
+
 // Decode budget: width x height x frames, checked as frames are added.
 TEST(WebmDemuxTest, PixelBudget) {
   wt::WebmIndex index;
@@ -638,6 +669,59 @@ TEST(WebmDemuxTest, LacedVideoIsUnsupported) {
                        Cluster(0, Cat({audio, SimpleBlock(1, 0)}))),
                   &index),
             WT_OK);
+}
+
+// A VP8 keyframe header claiming width x height (see decode_test.cc).
+Bytes Vp8Keyframe(uint32_t width, uint32_t height) {
+  const uint32_t tag = 64u << 5 | 1u << 4;  // Keyframe, shown, 64-byte part.
+  Bytes b = {static_cast<uint8_t>(tag),
+             static_cast<uint8_t>(tag >> 8),
+             static_cast<uint8_t>(tag >> 16),
+             0x9d,
+             0x01,
+             0x2a,
+             static_cast<uint8_t>(width),
+             static_cast<uint8_t>((width >> 8) & 0x3f),
+             static_cast<uint8_t>(height),
+             static_cast<uint8_t>((height >> 8) & 0x3f)};
+  b.resize(b.size() + 128, 0);
+  return b;
+}
+
+// T6.1 (S-01): a keyframe sets the size libvpx allocates for, and VP8 has no
+// --size-limit, so a colour or alpha keyframe that disagrees with the
+// track's PixelWidth x PixelHeight (which max_dimension bounds) makes the
+// file invalid. Before the fix a 16 x 16 track with a 16383 x 16383 VP8
+// keyframe probed OK.
+TEST(WebmDemuxTest, KeyframeSizeMustMatchTheTrack) {
+  wt::WebmIndex index;
+  const Bytes right = Vp8Keyframe(16, 16);
+  const Bytes huge = Vp8Keyframe(16383, 16383);
+  const Bytes track = VideoTrack(1, "V_VP8", 16, 16, 1);
+  EXPECT_EQ(
+      Demux(File(track, Cluster(0, SimpleBlock(1, 0, true, right))), &index),
+      WT_OK);
+  EXPECT_TRUE(index.frames[0].random_access);
+  EXPECT_EQ(
+      Demux(File(track, Cluster(0, SimpleBlock(1, 0, true, huge))), &index),
+      WT_ERR_INVALID_DATA);
+  EXPECT_STREQ(index.error, "keyframe size differs from the track");
+  EXPECT_TRUE(index.frames.empty());
+  // The same for the alpha stream's keyframes.
+  EXPECT_EQ(Demux(File(track, Cluster(0, BlockGroup(1, 0, AlphaAdditions(huge),
+                                                    right))),
+                  &index),
+            WT_ERR_INVALID_DATA);
+  EXPECT_EQ(Demux(File(track, Cluster(0, BlockGroup(1, 0, AlphaAdditions(right),
+                                                    right))),
+                  &index),
+            WT_OK);
+  // Only one byte off.
+  EXPECT_EQ(
+      Demux(
+          File(track, Cluster(0, SimpleBlock(1, 0, true, Vp8Keyframe(16, 17)))),
+          &index),
+      WT_ERR_INVALID_DATA);
 }
 
 TEST(WebmDemuxTest, Alpha) {

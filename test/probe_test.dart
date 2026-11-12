@@ -62,6 +62,28 @@ void main() {
       );
     });
 
+    // FFI would store -1 into a uint32_t as 2^32 - 1: no limit at all. Checked
+    // before the native library is touched, so this runs without it.
+    test('limits that wt_limits can\'t hold are refused', () {
+      for (final limits in [
+        const StickerLimits(maxDimension: -1),
+        const StickerLimits(maxDimension: 0),
+        const StickerLimits(maxDimension: 1 << 32),
+        const StickerLimits(maxFrames: -600),
+        const StickerLimits(maxBytes: -1),
+        const StickerLimits(maxDuration: Duration(milliseconds: -1)),
+        const StickerLimits(maxDuration: Duration(days: 50)),
+      ]) {
+        expect(
+          WebmStickers.probe(
+            const StickerSource.file('test_assets/vp9_alpha_512.webm'),
+            limits: limits,
+          ),
+          throwsA(isA<RangeError>()),
+        );
+      }
+    });
+
     test('limits tighten the defaults', skip: skip, () {
       expect(
         WebmStickers.probe(

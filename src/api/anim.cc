@@ -2,6 +2,7 @@
 
 #include <unistd.h>
 
+#include <algorithm>
 #include <cstring>
 #include <new>
 #include <utility>
@@ -386,7 +387,16 @@ wt_status Anim::Seek(uint32_t frame_index) {
 }
 
 wt_status Anim::DecodeFrame(uint32_t index, bool present) {
-  pass_pixels_ += uint64_t{info_.width} * info_.height;
+  // What the decoder does for this frame: the source size, or for GIF the
+  // frame's rect when that is larger (giflib expands all of it). Replays
+  // after a canvas decode error add up here too, so they can't outrun the
+  // budget (T6.1, S-02).
+  uint64_t pixels = uint64_t{info_.width} * info_.height;
+  if (info_.format == WT_FORMAT_GIF && index < index_.gif.frames.size()) {
+    const GifFrame& f = index_.gif.frames[index];
+    pixels = std::max(pixels, uint64_t{f.width} * f.height);
+  }
+  pass_pixels_ += pixels;
   if (pass_pixels_ > max_pass_pixels_) return WT_ERR_LIMIT;
   if (canvas_ != nullptr) return DecodeCanvasFrame(present);
   const WebmFrame& f = index_.webm.frames[index];

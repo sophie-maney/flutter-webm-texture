@@ -14,6 +14,11 @@ sealed class StickerSource {
   const StickerSource();
 
   /// A file on disk, read by the native core.
+  ///
+  /// The core maps the file while the sticker plays, so replace a file by
+  /// writing a new one and renaming it over the old path, never by
+  /// rewriting it in place: a file that shrinks under a mapping crashes the
+  /// app (SIGBUS) on the next frame read past its new end.
   const factory StickerSource.file(String path) = FileStickerSource;
 
   /// Encoded bytes in memory. [key] identifies the content for caching; when
@@ -142,7 +147,9 @@ sealed class StickerFetchResult {
   /// A sticker already on disk, at an absolute [path].
   ///
   /// Name files after their content (a hash, or a version in the path), as
-  /// the path identifies the sticker in the animation cache.
+  /// the path identifies the sticker in the animation cache. Never rewrite a
+  /// file in place while it may be playing (see [StickerSource.file]): write
+  /// a temporary file and rename it.
   const factory StickerFetchResult.file(String path) = FileFetchResult;
 
   /// A sticker in memory.
@@ -177,8 +184,10 @@ abstract interface class StickerFetcher {
   ///
   /// Called on the UI isolate, at most once at a time per distinct source.
   /// Throw to report a failure; the exception reaches the widget's
-  /// `errorBuilder`. The core's `StickerLimits` apply to what is returned, but
-  /// a fetcher should still refuse unreasonably large downloads.
+  /// `errorBuilder`. Bytes over 2 MiB (the core's default input limit) are
+  /// refused with a `WT_ERR_LIMIT` `StickerException` before they are hashed
+  /// or cached, but a fetcher should refuse large downloads itself, before
+  /// they are in memory.
   Future<StickerFetchResult> fetch(Uri url, {Map<String, String>? headers});
 }
 

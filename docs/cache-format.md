@@ -64,7 +64,11 @@ file.
 As in PNG, the magic catches files mangled by text-mode or 7-bit transfers.
 `source_size` and `source_crc` tie the file to the exact bytes it was decoded
 from. A cache key reused for different content therefore never shows stale
-frames.
+frames by accident. CRC-32 is not collision resistant, though: someone who
+controls a sticker and can make its key collide with another sticker's (an
+app that builds `key:` from data the sender chooses) can craft one with the
+same size and CRC and have its frames shown for the other
+([`docs/security.md`](security.md), S-08).
 
 ### Frame table
 

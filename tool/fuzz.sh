@@ -52,8 +52,12 @@ for t in "${targets[@]}"; do
   [[ -x $dir/$t ]] || { echo "$dir/$t not built" >&2; exit 1; }
   mkdir -p "$dir/corpus/$t" "$dir/artifacts/$t" "$dir/logs"
   # -timeout: a single input taking 10 s is a hang worth reporting.
+  # -malloc_limit_mb: the harnesses decode at most 256 x 256 (WebM: 1024 x
+  # 1024 for the index only), so one allocation over 256 MB is a bomb, like
+  # VP8's frame buffers at a 16383 x 16383 keyframe size (T6.1, S-01).
   # shellcheck disable=SC2046
-  "$dir/$t" -max_total_time="$seconds" -timeout=10 -print_final_stats=1 \
+  "$dir/$t" -max_total_time="$seconds" -timeout=10 -malloc_limit_mb=256 \
+    -print_final_stats=1 \
     -artifact_prefix="$dir/artifacts/$t/" $(flags "$t") \
     "$dir/corpus/$t" $(seeds "$t") >"$dir/logs/$t.log" 2>&1 &
   pids+=($!)

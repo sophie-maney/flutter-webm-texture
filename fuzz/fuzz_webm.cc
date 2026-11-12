@@ -2,7 +2,7 @@
 // the decode path behind wt_anim (T1.4): VP8/VP9 colour + alpha decode,
 // scaling to a bucket and conversion into a caller buffer. The second pass
 // skips every other frame (wt::Anim::SkipFrame, T3.3), as the scheduler does
-// when frames are late.
+// when frames are late, and then seeks into the middle and to the end.
 //
 // Besides the sanitizers, it checks the index invariants that the decoder
 // relies on and traps when one breaks, so libFuzzer reports it as a crash.
@@ -54,6 +54,26 @@ void Decode(wt_source* source, uint32_t width, uint32_t height,
       }
     }
     if (wt_anim_seek(anim, 0) != WT_OK) __builtin_trap();
+  }
+  // Seeks into the middle and to the last frame, which decode forward from
+  // the random-access frame before the target (Anim::DecodeAt's catch-up;
+  // T6.1 coverage gap). A frame that decodes is the one sought.
+  const uint32_t targets[] = {info.frame_count / 2, info.frame_count - 1};
+  for (uint32_t target : targets) {
+    if (wt_anim_seek(anim, target) != WT_OK) __builtin_trap();
+    for (uint32_t i = 0; i < 2; ++i) {
+      wt_frame_info frame;
+      const wt_status s = wt_anim_next_frame(anim, buffer.data(), buffer.size(),
+                                             static_cast<uint32_t>(stride),
+                                             WT_PIXEL_FORMAT_RGBA8888, &frame);
+      if (s == WT_END) break;
+      if (s == WT_ERR_INVALID_ARGUMENT || s == WT_ERR_INTERNAL ||
+          s == WT_ERR_UNIMPLEMENTED ||
+          (s == WT_OK &&
+           (frame.duration_ms == 0 || frame.index != target + i))) {
+        __builtin_trap();
+      }
+    }
   }
   for (uint32_t y = 0; y < h; ++y) {
     for (size_t x = row; x < stride; ++x) {

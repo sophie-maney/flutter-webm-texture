@@ -8,7 +8,9 @@
 // Rules for hostile or damaged streams (spike A, pitfalls 2, 5, 6, 8):
 //   - Both images must be 8-bit I420 at exactly the track's PixelWidth x
 //     PixelHeight. A size change is WT_ERR_INVALID_DATA; another pixel format
-//     (VP9 profiles 1-3) is WT_ERR_UNSUPPORTED.
+//     (VP9 profiles 1-3) is WT_ERR_UNSUPPORTED. A keyframe of another size is
+//     refused before libvpx sees it: --size-limit doesn't cover VP8, which
+//     allocates its frame buffers at the keyframe's size (T6.1, S-01).
 //   - Each stream decodes only from a bitstream keyframe. A fresh decoder,
 //     and one whose last packet failed, skips packets until the next
 //     keyframe instead of feeding inter frames to a context that lacks their

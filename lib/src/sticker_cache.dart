@@ -54,19 +54,26 @@ class FfiCacheNative implements CacheNative {
   const FfiCacheNative();
 
   @override
-  Future<void> applyBudget(String directory, int budgetBytes) =>
-      Isolate.run(() {
-        final b = loadBindings();
-        // A Dart int is signed; the budget is validated non-negative.
-        b.wt_cache_set_budget(budgetBytes);
-        // Best effort, like every cache problem: a directory that can't be
-        // read now has nothing to evict, and stats() reports why.
-        try {
-          _withDir(b, directory, (dir, out) => b.wt_cache_evict(dir, out));
-        } on StickerException {
-          // Ignored.
-        }
-      });
+  Future<void> applyBudget(String directory, int budgetBytes) {
+    // StickerConfig asserts this, but release builds drop asserts, and FFI
+    // would store -1 as UINT64_MAX: a cache that is never evicted.
+    if (budgetBytes < 0) {
+      return Future.error(
+        RangeError.range(budgetBytes, 0, null, 'diskBudgetBytes'),
+      );
+    }
+    return Isolate.run(() {
+      final b = loadBindings();
+      b.wt_cache_set_budget(budgetBytes);
+      // Best effort, like every cache problem: a directory that can't be
+      // read now has nothing to evict, and stats() reports why.
+      try {
+        _withDir(b, directory, (dir, out) => b.wt_cache_evict(dir, out));
+      } on StickerException {
+        // Ignored.
+      }
+    });
+  }
 
   @override
   Future<CacheStats> stats(String directory) => Isolate.run(() {
