@@ -7,8 +7,14 @@
 // (ADR 0011: ImageReader would otherwise attach and detach them around every
 // posted frame).
 //
-// Thread affinity matches SurfacePlayer: nativeCreate on a background thread,
-// everything else on the platform main thread.
+// Thread affinity matches SurfacePlayer: nativeCreate, nativeDestroy and
+// nativeEvictCache on a background thread, everything else on the platform
+// main thread. No main-thread call waits for a decode (T6.1, S-05, ADR 0027):
+// the core decodes a frame before it locks the window, so nativeSetSurface
+// waits for at most one frame being written; nativeAtlasAttach,
+// nativeAtlasDetach and nativeSetSchedulerOptions cancel a frame in flight
+// and wait for at most one frame's decode (a catch-up stops between frames)
+// or a frame already being written.
 //
 // Atlases (T4.2, ADR 0020): nativeAtlas* wrap wt_atlas_*, and each page's
 // SurfaceProducer surface becomes an AtlasWindow, its wt_atlas_target.
@@ -306,7 +312,8 @@ JNIEXPORT jlong JNICALL Java_com_example_webm_1texture_WtNative_nativeCreate(
 }
 
 // Points the player at surface (null releases the current window before
-// returning). Returns a wt_status.
+// returning, waiting for at most one frame being written into it, never a
+// decode). Returns a wt_status.
 // Thread: platform main thread.
 JNIEXPORT jint JNICALL Java_com_example_webm_1texture_WtNative_nativeSetSurface(
     JNIEnv* env, jclass, jlong handle, jobject surface) {
@@ -351,8 +358,10 @@ JNIEXPORT jint JNICALL Java_com_example_webm_1texture_WtNative_nativeSeek(
 }
 
 // Takes the player off the scheduler, releases the window and the decoder.
-// Waits for at most one in-flight frame.
-// Thread: platform main thread.
+// Cancels the frame in flight and waits for it to stop (at most one frame's
+// decode, or a cache file being finished). The player must not be in an
+// atlas: Kotlin detaches it first, on the main thread, so this can't overlap
+// nativeAtlasDestroy. Thread: background thread.
 JNIEXPORT void JNICALL Java_com_example_webm_1texture_WtNative_nativeDestroy(
     JNIEnv* env, jclass, jlong handle) {
   Handle* h = FromJ(handle);
@@ -363,8 +372,9 @@ JNIEXPORT void JNICALL Java_com_example_webm_1texture_WtNative_nativeDestroy(
 }
 
 // Applies the device tier's tunables to the shared scheduler (creating it if
-// needed); running animations follow on the next round. Returns a wt_status:
-// WT_ERR_INVALID_ARGUMENT for a value out of range.
+// needed); running animations follow on the next round. Fewer workers cancel
+// the frames they were decoding (the workers that stay redo them). Returns a
+// wt_status: WT_ERR_INVALID_ARGUMENT for a value out of range.
 // Thread: platform main thread.
 JNIEXPORT jint JNICALL
 Java_com_example_webm_1texture_WtNative_nativeSetSchedulerOptions(
@@ -427,7 +437,7 @@ Java_com_example_webm_1texture_WtNative_nativeAtlasDestroy(JNIEnv*, jclass,
 
 // Moves the animation into a slot of the atlas (wt_atlas_attach). Writes
 // {page, x, y, width, height} into out and returns a wt_status.
-// Thread: platform main thread (waits for at most one frame in flight).
+// Thread: platform main thread (cancels the frame in flight; see above).
 JNIEXPORT jint JNICALL
 Java_com_example_webm_1texture_WtNative_nativeAtlasAttach(JNIEnv* env, jclass,
                                                           jlong atlas,
@@ -451,7 +461,7 @@ Java_com_example_webm_1texture_WtNative_nativeAtlasAttach(JNIEnv* env, jclass,
 }
 
 // Moves the animation back to its own sink (wt_atlas_detach). Returns a
-// wt_status. Thread: platform main thread (waits for at most one frame).
+// wt_status. Thread: platform main thread (cancels the frame in flight).
 JNIEXPORT jint JNICALL
 Java_com_example_webm_1texture_WtNative_nativeAtlasDetach(JNIEnv*, jclass,
                                                           jlong atlas,

@@ -12,9 +12,12 @@
 // - -setActive:, -setPriority:, -seekToFrame: and -copyLatestFrame are cheap
 //   and may be called from any thread (Flutter calls -copyLatestFrame on its
 //   raster thread).
-// - -close waits for a frame in flight, so call it off the main thread; no
-//   other call may overlap it, and the frame and error handlers are never
-//   called once it returns.
+// - -close cancels the frame in flight and waits for it to stop (at most one
+//   frame's decode, or a cache file being finished; ADR 0027), so call it
+//   off the main thread; no other call may overlap it, and the frame and
+//   error handlers are never called once it returns.
+// - The core decodes each frame before it takes a buffer from the pool, so a
+//   pool buffer is locked only while the decoded frame is written into it.
 // - The handlers run on scheduler workers. They must not keep the WTPlayer
 //   alive (capture it weakly), or its last release could happen on a worker.
 #import <CoreVideo/CoreVideo.h>
@@ -77,9 +80,10 @@ NS_SWIFT_NAME(WTPlayer)
 
 /// Applies the device tier's tunables to the process-wide scheduler, creating
 /// it if needed: 1..8 workers, 1..240 fps, and a limit on concurrently playing
-/// animations (0 for none). Running animations follow on the next round.
-/// Returns a wt_status (WT_ERR_INVALID_ARGUMENT for a value out of range).
-/// Main thread.
+/// animations (0 for none). Running animations follow on the next round;
+/// fewer workers cancel the frames they were decoding rather than wait for
+/// them. Returns a wt_status (WT_ERR_INVALID_ARGUMENT for a value out of
+/// range). Main thread.
 + (int32_t)setSchedulerWorkerCount:(int32_t)workerCount
                             maxFps:(int32_t)maxFps
                      maxConcurrent:(int32_t)maxConcurrent
@@ -123,8 +127,9 @@ NS_SWIFT_NAME(WTPlayer)
 /// the player's own texture (it is in an atlas). Any thread.
 - (void)dropFrames;
 
-/// Takes the player off the scheduler, waiting for a frame in flight, and
-/// frees the decoder and every buffer. Idempotent. Not on the main thread.
+/// Takes the player off the scheduler, cancelling its frame in flight and
+/// waiting for it to stop, and frees the decoder and every buffer.
+/// Idempotent. Not on the main thread.
 /// A player in an atlas leaves it; detach it first if the atlas may be
 /// closed at the same time (wt_atlas_destroy must not overlap it).
 - (void)close;

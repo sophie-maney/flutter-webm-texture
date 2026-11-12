@@ -2,6 +2,9 @@ package com.example.webm_texture
 
 import android.util.Log
 import io.flutter.view.TextureRegistry
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asExecutor
+import java.util.concurrent.Executor
 
 private const val TAG = "WebmTexture"
 
@@ -13,7 +16,10 @@ private const val TAG = "WebmTexture"
  * created first, off the main thread; [attach] then gives it the producer's
  * surface. While the animation is in an atlas it has no producer of its own
  * ([retireProducer]); leaving the atlas gives it a new one. Every method here
- * runs on the platform main thread.
+ * runs on the platform main thread, and none of them waits for a decode: the
+ * core decodes before it locks the window, so [onSurfaceCleanup] waits for at
+ * most one frame being written, and [dispose] destroys the player off the
+ * main thread ([ADR 0027](docs/decisions/0027-cancellable-frames.md)).
  *
  * Lifecycle rules from spike B ([ADR 0005](docs/decisions/0005-no-ui-image-fallback.md)):
  * the producer uses `SurfaceLifecycle.resetInBackground`; [onSurfaceCleanup]
@@ -105,14 +111,25 @@ internal class StickerTexture(
         return p
     }
 
-    /** Stops drawing, then releases the producer. Safe to call twice. */
+    /**
+     * Stops drawing, then releases the producer. Safe to call twice. The
+     * animation must not be in an atlas (the plugin detaches it first): its
+     * player is destroyed on a background thread, which must not overlap the
+     * atlas's destruction.
+     */
     fun dispose() {
         producer?.setCallback(null)
-        if (handle != 0L) {
-            // Waits for a frame in flight and releases the window, so nothing
-            // writes to the surface once the producer is released below.
-            WtNative.nativeDestroy(handle)
+        val h = handle
+        if (h != 0L) {
             handle = 0L
+            // Releases the window, waiting for at most one frame being written
+            // into it, so nothing writes to the surface once the producer is
+            // released below.
+            WtNative.nativeSetSurface(h, null)
+            // Destroying the player waits for its frame in flight, which a
+            // long decode cancels early but not at once: off the main thread,
+            // as iOS does for close.
+            destroyer.execute { WtNative.nativeDestroy(h) }
         }
         producer?.release()
         producer = null
@@ -131,6 +148,10 @@ internal class StickerTexture(
     }
 
     override fun onNativeError(code: String, message: String) = onError(animId, code, message)
+
+    private companion object {
+        val destroyer: Executor = Dispatchers.IO.asExecutor()
+    }
 
     private fun setSurface() {
         val p = producer ?: return
