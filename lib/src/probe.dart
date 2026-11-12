@@ -11,14 +11,36 @@ import 'sticker_source.dart';
 /// Reads [source]'s container headers and frame index on a background isolate.
 ///
 /// The core enforces its limits while probing, so a sticker that probes OK is
-/// within them. Throws [StickerException] for anything the core won't play.
+/// within them. Throws [StickerException] for anything the core won't play,
+/// and [RangeError] for a [limits] field the native `wt_limits` can't hold.
 Future<StickerInfo> probeSticker(
   StickerSource source, {
   StickerLimits? limits,
-}) {
+}) async {
+  // Before the isolate, so a bad field fails here with a plain RangeError.
+  if (limits != null) _checkLimits(limits);
   // Isolate.run copies what the closure captures; both are small (a path, or
   // at most max_bytes of sticker data).
   return Isolate.run(() => _probeSync(source, limits));
+}
+
+const int _maxUint32 = 0xFFFFFFFF;
+
+/// FFI stores a Dart int into a `uint32_t`/`uint64_t` field modulo 2^32/2^64,
+/// so -1 would become the largest value: a "tighter" override that switches
+/// the limit off. Every field must be in 1..the field's maximum.
+void _checkLimits(StickerLimits limits) {
+  void check(int? value, int max, String name) {
+    if (value != null && (value < 1 || value > max)) {
+      throw RangeError.range(value, 1, max, name);
+    }
+  }
+
+  check(limits.maxDimension, _maxUint32, 'maxDimension');
+  check(limits.maxDuration?.inMilliseconds, _maxUint32, 'maxDuration');
+  // A Dart int is at most 2^63 - 1, which a uint64_t holds.
+  check(limits.maxBytes, 0x7FFFFFFFFFFFFFFF, 'maxBytes');
+  check(limits.maxFrames, _maxUint32, 'maxFrames');
 }
 
 StickerInfo _probeSync(StickerSource source, StickerLimits? limits) {

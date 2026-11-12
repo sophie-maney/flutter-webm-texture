@@ -229,6 +229,54 @@ void main() {
       expect(fetcher.calls, hasLength(2));
     });
 
+    // T6.1 (S-07): bytes the core would refuse (over its 2 MiB max_bytes) are
+    // refused before the UI isolate hashes them or the cache pins them.
+    test(
+      'fetched bytes over the input limit are refused, not cached',
+      () async {
+        fetcher.result = StickerFetchResult.bytes(
+          Uint8List(maxFetchedStickerBytes + 1),
+        );
+        const source = StickerSource.network('u');
+        await expectLater(
+          resolver.resolve(source),
+          throwsA(
+            isA<StickerException>().having(
+              (e) => e.name,
+              'name',
+              'WT_ERR_LIMIT',
+            ),
+          ),
+        );
+        fetcher.result = StickerFetchResult.bytes(
+          Uint8List(maxFetchedStickerBytes),
+        );
+        expect((await resolver.resolve(source)).key, startsWith('sha1:'));
+        expect(fetcher.calls, hasLength(2));
+      },
+    );
+
+    // T6.1 (S-06): iOS hands keys and paths to the core as C strings, so a
+    // NUL would cut them short and two keys could share one cache file.
+    test('a key or path with a NUL is refused', () async {
+      for (final source in [
+        StickerSource.bytes(_bytes('abc'), key: 'k\u0000x'),
+        const StickerSource.network('u', key: 'k\u0000x'),
+        const StickerSource.file('/a\u0000.webm'),
+      ]) {
+        await expectLater(
+          resolver.resolve(source),
+          throwsA(isA<ArgumentError>()),
+        );
+      }
+      fetcher.result = const StickerFetchResult.file('/cache/a\u0000.webm');
+      await expectLater(
+        resolver.resolve(const StickerSource.network('u')),
+        throwsA(isA<ArgumentError>()),
+      );
+      expect(fetcher.calls, hasLength(1));
+    });
+
     test('network without a fetcher is a StateError naming the url', () async {
       resolver.fetcher = null;
       await expectLater(
