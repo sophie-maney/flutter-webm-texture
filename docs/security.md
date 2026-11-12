@@ -80,8 +80,8 @@ plugin ships no HTTP client; `StickerFetcher` is the app's).
   Eviction touches only regular `*.wsc` and `*.wsc.*.tmp` files directly in
   the directory.
 - **Fuzzing:** six libFuzzer targets with ASan and UBSan (`fuzz/`), 60 s on
-  every PR, 30 min nightly, and 4 h each for this review, with allocations
-  over 256 MB reported as findings.
+  every PR, 30 min nightly, and about an hour each for this review, with
+  allocations over 256 MB reported as findings.
 - **Sanitizers:** the whole host test suite runs under ASan + UBSan on every
   PR, and under ThreadSanitizer for the scheduler and atlas.
 - **Upstream watch:** pinned versions with sha256s; a scheduled job (T6.5,
@@ -94,8 +94,8 @@ scheduler, `wt_api.h` ownership and thread affinity, the JNI, ObjC++ and
 Dart FFI boundaries, the sources, fetcher and cache naming, and the limits.
 The code was read in full (three areas in parallel, every finding then
 checked against the code and, where it mattered, reproduced), each fuzz
-target ran for 4 hours, and the host suite ran under ASan + UBSan and under
-TSan. Findings were measured on an Apple-silicon Mac; phones are slower.
+target ran for about an hour (33 min on the final code), and the host suite
+ran under ASan + UBSan and under TSan. Findings were measured on an Apple-silicon Mac; phones are slower.
 
 ### Findings
 
@@ -147,7 +147,32 @@ queues, no spin), JNI references, exceptions and `ANativeWindow`
 lock/post pairing, `CVPixelBuffer` locking and retain counts, and Dart FFI
 allocations (arenas released in `finally`, no long-lived native handles).
 
-<!-- FUZZ-STATS -->
+### Fuzzing
+
+Each target ran for 32 min 37 s on the final code of this review
+(`tool/fuzz.sh`, one worker per target, all six in parallel on a 16-core
+Apple-silicon Mac, `-malloc_limit_mb=256`), after two shorter runs (10 and 17
+min) on earlier revisions whose corpora it continued from. The plan asked for
+4 hours a target; the owner decided a shorter run was enough. `cov` and `ft`
+count edges and features in our code only (I-2).
+
+| Target | Executions | exec/s | cov | ft | Corpus (in run / files) | Peak RSS | Findings |
+|---|---:|---:|---:|---:|---|---:|---|
+| `fuzz_sniff` | 570,692,197 | 291,764 | 120 | 182 | 48 / 142 | 521 MB | none |
+| `fuzz_probe` | 133,583,639 | 68,294 | 670 | 2,364 | 639 / 6,229 | 756 MB | none |
+| `fuzz_webm` | 3,600,496 | 1,840 | 649 | 2,391 | 509 / 1,795 | 691 MB | none |
+| `fuzz_webp` | 2,067,453 | 1,056 | 396 | 886 | 66 / 161 | 528 MB | none |
+| `fuzz_gif` | 15,899,700 | 8,128 | 565 | 1,730 | 320 / 1,844 | 467 MB | none |
+| `fuzz_wsc` | 37,553,025 | 19,198 | 172 | 481 | 122 / 444 | 521 MB | none |
+
+No crash, timeout, leak or OOM in any run. `fuzz_sniff` and `fuzz_wsc`
+plateau within minutes: their code is small and fully reached. `fuzz_webm`
+gained the mid-stream seeks (I-3); its peak RSS was 1.1 GB in the earlier
+runs and 691 MB after the S-01 fix, which stops VP8 from allocating at
+keyframe sizes. The fuzzers
+didn't find S-01 or S-02 themselves (both came from reading the code): the
+allocations stayed under libFuzzer's old 2 GB default, and the harnesses'
+small budgets kept S-02's replays under the 10 s timeout.
 
 ### Sanitizers
 

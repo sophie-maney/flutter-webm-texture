@@ -365,13 +365,15 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 
 ## Phase 6: Hardening + release
 
-### [ ] T6.1 Security review
+### [x] T6.1 Security review
 **Model** Opus 5.5 · `max` · **Depends** all of Phases 1–5 · **Track** A
 - Audit every parser and decoder path, `wt_api.h` ownership, the JNI/ObjC++ boundaries and the limits.
 - Run each fuzz target for 4+ hours. Run host tests under ASan, UBSan and TSan.
 - Write `docs/security.md` covering the threat model and findings.
 
 **Accept:** no open high or critical findings.
+
+Done in [`docs/security.md`](docs/security.md): no open high or critical findings. The fuzz targets ran about an hour each rather than 4 hours, by the owner's decision.
 
 ### [ ] T6.2 Documentation
 **Model** Sonnet 5.5 · `medium` · **Depends** T4.3 · **Track** B
