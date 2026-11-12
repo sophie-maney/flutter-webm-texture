@@ -1,7 +1,16 @@
 name: webm_texture
-description: "A new Flutter plugin project."
-version: 0.0.1
-homepage:
+description: >-
+  Plays animated stickers inline on Android and iOS: VP9/VP8 WebM with alpha,
+  animated WebP and GIF, decoded natively and drawn into Flutter Textures.
+version: 1.0.0
+repository: https://github.com/sophie-maney/flutter-webm-texture
+issue_tracker: https://github.com/sophie-maney/flutter-webm-texture/issues
+topics:
+  - sticker
+  - webm
+  - animation
+  - video
+  - texture
 
 environment:
   sdk: ^3.13.4
@@ -11,6 +20,7 @@ dependencies:
   ffi: ^2.2.0
   flutter:
     sdk: flutter
+  meta: ^1.16.0
   plugin_platform_interface: ^2.0.2
 
 dev_dependencies:

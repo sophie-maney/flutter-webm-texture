@@ -385,7 +385,7 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 
 **Accept:** every lib in `versions.lock` has its license text included.
 
-### [ ] T6.4 Publish pipeline
+### [x] T6.4 Publish pipeline
 **Model** Sonnet 5.5 · `medium` · **Depends** T6.2, T6.3, T0.6 · **Track** B
 - A release workflow: tag → fetch prebuilts → vendor them into the package (verifying size limits) → `pana` → `flutter pub publish --dry-run`. The real publish stays manual or uses OIDC.
 
