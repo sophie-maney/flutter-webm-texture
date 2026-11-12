@@ -391,7 +391,7 @@ If a task fails its acceptance checks twice, rerun it one model tier or one effo
 
 **Accept:** pana score is at or near maximum · the dry run passes.
 
-### [ ] T6.5 Upstream watch
+### [x] T6.5 Upstream watch
 **Model** Haiku 5.5 · `low` · **Depends** T0.6 · **Track** C
 - A scheduled workflow checks upstream tags and OSV for libvpx, libwebp, giflib, libyuv and lz4, then opens an issue or PR to bump `versions.lock`.
 

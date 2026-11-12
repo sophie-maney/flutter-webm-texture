@@ -1,0 +1,48 @@
+name: Upstream watch
+
+# Weekly check of the libraries pinned in third_party/versions.lock against
+# their upstream releases and OSV advisories (tool/upstream_watch.dart).
+# The report goes to the run summary. When something is actionable, one open
+# issue labelled `upstream-watch` is created or updated. This workflow never
+# opens a PR: a bump edits versions.lock, which then needs the Prebuilts
+# workflow run by hand.
+#
+# The step fails (after writing the report) when an upstream lookup errors.
+
+on:
+  schedule:
+    - cron: "41 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  FVM_CACHE_PATH: ${{ github.workspace }}/.fvm_home
+
+jobs:
+  watch:
+    name: Check upstreams
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install fvm
+        run: |
+          curl -fsSL https://fvm.app/install.sh | bash
+          echo "$HOME/fvm/bin" >> "$GITHUB_PATH"
+
+      - name: Cache fvm SDK
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.FVM_CACHE_PATH }}
+          key: fvm-${{ runner.os }}-${{ hashFiles('.fvmrc') }}
+
+      - run: fvm install
+
+      - name: Check upstreams
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: fvm dart tool/upstream_watch.dart
