@@ -1,7 +1,8 @@
 // The frame cache through the platform glue (T3.2): a sticker that plays
 // through writes `<hash>_<w>x<h>_v1.wsc` into the configured directory, a
 // second animation of it reuses that file, the disk budget evicts the least
-// recently used file, and clearCache() empties the directory. Run with:
+// recently used file, a file over a quarter of the budget isn't written
+// (T6.1, ADR 0026), and clearCache() empties the directory. Run with:
 //
 //   cd example && fvm flutter test integration_test/cache_test.dart -d <device>
 import 'dart:io';
@@ -120,21 +121,46 @@ void main() {
     expect(one, greaterThan(0));
     await WebmStickers.clearCache();
 
-    // Room for one and a half files: writing the second evicts the first.
+    // Room for four files and a half (one file may take a quarter of the
+    // budget, ADR 0026): writing the fifth evicts the first.
+    final budget = one * 9 ~/ 2;
     await WebmStickers.configure(
-      StickerConfig(cacheDirectory: dir.path, diskBudgetBytes: one * 3 ~/ 2),
+      StickerConfig(cacheDirectory: dir.path, diskBudgetBytes: budget),
     );
-    await play(tester, 'key:first');
-    final first = files();
-    expect(first, hasLength(1));
-    await play(tester, 'key:second');
-    final second = files();
-    expect(second, hasLength(1));
-    expect(second, isNot(first));
+    final written = <String>[];
+    for (final key in ['key:a', 'key:b', 'key:c', 'key:d']) {
+      final before = files().toSet();
+      await play(tester, key);
+      final added = files().toSet().difference(before);
+      expect(added, hasLength(1));
+      written.add(added.single);
+    }
+    await play(tester, 'key:e');
+    final left = files();
+    expect(left, hasLength(4));
+    expect(left, isNot(contains(written.first)));
+    expect(left, containsAll(written.skip(1)));
     expect(
       (await WebmStickers.cacheStats()).totalBytes,
-      lessThanOrEqualTo(one * 3 ~/ 2),
+      lessThanOrEqualTo(budget),
     );
+  });
+
+  testWidgets('a file over a quarter of the budget is not written', (
+    tester,
+  ) async {
+    await play(tester, 'key:one');
+    final one = (await WebmStickers.cacheStats()).totalBytes;
+    await play(tester, 'key:two');
+    expect(files(), hasLength(2));
+    // One byte short of a file per quarter: the next one isn't written, and
+    // nothing is evicted for it.
+    await WebmStickers.configure(
+      StickerConfig(cacheDirectory: dir.path, diskBudgetBytes: one * 4 - 4),
+    );
+    final before = files();
+    await play(tester, 'key:big');
+    expect(files(), before);
   });
 
   testWidgets('clearCache empties the directory', (tester) async {

@@ -72,6 +72,12 @@ class WtBindings {
   /// seek or an error writes the file as it goes, to a temporary name that is
   /// fsynced and renamed to cache_path after the last frame. Later loops of
   /// this animation read it.
+  /// - A file may take at most a quarter of the disk budget, and never more
+  /// than 64 MiB (ADR 0026). A write that would pass that is abandoned and its
+  /// temporary deleted; nothing is evicted for it, the animation decodes from
+  /// then on, and later animations in this process don't try that cache_path
+  /// again unless the budget grows. An animation that can't map the file it
+  /// just wrote stops caching too.
   /// - A file that fails validation, here or when a later frame is read, is
   /// deleted and playback decodes instead.
   /// Cache problems (no file, a read-only directory, a full disk) never fail
@@ -620,9 +626,10 @@ class WtBindings {
 
   /// Sets the process-wide disk budget, in bytes: after each cache file is
   /// written, the least recently used files in its directory are deleted until at
-  /// most this many bytes remain. Default 200 MiB; UINT64_MAX disables eviction;
-  /// 0 keeps nothing (every finished file is deleted at once, though the
-  /// animation that wrote it keeps playing from it).
+  /// most this many bytes remain. One file may take at most a quarter of it, and
+  /// never more than 64 MiB (larger ones aren't written; see
+  /// wt_anim_create_cached). Default 200 MiB; UINT64_MAX disables eviction (the
+  /// 64 MiB limit per file stays); 0 writes nothing.
   /// Thread: any thread.
   void wt_cache_set_budget(int budget_bytes) {
     return _wt_cache_set_budget(budget_bytes);

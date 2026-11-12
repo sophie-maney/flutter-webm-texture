@@ -23,6 +23,12 @@
 // frame, is deleted and playback carries on by decoding (the next full pass
 // writes a fresh one). Cache I/O problems never fail a frame.
 //
+// A file may be at most CacheFileCap() bytes (cache/store.h; ADR 0026). A
+// write that passes it is abandoned, its temporary file deleted, and the
+// animation, like every later one for the same file in this process, stops
+// caching; so does one that can't map the file it just wrote (T6.1, S-04 and
+// S-11). Nothing is evicted for a write that didn't finish.
+//
 // Thread: background thread. Not thread-safe (see wt_api.h, Threading).
 #ifndef WT_API_ANIM_H_
 #define WT_API_ANIM_H_
@@ -135,6 +141,10 @@ class Anim {
   // frames that are already late (sched/timeline.h).
   wt_status SkipFrame(wt_frame_info* out_frame);
 
+  // Tests only: the next finished cache file is treated as if it couldn't
+  // be mapped again (T6.1, S-11).
+  void FailCacheReopenForTesting() { fail_reopen_for_testing_ = true; }
+
  private:
   Anim() = default;
 
@@ -171,8 +181,11 @@ class Anim {
   // Deletes the cache file and stops reading it.
   void DropCache();
   // Passes frame `index`, now in frame_, to the writer (starting one at
-  // frame 0); finishes the file after the last frame and switches to it.
+  // frame 0); finishes the file after the last frame (FinishCache).
   void WriteCache(uint32_t index);
+  // Finishes the full writer's file, switches to reading it, and evicts
+  // the directory down to the budget. Stops caching if either fails.
+  void FinishCache();
   // Stops caching for the rest of this Anim's life.
   void DisableCache();
 
@@ -204,6 +217,7 @@ class Anim {
   uint32_t source_crc_ = 0;
   std::unique_ptr<WscReader> reader_;
   std::unique_ptr<WscWriter> writer_;
+  bool fail_reopen_for_testing_ = false;
 };
 
 }  // namespace wt

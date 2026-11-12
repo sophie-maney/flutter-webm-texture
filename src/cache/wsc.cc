@@ -4,6 +4,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cerrno>
 #include <cstdio>
@@ -135,6 +136,16 @@ uint64_t WscMaxFileSize(const WscParams& params) {
   // frame_count < 2^32 and the bound < 2^31, so this can't overflow.
   return DataStart(params.frame_count) +
          uint64_t{params.frame_count} * CompressBound(frame_bytes);
+}
+
+uint64_t WscMinFileSize(const WscParams& params) {
+  if (!ParamsValid(params)) return 0;
+  const size_t frame_bytes =
+      WscFrameBytes(params.width, params.height, params.has_alpha);
+  // Every frame is at least 1 byte (the reader requires it).
+  const uint64_t min_frame = std::max<uint64_t>(1, frame_bytes / 256);
+  return DataStart(params.frame_count) +
+         uint64_t{params.frame_count} * min_frame;
 }
 
 // --- Reader -----------------------------------------------------------------
@@ -281,15 +292,18 @@ void WscWriter::Abandon() {
 }
 
 wt_status WscWriter::Create(const char* path, const WscParams& params,
-                            YuvColor color, std::unique_ptr<WscWriter>* out) {
+                            YuvColor color, uint64_t max_file_size,
+                            std::unique_ptr<WscWriter>* out) {
   out->reset();
   if (path == nullptr || path[0] == '\0' || !ParamsValid(params)) {
     return WT_ERR_INVALID_ARGUMENT;
   }
+  if (WscMinFileSize(params) > max_file_size) return WT_ERR_LIMIT;
   std::unique_ptr<WscWriter> w(new (std::nothrow) WscWriter);
   if (w == nullptr) return WT_ERR_NO_MEMORY;
   w->params_ = params;
   w->color_ = color;
+  w->max_file_size_ = max_file_size;
   w->frame_bytes_ =
       WscFrameBytes(params.width, params.height, params.has_alpha);
   w->packed_capacity_ = CompressBound(w->frame_bytes_);
@@ -383,6 +397,11 @@ wt_status WscWriter::Append(const YuvaView& frame, uint32_t duration_ms,
     return WT_ERR_INTERNAL;
   }
   const uint32_t size = static_cast<uint32_t>(n);
+  // next_offset_ + size is the file's size with this frame as its last.
+  if (size > max_file_size_ || next_offset_ > max_file_size_ - size) {
+    Abandon();
+    return WT_ERR_LIMIT;
+  }
   if (!WriteAt(packed_.get(), size, next_offset_)) {
     Abandon();
     return WT_ERR_IO;

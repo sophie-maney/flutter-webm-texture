@@ -346,26 +346,57 @@ void Anim::WriteCache(uint32_t index) {
   }
   if (writer_ == nullptr) {
     if (index != 0) return;
+    // At most a quarter of the budget (ADR 0026), and nothing this process
+    // already gave up on at that size.
+    const uint64_t cap = CacheFileCap();
+    if (CacheFileRefused(cache_path_, cap)) return DisableCache();
     const wt_status s = WscWriter::Create(cache_path_.c_str(), CacheParams(),
-                                          frame_.color(), &writer_);
+                                          frame_.color(), cap, &writer_);
+    if (s == WT_ERR_LIMIT) {
+      // Too big at any compression: don't even start.
+      RefuseCacheFile(cache_path_, cap);
+      return DisableCache();
+    }
     // Most likely a missing or read-only directory: don't retry every loop.
     if (s != WT_OK) return DisableCache();
   }
-  wt_status s =
+  const wt_status s =
       writer_->Append(frame_.view(), FrameDurationMs(index), FramePtsMs(index));
-  if (s == WT_OK && writer_->full()) s = writer_->Finish();
+  if (s == WT_ERR_LIMIT) {
+    // Past the cap: the writer deleted its temporary file. Nothing was
+    // added, so nothing is evicted; no later pass or animation of this file
+    // writes it again (T6.1, S-04).
+    RefuseCacheFile(cache_path_, writer_->max_file_size());
+    return DisableCache();
+  }
   if (s != WT_OK) return DisableCache();  // A full disk stays full.
   if (!writer_->full()) return;
+  FinishCache();
+}
+
+void Anim::FinishCache() {
+  const wt_status s = writer_->Finish();
   writer_.reset();
+  if (s != WT_OK) return DisableCache();
   // Later loops read the file instead of decoding.
-  OpenCache();
+  if (fail_reopen_for_testing_) {
+    fail_reopen_for_testing_ = false;
+  } else {
+    OpenCache();
+  }
+  const std::string path = cache_path_;
   if (reader_ != nullptr) {
     decoder_.reset();
     canvas_.reset();
+  } else {
+    // The file just written can't be mapped (no address space left, or a
+    // concurrent clear took it): don't write it again every loop (T6.1,
+    // S-11).
+    DisableCache();
   }
-  // Mapped first, so even if the budget evicts our own file (one larger than
-  // the budget) the mapping keeps serving this animation's loops.
-  EvictAfterWrite(cache_path_);
+  // Mapped first, so even if the budget evicts our own file the mapping
+  // keeps serving this animation's loops. A file that stayed counts too.
+  EvictAfterWrite(path);
 }
 
 // --- Playback

@@ -62,6 +62,13 @@ size_t WscFrameBytes(uint32_t width, uint32_t height, bool has_alpha);
 // frame at LZ4's worst-case size. Readers refuse to map anything larger.
 uint64_t WscMaxFileSize(const WscParams& params);
 
+// The smallest file a cache for params can be: header, table, and every frame
+// at LZ4's best ratio (each byte of an LZ4 block decodes to at most about
+// 255 bytes, so a frame takes at least frame_bytes / 256). No content
+// compresses below it, so refusing a write for it can't refuse anything that
+// would fit.
+uint64_t WscMinFileSize(const WscParams& params);
+
 class WscReader {
  public:
   ~WscReader();
@@ -112,20 +119,26 @@ class WscWriter {
   WscWriter& operator=(const WscWriter&) = delete;
 
   // Starts a cache file for params (with frames in the colour signalling
-  // color) that Finish will rename to path. Creates a uniquely named
+  // color) that Finish will rename to path, and that may be at most
+  // max_file_size bytes (T6.1, S-04, ADR 0026). Creates a uniquely named
   // temporary file next to it, so animations writing the same path don't
   // collide; the directory must exist. Errors: WT_ERR_INVALID_ARGUMENT,
-  // WT_ERR_IO, WT_ERR_NO_MEMORY.
+  // WT_ERR_LIMIT when even WscMinFileSize(params) is over max_file_size
+  // (nothing is created), WT_ERR_IO, WT_ERR_NO_MEMORY.
   static wt_status Create(const char* path, const WscParams& params,
-                          YuvColor color, std::unique_ptr<WscWriter>* out);
+                          YuvColor color, uint64_t max_file_size,
+                          std::unique_ptr<WscWriter>* out);
 
   uint32_t frames_written() const { return written_; }
   bool full() const { return written_ == params_.frame_count; }
+  uint64_t max_file_size() const { return max_file_size_; }
 
   // Compresses and appends the next frame, which must be width x height with
   // alpha iff has_alpha. duration_ms must be >= 1. WT_ERR_INVALID_ARGUMENT
-  // for a frame that doesn't fit (or one too many); WT_ERR_IO when the write
-  // fails, after which the writer only fails.
+  // for a frame that doesn't fit (or one too many); WT_ERR_LIMIT when the
+  // file would grow past max_file_size, and WT_ERR_IO when the write fails:
+  // both abandon the file (the temporary is deleted), after which the writer
+  // only fails.
   wt_status Append(const YuvaView& frame, uint32_t duration_ms, int64_t pts_ms);
 
   // Once every frame is appended: writes the table and header, fsyncs the
@@ -148,6 +161,7 @@ class WscWriter {
   WscParams params_;
   YuvColor color_;
   size_t frame_bytes_ = 0;
+  uint64_t max_file_size_ = 0;
   uint32_t written_ = 0;
   uint64_t next_offset_ = 0;           // Where the next frame's bytes go.
   std::unique_ptr<uint8_t[]> table_;   // frame_count encoded entries.
